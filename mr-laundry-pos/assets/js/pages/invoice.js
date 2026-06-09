@@ -153,6 +153,13 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
         ${showPhone && s.phone ? '📞 '+escapeHtml(s.phone):''}
       </div>
       <div style="text-align:center;font-size:${fontSize}px;font-weight:900;margin:6px 0;letter-spacing:2px;border-top:1px solid #000;border-bottom:1px solid #000;padding:4px 0;">★ CUSTOMER COPY ★</div>
+
+      <div style="text-align:center;margin:10px 0 6px;">
+        <div style="display:inline-block;border:3px solid #000;border-radius:10px;padding:8px 18px;background:#fff;">
+          <div style="font-size:${fontSize-2}px;font-weight:700;letter-spacing:3px;color:#000;">INVOICE NO.</div>
+          <div style="font-size:${fontSize+16}px;font-weight:900;line-height:1.1;letter-spacing:1px;color:#000;">${invoiceNo}</div>
+        </div>
+      </div>
       <div class="line"></div>
 
       ${showQtyCircle ? `
@@ -169,7 +176,6 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
       ` : ''}
 
       <table style="font-size:${fontSize}px;">
-        <tr><td><b>Invoice:</b></td><td style="text-align:right;">${invoiceNo}</td></tr>
         <tr><td><b>Booking Date:</b></td><td style="text-align:right;">${fmtDate(o.createdAt)}</td></tr>
         ${o.deliveryDate? `<tr><td><b>Delivery Date:</b></td><td style="text-align:right;"><b style="color:#a00;">${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
         ${showCashier ? `<tr><td><b>Cashier:</b></td><td style="text-align:right;">${escapeHtml(cashier.name)}</td></tr>`:''}
@@ -228,8 +234,14 @@ function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
         ${escapeHtml(s.shopName)} — OFFICE COPY
       </div>
 
+      <div style="text-align:center;margin:6px 0;">
+        <div style="display:inline-block;border:2.5px solid #000;border-radius:8px;padding:5px 14px;background:#fff;">
+          <div style="font-size:${fontSize-2}px;font-weight:700;letter-spacing:2px;">INVOICE NO.</div>
+          <div style="font-size:${fontSize+12}px;font-weight:900;line-height:1;letter-spacing:1px;">${invoiceNo}</div>
+        </div>
+      </div>
+
       <table style="font-size:${fontSize}px;width:100%;">
-        <tr><td><b>Inv:</b></td><td style="text-align:right;"><b>${invoiceNo}</b></td></tr>
         <tr><td><b>Booked:</b></td><td style="text-align:right;">${fmtDateShort(o.createdAt)}</td></tr>
         ${o.deliveryDate? `<tr><td><b>Delivery:</b></td><td style="text-align:right;color:#a00;"><b>${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
         <tr><td><b>Customer:</b></td><td style="text-align:right;">${escapeHtml(c.name)}</td></tr>
