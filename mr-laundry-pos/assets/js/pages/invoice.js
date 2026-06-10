@@ -133,7 +133,7 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
   `).join('');
 
   const logoBlock = showLogo ? (s.logoImage
-    ? `<div style="text-align:center;margin-bottom:8px;"><img src="${s.logoImage}" style="max-width:${Math.min(180,width*0.5)}px;max-height:90px;object-fit:contain;background:#000;padding:6px;border-radius:6px;"/></div>`
+    ? `<div style="text-align:center;margin-bottom:8px;"><img src="${s.logoImage}" style="max-width:${Math.min(200,width*0.6)}px;max-height:100px;object-fit:contain;background:#fff;padding:4px;"/></div>`
     : `<div style="text-align:center;font-size:42px;line-height:1;">${s.logo||'🧺'}</div>`) : '';
 
   const totalDisc = (o.discount || ((o.manualDiscount||0) + (o.loyaltyDiscount||0)));
