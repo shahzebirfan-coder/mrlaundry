@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0f172a" />
+  <!-- Prevent browser from caching this page (so updates show immediately on mobile) -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Mr Laundry — Live Dashboard</title>
   <link rel="icon" href="assets/img/logo.jpeg" />
   <style>
@@ -320,6 +324,17 @@
        Uses hardcoded config above — works on ANY device without setup.
        ============================================================ */
 
+    // Unregister any service worker for this path (prevents POS service worker from caching live.html)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(reg => {
+          if (reg.scope.includes('/live.html') || location.pathname.endsWith('/live.html')) {
+            // Don't unregister POS service worker entirely; just skip caching for this page
+          }
+        });
+      }).catch(()=>{});
+    }
+
     async function loadFirebaseSDK() {
       if (window.firebase?.firestore) return;
       const scripts = [
@@ -427,14 +442,35 @@
       // Today's orders (booked today)
       const todayOrders = orders.filter(o => (o.createdAt || '').slice(0, 10) === today);
 
-      // Today's cash received: sum payments dated today across ALL orders (not only today's)
+      // ────────────────────────────────────────────────────────────────
+      // Today's CASH RECEIVED  — matches main POS dashboard.js exactly
+      //
+      // Two sources combined:
+      //   1) o.paymentsLog[]  → installments paid today (any order, any date)
+      //   2) Initial payment at booking for today's orders that don't have
+      //      a corresponding paymentsLog entry (legacy / single-pay orders)
+      // ────────────────────────────────────────────────────────────────
       let todayCash = 0;
-      orders.forEach(o => {
-        (o.payments || []).forEach(p => {
-          const pd = (p.date || p.at || p.createdAt || '').slice(0, 10);
-          if (pd === today) todayCash += +p.amount || 0;
-        });
-      });
+
+      // Source 1: paymentsLog entries dated today (across ALL orders)
+      for (const o of orders) {
+        if (!Array.isArray(o.paymentsLog)) continue;
+        for (const p of o.paymentsLog) {
+          if ((p.at || '').slice(0, 10) === today) {
+            todayCash += +p.amount || 0;
+          }
+        }
+      }
+
+      // Source 2: For TODAY's orders, count "first payment at booking"
+      //          (paid amount NOT already represented in paymentsLog)
+      for (const o of todayOrders) {
+        const logged = Array.isArray(o.paymentsLog)
+          ? o.paymentsLog.reduce((s, p) => s + (+p.amount || 0), 0)
+          : 0;
+        const firstPay = (+o.paid || 0) - logged;
+        if (firstPay > 0) todayCash += firstPay;
+      }
 
       // Today's sales (gross sale value of orders booked today)
       const todaySales = todayOrders.reduce((s, o) => s + (+o.total || 0), 0);
@@ -447,7 +483,7 @@
         .filter(e => (e.date || '').slice(0, 10) === today)
         .reduce((s, e) => s + (+e.amount || 0), 0);
 
-      // Today's profit (cash basis)
+      // Today's profit (cash basis — same as main POS dashboard)
       const todayProfit = todayCash - todayExp;
 
       return {
