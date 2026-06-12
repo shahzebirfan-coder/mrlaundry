@@ -819,7 +819,148 @@
   <script src="assets/js/db.js"></script>
   <script src="assets/js/utils.js"></script>
   <script src="assets/js/portal-helpers.js"></script>
-  <script src="assets/js/cloudsync.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script>
+    /* ============================================================
+       MR LAUNDRY — PORTAL FIREBASE SYNC
+       Allows the portal to search cloud data and submit pickups!
+       ============================================================ */
+    const FIREBASE_CFG = {
+      apiKey: "AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY",
+      authDomain: "mr-laundry-pos-a6740.firebaseapp.com",
+      projectId: "mr-laundry-pos-a6740",
+      storageBucket: "mr-laundry-pos-a6740.firebasestorage.app",
+      messagingSenderId: "927434668958",
+      appId: "1:927434668958:web:2516175f4046edcfbcf48f"
+    };
+    const SHOP_ID = 'shahzeb-laundry-private-pos';
+
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CFG);
+    const _fdb = firebase.firestore();
+
+    // Block DB save to localStorage so we don't pollute customer devices with shop data!
+    DB.save = function() {}; 
+
+    async function loadPortalData() {
+      try {
+        const btn = document.getElementById('searchBtn');
+        if (btn) btn.innerHTML = '<i>↻</i> Loading...';
+        
+        const mainDoc = await _fdb.collection('shops').doc(SHOP_ID).get();
+        if (!mainDoc.exists) return;
+        const meta = mainDoc.data();
+        if (!meta.tables) return;
+        
+        const tablesRef = _fdb.collection('shops').doc(SHOP_ID).collection('tables');
+        const tablesToFetch = ['orders', 'customers', 'products', 'settings'];
+        
+        let fetched = {};
+        for (const tbl of tablesToFetch) {
+          if (!meta.tables[tbl]) continue;
+          const info = meta.tables[tbl];
+          if (info.chunks === 1) {
+             const doc = await tablesRef.doc(tbl).get();
+             if (doc.exists) fetched[tbl] = JSON.parse(doc.data().data);
+          } else {
+             const chunks = [];
+             for (let i=0; i<info.chunks; i++) {
+               const doc = await tablesRef.doc(`${tbl}__c${i}`).get();
+               if (doc.exists) chunks[i] = doc.data().data;
+             }
+             fetched[tbl] = JSON.parse(chunks.join(''));
+          }
+        }
+        
+        if (fetched.orders) DB._data.orders = fetched.orders;
+        if (fetched.customers) DB._data.customers = fetched.customers;
+        if (fetched.products) DB._data.products = fetched.products;
+        if (fetched.settings) {
+           DB._data.settings = Object.assign({}, DB._data.settings, fetched.settings);
+           const s = DB._data.settings;
+           document.getElementById('shopName').textContent = s.shopName || 'Mr Laundry';
+           document.title = (s.shopName || 'Mr Laundry') + ' — Order Tracker';
+           if (s.phone) {
+               const cb = document.getElementById('contactCall');
+               const wb = document.getElementById('contactWa');
+               if (cb) cb.href = 'tel:' + s.phone.replace(/[^\d+]/g, '');
+               let wp = s.phone.replace(/[^\d+]/g, '');
+               if (wp.startsWith('+')) wp = wp.substring(1);
+               if (wp.startsWith('0') && wp.length === 11) wp = '92' + wp.substring(1);
+               if (wb) wb.href = 'https://wa.me/' + wp;
+               document.getElementById('contactShop').style.display = 'block';
+           }
+        }
+        
+        if (btn) btn.innerHTML = '<i>🔍</i> <span data-i18n="search">Search Orders</span>';
+        if (typeof hydrateI18n === 'function') hydrateI18n();
+      } catch(e) {
+        console.error("Portal Data Load Error:", e);
+        const btn = document.getElementById('searchBtn');
+        if (btn) btn.innerHTML = '<i>🔍</i> <span data-i18n="search">Search Orders</span>';
+      }
+    }
+
+    async function pushPickupRequestToCloud(req) {
+      const tbl = 'pickupRequests';
+      const metaRef = _fdb.collection('shops').doc(SHOP_ID);
+      const tablesRef = metaRef.collection('tables');
+      
+      try {
+        await _fdb.runTransaction(async (t) => {
+          const metaDoc = await t.get(metaRef);
+          let meta = metaDoc.data() || { tables: {} };
+          if (!meta.tables) meta.tables = {};
+          
+          let currentData = [];
+          if (meta.tables[tbl]) {
+            const info = meta.tables[tbl];
+            if (info.chunks === 1) {
+              const cDoc = await t.get(tablesRef.doc(tbl));
+              if (cDoc.exists) currentData = JSON.parse(cDoc.data().data);
+            } else {
+              const chunks = [];
+              for (let i=0; i<info.chunks; i++) {
+                 const cDoc = await t.get(tablesRef.doc(`${tbl}__c${i}`));
+                 if (cDoc.exists) chunks.push(cDoc.data().data);
+              }
+              currentData = JSON.parse(chunks.join(''));
+            }
+          }
+          
+          currentData.push(req);
+          
+          const str = JSON.stringify(currentData);
+          meta.tables[tbl] = { chunks: 1, size: str.length, updatedAt: Date.now() };
+          
+          t.set(metaRef, meta, {merge: true});
+          t.set(tablesRef.doc(tbl), { data: str });
+        });
+        return true;
+      } catch(e) {
+        console.error("Failed to push pickup request to cloud", e);
+        return false;
+      }
+    }
+
+    // Call immediately
+    document.addEventListener('DOMContentLoaded', loadPortalData);
+
+    // Patch DB.insert for pickupRequests so it goes to cloud directly
+    if (typeof DB !== 'undefined') {
+      const origInsert = DB.insert.bind(DB);
+      DB.insert = function(table, rec) {
+        const res = origInsert(table, rec);
+        if (table === 'pickupRequests') {
+           pushPickupRequestToCloud(res).then(success => {
+              if(!success) alert('Failed to sync pickup request. Please contact shop.');
+           });
+        }
+        return res;
+      };
+    }
+  </script>
+
   <script>
 
     /* Hydrate all data-i18n elements with translated text */
