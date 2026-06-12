@@ -35,6 +35,7 @@ const app = {
     switch(page) {
       case 'login':           return renderLogin();
       case 'dashboard':       return renderDashboard();
+      case 'taskboard':       return renderTaskBoard();
       case 'pos':             return renderPOS();
       case 'orders':          return renderOrders();
       case 'customers':       return renderCustomers();
