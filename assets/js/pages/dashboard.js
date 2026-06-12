@@ -56,11 +56,11 @@ function renderDashboard() {
     const pending = orders.filter(o => ['pending','washing'].includes(o.status)).length;
   const ready = orders.filter(o => o.status === 'ready').length;
   
-  const fourteenDaysAgo = new Date();
-  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const cutoff = fourteenDaysAgo.toISOString().slice(0, 10);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 14);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
   
-  const overdueOrders = orders.filter(o => o.status === 'ready' && (o.createdAt || '').slice(0, 10) < cutoff);
+  const overdueOrders = orders.filter(o => o.status === 'ready' && (o.createdAt || '').slice(0, 10) < cutoffStr);
   overdueOrders.sort((a,b) => a.createdAt.localeCompare(b.createdAt));
 
 
