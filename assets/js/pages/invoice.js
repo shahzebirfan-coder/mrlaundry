@@ -179,8 +179,11 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
         <tr><td><b>Booking Date:</b></td><td style="text-align:right;">${fmtDate(o.createdAt)}</td></tr>
         ${o.deliveryDate? `<tr><td><b>Delivery Date:</b></td><td style="text-align:right;"><b style="color:#a00;">${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
         ${showCashier ? `<tr><td><b>Cashier:</b></td><td style="text-align:right;">${escapeHtml(cashier.name)}</td></tr>`:''}
-        <tr><td><b>Customer:</b></td><td style="text-align:right;">${escapeHtml(c.name)}</td></tr>
-        ${c.phone? `<tr><td><b>Phone:</b></td><td style="text-align:right;">${escapeHtml(c.phone)}</td></tr>`:''}
+        <tr style="border-top:1px dashed #999;border-bottom:1px dashed #999;">
+          <td style="padding:6px 0;"><b style="font-size:${fontSize+2}px;">Customer:</b></td>
+          <td style="text-align:right;padding:6px 0;"><b style="font-size:${fontSize+9}px;letter-spacing:0.5px;">${escapeHtml(c.name)}</b></td>
+        </tr>
+        ${c.phone? `<tr><td style="padding:4px 0;"><b>Phone:</b></td><td style="text-align:right;padding:4px 0;"><b style="font-size:${fontSize+4}px;">${escapeHtml(c.phone)}</b></td></tr>`:''}
         ${c.loyaltyActive? `<tr><td><b>⭐ Loyalty:</b></td><td style="text-align:right;">${escapeHtml(c.loyaltyNo)}</td></tr>`:''}
       </table>
       <div class="line"></div>
@@ -218,13 +221,13 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
    OFFICE COPY (Page 2 — Compact, paper-saving)
    ============================================================ */
 function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
-  const width = Math.max(220, Math.min(400, +s.officeCopyWidth || 280));
-  const fontSize = Math.max(9, Math.min(14, +s.officeCopyFontSize || 11));
+  const width = Math.max(220, Math.min(400, +s.officeCopyWidth || 300));
+  const fontSize = Math.max(9, Math.min(16, +s.officeCopyFontSize || 13));
 
   const itemsHtml = (o.items || []).map(it => `
     <tr>
-      <td style="padding:1px 4px 1px 0;">${escapeHtml(it.name)}</td>
-      <td style="text-align:right;padding:1px 0;white-space:nowrap;"><b>×${it.qty}</b></td>
+      <td style="padding:3px 4px 3px 0;font-size:${fontSize}px;">${escapeHtml(it.name)}</td>
+      <td style="text-align:right;padding:3px 0;white-space:nowrap;font-size:${fontSize}px;"><b>×${it.qty}</b></td>
     </tr>
   `).join('');
 
@@ -244,8 +247,11 @@ function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
       <table style="font-size:${fontSize}px;width:100%;">
         <tr><td><b>Booked:</b></td><td style="text-align:right;">${fmtDateShort(o.createdAt)}</td></tr>
         ${o.deliveryDate? `<tr><td><b>Delivery:</b></td><td style="text-align:right;color:#a00;"><b>${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
-        <tr><td><b>Customer:</b></td><td style="text-align:right;">${escapeHtml(c.name)}</td></tr>
-        ${c.phone? `<tr><td><b>Phone:</b></td><td style="text-align:right;">${escapeHtml(c.phone)}</td></tr>`:''}
+        <tr style="border-top:1px dashed #999;border-bottom:1px dashed #999;">
+          <td style="padding:5px 0;"><b style="font-size:${fontSize+1}px;">Customer:</b></td>
+          <td style="text-align:right;padding:5px 0;"><b style="font-size:${fontSize+5}px;letter-spacing:0.3px;">${escapeHtml(c.name)}</b></td>
+        </tr>
+        ${c.phone? `<tr><td style="padding:3px 0;"><b>Phone:</b></td><td style="text-align:right;padding:3px 0;"><b style="font-size:${fontSize+2}px;">${escapeHtml(c.phone)}</b></td></tr>`:''}
         <tr><td><b>By:</b></td><td style="text-align:right;">${escapeHtml(cashier.name)}</td></tr>
       </table>
 
