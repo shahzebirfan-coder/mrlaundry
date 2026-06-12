@@ -9,6 +9,7 @@ function renderLayout(activePage, contentHtml) {
 
   const allNavItems = [
     { id:'dashboard', icon:'📊', label:t('nav.dashboard') },
+    { id:'taskboard', icon:'📋', label:'Task Board' },
     { id:'pos',       icon:'🛒', label:t('nav.pos') },
     { id:'orders',    icon:'📦', label:t('nav.orders') },
     { id:'customers', icon:'👤', label:t('nav.customers') },
