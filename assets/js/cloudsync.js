@@ -120,7 +120,7 @@ const CLOUD = {
       } else if (tbl === 'settings' && typeof r === 'object') {
         const lTs = +new Date((l && l._settingsUpdatedAt) || 0) || 0;
         const rTs = +new Date((r && r._settingsUpdatedAt) || 0) || 0;
-        if (rTs > lTs) merged.settings = Object.assign({}, l || {}, r);
+        if (rTs >= lTs) merged.settings = Object.assign({}, l || {}, r);
         else merged.settings = Object.assign({}, r || {}, l || {});
       } else if (tbl === '_counters' && typeof r === 'object') {
         merged._counters = Object.assign({}, l || {});
@@ -444,7 +444,6 @@ async function reconnectCloudSync() {
   const origSave = DB.save.bind(DB);
   let pushTimer = null;
   DB.save = function() {
-    if (DB._data.settings) DB._data.settings._settingsUpdatedAt = new Date().toISOString();
     origSave();
     localStorage.setItem('mrLaundryLocalVersion', Date.now());
     if (CLOUD._suppressPush) return;
