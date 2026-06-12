@@ -486,13 +486,18 @@
       // Today's profit (cash basis — same as main POS dashboard)
       const todayProfit = todayCash - todayExp;
 
+      const washCount = orders.filter(o => ['pending', 'washing'].includes(o.status)).length;
+      const deadlineCount = orders.filter(o => o.deliveryDate === today && o.status !== 'delivered' && o.status !== 'cancelled').length;
+
       return {
         todaySales,
         todayOrderCount: todayOrders.length,
         todayCash,
         todayExp,
         todayDue,
-        todayProfit
+        todayProfit,
+        washCount,
+        deadlineCount
       };
     }
 
