@@ -1152,6 +1152,7 @@
     }
 
     function renderOrders(orders, c) {
+      orders.forEach(o => { if (typeof getCalculatedStatus === 'function') o.status = getCalculatedStatus(o); });
       orders.sort((a,b) => b.createdAt.localeCompare(a.createdAt));
       try { maybeCelebrateReadyOrders(orders); } catch(e){}
       const totalDue = orders.reduce((s,o)=>s+(o.due||0),0);
