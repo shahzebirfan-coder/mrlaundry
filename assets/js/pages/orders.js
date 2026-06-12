@@ -124,7 +124,10 @@ function renderOrdersBody() {
       <td>${o.items.length} items<br><b style='color:var(--primary);'>${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
       <td><b>${fmtMoney(o.total)}</b></td>
       <td>${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
-      <td><span class="badge ${o.status}">${o.status}</span></td>
+      <td>
+        <span class="badge ${o.status}">${o.status}</span>
+        ${(o.status === 'ready' && o.location) ? `<br><span style="font-size:10px;font-weight:700;color:#000;background:#fef08a;padding:2px 6px;border-radius:6px;border:1px solid #f59e0b;margin-top:4px;display:inline-block;">📍 ${escapeHtml(o.location)}</span>` : ''}
+      </td>
       <td>${fmtDateShort(o.createdAt)}</td>
       <td>${escapeHtml(o.deliveryDate || '-')}</td>
       <td>
@@ -185,6 +188,11 @@ function openStatusChange(orderId) {
           <option value="cancelled" ${o.status==='cancelled'?'selected':''}>❌ Cancelled</option>
         </select>
       </div>
+      <div class="field" id="rackField" style="display:${o.status==='ready'?'block':'none'};">
+        <label>📍 Rack/Shelf Location (Optional)</label>
+        <input type="text" id="newRack" placeholder="e.g. Rack A1, Shelf 3" value="${escapeHtml(o.location||'')}"/>
+        <small style="color:var(--text-soft);">Helps you find clothes instantly when customer arrives.</small>
+      </div>
       <div class="field">
         <label>Receive Additional Payment</label>
         <input type="number" id="addPay" value="${o.due}" min="0" max="${o.due}"/>
@@ -197,6 +205,10 @@ function openStatusChange(orderId) {
     </div>
   `;
   openModal(html, { onOpen(m){
+    $('#newStatus', m).onchange = (e) => {
+      $('#rackField', m).style.display = e.target.value === 'ready' ? 'block' : 'none';
+      if (e.target.value === 'ready') setTimeout(()=>$('#newRack', m).focus(), 100);
+    };
     $('#cancelBtn', m).onclick = closeModal;
     $('#saveBtn', m).onclick = () => {
       const newStatus = $('#newStatus', m).value;
@@ -204,7 +216,10 @@ function openStatusChange(orderId) {
       const paid = Math.min(o.total, o.paid + addPay);
       const due = o.total - paid;
       const oldStatus = o.status;
-      DB.update('orders', orderId, { status: newStatus, paid, due, isCredit: due > 0 });
+      const patch = { status: newStatus, paid, due, isCredit: due > 0 };
+      if (newStatus === 'ready') patch.location = $('#newRack', m).value.trim();
+      
+      DB.update('orders', orderId, patch);
       if (typeof maybePromptWhatsAppOnStatus === 'function' && oldStatus !== newStatus && !sessionStorage.getItem('mrLaundryWaPause')) {
         setTimeout(() => maybePromptWhatsAppOnStatus(orderId, newStatus, oldStatus), 300);
       }
@@ -645,7 +660,10 @@ function openQuickPay() {
             <td>${fmtMoney(o.total)}</td>
             <td style="color:var(--success);">${fmtMoney(o.paid)}</td>
             <td style="color:${due>0?'var(--danger)':'var(--success)'};font-weight:700;">${fmtMoney(due)}</td>
-            <td><span class="badge ${o.status}">${o.status}</span></td>
+            <td>
+        <span class="badge ${o.status}">${o.status}</span>
+        ${(o.status === 'ready' && o.location) ? `<br><span style="font-size:10px;font-weight:700;color:#000;background:#fef08a;padding:2px 6px;border-radius:6px;border:1px solid #f59e0b;margin-top:4px;display:inline-block;">📍 ${escapeHtml(o.location)}</span>` : ''}
+      </td>
             <td>
               ${due > 0
                 ? `<button class="btn btn-success btn-sm" data-qpay="${o.id}">💰 ${t('rcv.title')}</button>`
