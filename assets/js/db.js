@@ -250,7 +250,11 @@ const DB = {
   },
 
   settings() { return this._data.settings; },
-  saveSettings(patch) { this._data.settings = { ...this._data.settings, ...patch }; this.save(); },
+  saveSettings(patch) { 
+    patch._settingsUpdatedAt = new Date().toISOString();
+    this._data.settings = { ...this._data.settings, ...patch }; 
+    this.save(); 
+  },
 
   login(username, password) {
     const u = this._data.users.find(x => x.username === username && x.password === password);
