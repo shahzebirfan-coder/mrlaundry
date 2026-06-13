@@ -41,6 +41,16 @@ function renderLogin() {
                 🔐 ${t('login.forgot')}
               </button>
             </div>
+            
+            ${(typeof CLOUD !== 'undefined' && CLOUD.isEnabled() && CLOUD.isReady()) ? `
+            <div style="text-align:center;margin-top:20px;border-top:1px solid #e2e8f0;padding-top:14px;">
+              <button type="button" id="loginSyncBtn" style="background:none;border:1px solid #10b981;color:#10b981;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;font-size:12px;">
+                ☁️ Force Cloud Sync
+              </button>
+              <div style="font-size:10px;color:#64748b;margin-top:4px;">Click if having trouble logging in</div>
+            </div>
+            ` : ''}
+
           </form>
           </div>
       </div>
@@ -48,11 +58,47 @@ function renderLogin() {
   `;
   $('#app').innerHTML = html;
   $('#forgotBtn').onclick = () => { if (typeof openForgotPassword === 'function') openForgotPassword(); };
-  $('#loginForm').onsubmit = (e) => {
+  if ($('#loginSyncBtn')) {
+    $('#loginSyncBtn').onclick = async (e) => {
+      e.preventDefault();
+      const btn = e.target;
+      btn.innerHTML = '⏳ Syncing...';
+      btn.disabled = true;
+      try {
+        await CLOUD.init();
+        await CLOUD.pullAndMerge();
+        CLOUD._initialMergeDone = true;
+        toast('✅ Cloud Sync Complete! You can now log in.', 'success');
+      } catch(err) {
+        toast('Sync Error: ' + err.message, 'error');
+      }
+      btn.innerHTML = '☁️ Force Cloud Sync';
+      btn.disabled = false;
+    };
+  }
+  $('#loginForm').onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
-    const u = DB.login(f.get('username').trim(), f.get('password'));
-    if (!u) { toast(t('login.invalid'), 'error'); return; }
+    const btn = e.target.querySelector('button[type="submit"]');
+    
+    let u = DB.login(f.get('username').trim(), f.get('password'));
+    
+    // If login fails, check if Cloud Sync is still initializing. If so, wait for it!
+    if (!u && typeof CLOUD !== 'undefined' && CLOUD.isEnabled() && CLOUD.isReady() && !CLOUD._initialMergeDone) {
+      const origText = btn.innerHTML;
+      btn.innerHTML = '⏳ Syncing cloud data...';
+      btn.disabled = true;
+      try {
+        await CLOUD.init();
+        await CLOUD.pullAndMerge();
+        CLOUD._initialMergeDone = true;
+      } catch(e) {}
+      btn.innerHTML = origText;
+      btn.disabled = false;
+      u = DB.login(f.get('username').trim(), f.get('password'));
+    }
+
+    if (!u) { toast(t('login.invalid') || 'Invalid username or password', 'error'); return; }
     toast(`Welcome, ${u.name}!`, 'success');
     app.go(u.role === 'admin' ? 'dashboard' : 'pos');
   };
