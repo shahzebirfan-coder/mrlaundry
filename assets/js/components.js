@@ -104,7 +104,7 @@ function renderLayout(activePage, contentHtml) {
                 🏢 ${escapeHtml(getActiveBranchName())}
               </div>
             ` : ''}
-            ${(typeof CLOUD !== 'undefined' && CLOUD.isEnabled() && CLOUD.isReady()) ? '<div title="Cloud sync active" style="display:flex;align-items:center;gap:4px;color:var(--success);font-size:12px;font-weight:700;">☁️ Sync</div>' : ''}
+            ${(typeof CLOUD !== 'undefined' && CLOUD.isEnabled() && CLOUD.isReady()) ? '<button class="icon-btn" id="forceSyncBtn" title="Force Cloud Sync" style="color:var(--success);font-weight:bold;">☁️</button>' : ''}
             <div class="user-chip">
               <div class="avatar">${user.name.charAt(0).toUpperCase()}</div>
               <div>
