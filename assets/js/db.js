@@ -16,14 +16,14 @@ const DB = {
       catch(e){ this._data = this._seed(); this.save(); }
       // Migration: ensure new top-level tables exist
       const seed = this._seed();
-      ['vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+    const now = '2024-01-01T00:00:00.000Z'; // Fixed date so remote data always overwrites local defaults on a fresh device!
       // Ensure default Hanger & Shopper inventory items exist (auto-add if missing)
       const inv = this._data.inventory;
       if (!inv.find(i => i.autoDeduct === 'hanger')) {
-        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: new Date().toISOString() });
+        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: '2024-01-01T00:00:00.000Z' });
       }
       if (!inv.find(i => i.autoDeduct === 'shopper')) {
-        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() });
+        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: '2024-01-01T00:00:00.000Z' });
       }
       ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
       this._data.settings = Object.assign({}, seed.settings, this._data.settings);
@@ -35,7 +35,7 @@ const DB = {
       });
       this._data._counters = this._data._counters || { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
       if (!this._data.branches || !this._data.branches.length) {
-        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }];
+        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }];
       }
       if (this._data._counters.po == null) this._data._counters.po = 1000;
     } else {
@@ -79,12 +79,12 @@ const DB = {
         { id: 'v1', name: 'Sample Laundry Vendor', contactPerson: '', phone: '', address: '', openingBalance: 0, createdAt: now }
       ],
       branches: [
-        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }
+        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }
       ],
       purchaseOrders: [],
       inventory: [
-        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: new Date().toISOString() },
-        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() }
+        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: '2024-01-01T00:00:00.000Z' },
+        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: '2024-01-01T00:00:00.000Z' }
       ],
       inventoryMovements: [],
       dayClosures: [],

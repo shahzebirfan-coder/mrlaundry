@@ -16,7 +16,7 @@ const app = {
     }
 
     // Admin-only pages (no override possible)
-    const adminOnly = ['users','settings','inbox','promoAdmin','delivery','reportBuilder','refundLog'];
+    const adminOnly = ['users','settings','inbox','promoAdmin','marketing','delivery','reportBuilder','refundLog'];
 
     if (page !== 'login' && user.role !== 'admin') {
       if (adminOnly.includes(page)) {
