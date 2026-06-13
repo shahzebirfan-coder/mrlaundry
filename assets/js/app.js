@@ -53,6 +53,7 @@ const app = {
       case 'branches':        return renderBranches();
       case 'inbox':           return renderInbox();
       case 'promoAdmin':      return renderPromoAdmin();
+      case 'marketing':       return renderMarketing();
       case 'claims':          return renderClaims();
       case 'delivery':        return renderDelivery();
       case 'drawings':        return renderDrawings();
@@ -91,7 +92,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const required = ['renderDashboard','renderPOS','renderOrders','renderCustomers','renderProducts',
                        'renderExpenses','renderReports','renderUsers','renderSettings','renderVendors',
                        'renderPurchaseOrders','renderLedger','renderInventory','renderCashbook',
-                       'renderAuditLog','renderBranches','renderInbox','renderPromoAdmin','renderClaims'];
+                       'renderAuditLog','renderBranches','renderInbox','renderPromoAdmin','renderClaims','renderMarketing'];
     const missing = required.filter(fn => typeof window[fn] !== 'function');
     if (missing.length > 0 && typeof console !== 'undefined') {
       console.warn('[Mr Laundry] Missing page modules:', missing.join(', '));
