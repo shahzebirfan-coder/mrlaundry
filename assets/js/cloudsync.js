@@ -55,6 +55,7 @@ const CLOUD = {
   _suppressPush: false,
   _initialMergeDone: false,
   _lastAppliedVersion: 0,
+  _lastPushedJson: {},
   _toastDebounceTimer: null,
 
   getConfig() {
@@ -157,6 +158,20 @@ const CLOUD = {
       for (const tbl of Object.keys(data)) {
         const json = JSON.stringify(data[tbl] ?? null);
         totalSize += json.length;
+        
+        // OPTIMIZATION: Only push if data actually changed to save Firebase Quota
+        if (this._lastPushedJson[tbl] === json) {
+          // Keep existing meta for the main doc
+          if (this._lastPushedMeta && this._lastPushedMeta[tbl]) {
+            tableMeta[tbl] = this._lastPushedMeta[tbl];
+          } else {
+             const num = Math.ceil(json.length / MAX_DOC_SIZE) || 1;
+             tableMeta[tbl] = { chunks: num, size: json.length, skipped: true };
+          }
+          continue;
+        }
+        
+        this._lastPushedJson[tbl] = json;
 
         if (json.length < MAX_DOC_SIZE) {
           tableMeta[tbl] = { chunks: 1, size: json.length };
@@ -185,6 +200,7 @@ const CLOUD = {
         }
       }
 
+      this._lastPushedMeta = tableMeta;
       // Write main meta doc — triggers listen() on other devices
       await db.collection('shops').doc(shopId).set({
         tables: tableMeta,
