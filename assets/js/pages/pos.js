@@ -165,8 +165,18 @@ function calcCartTotals() {
 function renderCart() {
   const items = posState.cart;
   const cust = DB.get('customers', posState.customerId);
+  
+  // Loyalty expiry check
+  if (cust && cust.loyaltyActive && cust.loyaltyExpiry && cust.loyaltyExpiry < isoDay()) {
+    cust.loyaltyActive = false; // Expired for this transaction
+    if (!posState._loyaltyWarned) {
+      toast(`Loyalty card expired on ${fmtDateShort(cust.loyaltyExpiry)}`, 'error');
+      posState._loyaltyWarned = true;
+    }
+  }
+
   const custLabel = cust
-    ? `${cust.name}${cust.phone? ` • ${cust.phone}`:''}${cust.loyaltyActive? ` ⭐${cust.loyaltyDiscountPercent}%`:''}`
+    ? `${cust.name}${cust.phone? ` • ${cust.phone}`:''}${cust.loyaltyActive? ` ⭐${cust.loyaltyDiscountPercent}%`: (cust.loyaltyExpiry && cust.loyaltyExpiry < isoDay() ? ' ❌ Expired' : '')}`
     : 'Walk-in Customer';
   $('#custName').textContent = custLabel;
 
@@ -664,6 +674,12 @@ function openPaymentDialog(orderMeta) {
         <input type="number" id="paidInput" value="${tot.total}" min="0"/>
       </div>
     </div>
+    <div class="form-row cols-1" style="${DB.currentUser().role === 'admin' ? '' : 'display:none;'}">
+      <div class="field">
+        <label>🔙 Backdate Order <span style="font-weight:normal;color:#64748b;">(Optional - Leaves current date/time if empty)</span></label>
+        <input type="datetime-local" id="backdateInput" />
+      </div>
+    </div>
 
     <div id="dueLine" style="padding:12px;background:var(--surface-alt);border-radius:8px;margin-bottom:10px;font-weight:600;text-align:center;font-size:15px;"></div>
 
@@ -734,6 +750,7 @@ function openPaymentDialog(orderMeta) {
         tax: tot.tax,
         total: tot.total,
         paid: actualPaid,
+        createdAt: $('#backdateInput', m).value ? new Date($('#backdateInput', m).value).toISOString() : new Date().toISOString(),
         due,
         advance: paymentType === 'advance' ? actualPaid : 0,
         paymentType,

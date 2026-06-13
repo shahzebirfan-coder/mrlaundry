@@ -167,7 +167,10 @@ function openCustomerLedger(custId) {
           ${c.address?`<div>🏠 ${escapeHtml(c.address)}</div>`:''}
         </div>
       </div>
-      ${c.isB2B ? `<button class="btn btn-primary" id="btnGenB2B" style="padding:6px 12px;font-size:13px;font-weight:bold;">📄 Generate Monthly Statement</button>` : ''}
+      <div style="display:flex;gap:8px;">
+        ${totalDue > 0 ? `<button class="btn btn-warning" id="btnConsolidated" style="padding:6px 12px;font-size:13px;font-weight:bold;">🧾 Print Consolidated Bill</button>` : ''}
+        ${c.isB2B ? `<button class="btn btn-primary" id="btnGenB2B" style="padding:6px 12px;font-size:13px;font-weight:bold;">📄 Generate Monthly Statement</button>` : ''}
+      </div>
     </div>
 
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;">

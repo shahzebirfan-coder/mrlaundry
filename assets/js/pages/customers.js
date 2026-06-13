@@ -107,12 +107,16 @@ function openCustomerForm(existing, callback) {
           <label>Loyalty Number</label>
           <div style="display:flex;gap:6px;">
             <input id="cLoyNo" value="${escapeHtml(c.loyaltyNo||'')}" placeholder="auto-generated"/>
-            <button type="button" class="btn btn-secondary btn-sm" id="genBtn">🎫 Generate</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="genBtn">🎫</button>
           </div>
         </div>
         <div class="field" style="margin:0;">
           <label>Discount %</label>
           <input type="number" id="cLoyPct" value="${c.loyaltyDiscountPercent || defaultPct}" min="0" max="100"/>
+        </div>
+        <div class="field" style="margin:0;">
+          <label>Expiry Date</label>
+          <input type="date" id="cLoyExp" value="${escapeHtml(c.loyaltyExpiry||'')}"/>
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;">
@@ -140,6 +144,7 @@ function openCustomerForm(existing, callback) {
         loyaltyNo: $('#cLoyNo', m).value.trim(),
         loyaltyDiscountPercent: Math.max(0, +$('#cLoyPct', m).value || 0),
         loyaltyActive: $('#cLoyActive', m).checked,
+        loyaltyExpiry: $('#cLoyExp', m).value,
         isB2B: $('#cIsB2B', m).checked,
         b2bDiscount: Math.max(0, +$('#cB2bDisc', m).value || 0)
       };
