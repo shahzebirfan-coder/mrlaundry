@@ -725,9 +725,9 @@ function openPaymentDialog(orderMeta) {
     updateDue();
     $('#paidInput', m).oninput = updateDue;
 
-    $('#backBtn', m).addEventListener('click', () => { closeModal(); openBookingForm(); });
+    m.querySelector('#backBtn').addEventListener('click', () => { closeModal(); openBookingForm(); });
 
-    $('#confirmBtn', m).addEventListener('click', () => {
+    m.querySelector('#confirmBtn').addEventListener('click', () => {
       const paid = Math.max(0, +$('#paidInput', m).value || 0);
       const actualPaid = Math.min(tot.total, paid);
       const due = Math.max(0, tot.total - actualPaid);
@@ -737,8 +737,9 @@ function openPaymentDialog(orderMeta) {
       else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
 
       let createdTs = new Date().toISOString();
-      if ($('#backdateInput', m) && $('#backdateInput', m).value) {
-        try { createdTs = new Date($('#backdateInput', m).value).toISOString(); } catch(e) {}
+      const bdInp = m.querySelector('#backdateInput');
+      if (bdInp && bdInp.value) {
+        try { createdTs = new Date(bdInp.value).toISOString(); } catch(e) {}
       }
 
       const order = {
