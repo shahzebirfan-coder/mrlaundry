@@ -213,7 +213,7 @@ function openStatusChange(orderId) {
       $('#rackField', m).style.display = e.target.value === 'ready' ? 'block' : 'none';
       if (e.target.value === 'ready') setTimeout(()=>$('#newRack', m).focus(), 100);
     };
-    $('#cancelBtn', m).onclick = closeModal;
+    $('#cancelBtn', m).addEventListener('click', closeModal);
     $('#saveBtn', m).onclick = () => {
       const newStatus = $('#newStatus', m).value;
       const addPay = Math.max(0, +$('#addPay', m).value || 0);
@@ -489,7 +489,7 @@ function openReceivePayment(orderId) {
       $('#rcvAmt', m).value = v === 'full' ? o.due : Math.round(o.due/2);
     });
 
-    $('#rcvSave', m).onclick = () => {
+    $('#rcvSave', m).addEventListener('click', () => {
       const amt = Math.max(0, Math.min(o.due, +$('#rcvAmt', m).value || 0));
       if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
 

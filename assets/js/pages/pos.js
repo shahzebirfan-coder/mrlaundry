@@ -750,7 +750,7 @@ function openPaymentDialog(orderMeta) {
         tax: tot.tax,
         total: tot.total,
         paid: actualPaid,
-        createdAt: $('#backdateInput', m).value ? new Date($('#backdateInput', m).value).toISOString() : new Date().toISOString(),
+        createdAt: ($('#backdateInput', m) && $('#backdateInput', m).value) ? new Date($('#backdateInput', m).value).toISOString() : new Date().toISOString(),
         due,
         advance: paymentType === 'advance' ? actualPaid : 0,
         paymentType,

@@ -52,6 +52,12 @@ function renderLogin() {
             ` : ''}
 
           </form>
+          
+          <div style="text-align:center; margin-top:30px;">
+            <div style="font-size:11px; color:#64748b; font-weight:600; margin-bottom:6px; letter-spacing:0.5px;">POWERED & MANAGED BY</div>
+            <img src="assets/img/celinesoft_logo.png" style="width:160px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));" />
+          </div>
+
           </div>
       </div>
     </div>
