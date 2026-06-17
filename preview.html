@@ -1,0 +1,948 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: sans-serif; background: #ddd; padding: 20px; display: flex; gap: 20px; align-items: flex-start; justify-content: center; }
+    .invoice-page { margin: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+  <div id="output" style="display:flex;gap:20px;"></div>
+  <script>
+    // Mock DB and environment
+    const DB = {
+      settings: () => ({
+        shopName: "Mr Laundry",
+        tagline: "Quality Dry Cleaner Service",
+        address: "Shop 04, Gulistan E Zafar, SMCHS, Block B, Karachi, Pakistan",
+        phone: "+92 334 3691210",
+        invoiceFontSize: 13,
+        invoiceWidth: 360,
+        officeCopyWidth: 280,
+        officeCopyFontSize: 11,
+        invoiceShowDeliveryType: true,
+        invoiceShowQR: false
+      })
+    };
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return '';
+      return str.replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+      );
+    }
+
+    /* ============================================================
+   Utility helpers
+   ============================================================ */
+const $  = (sel, root=document) => root.querySelector(sel);
+const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+function el(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+
+function escapeHtml(str){
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function fmtMoney(n) {
+  const s = DB.settings();
+  const v = (Number(n) || 0).toFixed(0);
+  return `${s.currency} ${Number(v).toLocaleString()}`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+function fmtDateShort(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+function isoDay(d=new Date()) { return d.toISOString().slice(0,10); }
+
+function getGreeting() {
+  const h = new Date().getHours();
+  const useT = (typeof t === 'function');
+  if (h < 12) return { text: useT ? t('greet.morning') : 'Good Morning', emoji: '🌅' };
+  if (h < 17) return { text: useT ? t('greet.afternoon') : 'Good Afternoon', emoji: '☀️' };
+  if (h < 21) return { text: useT ? t('greet.evening') : 'Good Evening', emoji: '🌇' };
+  return { text: useT ? t('greet.night') : 'Good Night', emoji: '🌙' };
+}
+
+/* ====== Toasts ====== */
+function toast(msg, type='success') {
+  const div = el(`<div class="toast ${type}">${escapeHtml(msg)}</div>`);
+  $('#toast-container').appendChild(div);
+  setTimeout(() => { div.style.opacity = '0'; div.style.transform = 'translateX(100%)'; div.style.transition = '.2s'; }, 2200);
+  setTimeout(() => div.remove(), 2500);
+}
+
+/* ====== Modal ====== */
+function openModal(innerHtml, opts={}) {
+  closeModal();
+  const wrap = el(`<div class="modal-backdrop"><div class="modal ${opts.large?'lg':''}"></div></div>`);
+  wrap.querySelector('.modal').innerHTML = innerHtml;
+  $('#modal-root').appendChild(wrap);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
+  if (opts.onOpen) opts.onOpen(wrap.querySelector('.modal'));
+  return wrap.querySelector('.modal');
+}
+function closeModal() { $('#modal-root').innerHTML = ''; }
+
+/* ====== Confirm ====== */
+function confirmDialog(msg, onYes) {
+  openModal(`
+    <h3>Confirm</h3>
+    <p class="sub">${escapeHtml(msg)}</p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
+      <button class="btn btn-danger" id="yesBtn">Yes, Continue</button>
+    </div>
+  `, { onOpen(m) {
+    m.querySelector('#cancelBtn').onclick = closeModal;
+    m.querySelector('#yesBtn').onclick = () => { closeModal(); onYes(); };
+  }});
+}
+
+/* ====== Download file helper ====== */
+function downloadFile(filename, content, mime='application/json') {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+
+/* Add data-label attribute to all table cells based on their header.
+   This powers the mobile card-style table layout (responsive.css). */
+function autoLabelTableCells() {
+  document.querySelectorAll('table.tbl').forEach(table => {
+    const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+    if (!headers.length) return;
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      Array.from(tr.children).forEach((td, i) => {
+        if (headers[i] && !td.hasAttribute('data-label')) {
+          td.setAttribute('data-label', headers[i]);
+        }
+      });
+    });
+  });
+}
+
+/* Run after any DOM change in #app */
+(function setupAutoLabel() {
+  if (typeof MutationObserver === 'undefined') return;
+  const target = document.getElementById('app') || document.body;
+  if (!target) return;
+  let pending = false;
+  const obs = new MutationObserver(() => {
+    if (pending) return;
+    pending = true;
+    setTimeout(() => { autoLabelTableCells(); pending = false; }, 50);
+  });
+  // Wait for DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const t = document.getElementById('app') || document.body;
+      if (t) obs.observe(t, { childList: true, subtree: true });
+    });
+  } else {
+    obs.observe(target, { childList: true, subtree: true });
+  }
+})();
+
+/* === Universal print helper — bulletproof version ===
+   Inlines all images (data URLs) and styles so print window has zero load time.
+   Works perfectly with thermal printers and all browsers. */
+async function printElement(elementOrSelector, options) {
+  options = options || {};
+  let el;
+  if (typeof elementOrSelector === 'string') {
+    el = document.querySelector(elementOrSelector);
+  } else {
+    el = elementOrSelector;
+  }
+  if (!el) { alert('Print content not found'); return; }
+
+  // Clone the element to manipulate safely
+  const clone = el.cloneNode(true);
+
+  // Step 1: Convert all canvases to images
+  const sourceCanvases = el.querySelectorAll ? el.querySelectorAll('canvas') : [];
+  const cloneCanvases = clone.querySelectorAll('canvas');
+  cloneCanvases.forEach((cv, i) => {
+    if (sourceCanvases[i]) {
+      try {
+        const img = document.createElement('img');
+        img.src = sourceCanvases[i].toDataURL('image/png');
+        img.width = sourceCanvases[i].width;
+        img.height = sourceCanvases[i].height;
+        cv.parentNode.replaceChild(img, cv);
+      } catch(e) {}
+    }
+  });
+
+  // Step 2: Convert all <img> src to absolute URLs OR data URLs
+  const images = clone.querySelectorAll('img');
+  const imagePromises = [];
+  images.forEach(img => {
+    const src = img.getAttribute('src');
+    if (!src) return;
+    // Already data URL? Skip
+    if (src.startsWith('data:')) return;
+    // Make absolute URL
+    const absUrl = new URL(src, location.href).href;
+    img.src = absUrl;
+    // Convert to data URL using fetch (works for same-origin)
+    imagePromises.push(
+      fetch(absUrl)
+        .then(r => r.blob())
+        .then(blob => new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => { img.src = reader.result; resolve(); };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        }))
+        .catch(() => { /* leave URL as-is */ })
+    );
+  });
+  await Promise.all(imagePromises);
+
+  // Step 3: Get HTML with all images inlined
+  const html = clone.outerHTML;
+
+  // Step 4: Inline ALL stylesheets
+  let styleText = '';
+  for (const sheet of document.styleSheets) {
+    try {
+      for (const rule of sheet.cssRules) {
+        styleText += rule.cssText + '\n';
+      }
+    } catch(e) {
+      // External stylesheet — fetch it
+      if (sheet.href) {
+        try {
+          const r = await fetch(sheet.href);
+          if (r.ok) styleText += await r.text() + '\n';
+        } catch(e) {}
+      }
+    }
+  }
+
+  // Step 5: Open print window with everything pre-loaded
+  const win = window.open('', '_blank', 'width=420,height=700');
+  if (!win) { alert('Please allow popups for printing!'); return; }
+
+  const printDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>${options.title || 'Print'}</title>
+<style>
+${styleText}
+/* === Print overrides — MAX VISIBILITY === */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0 !important; padding: 0 !important;
+  background: #fff !important; color: #000 !important;
+  font-family: Arial, 'Helvetica Neue', sans-serif !important;
+}
+.no-print, .modal-backdrop, .modal-footer, .modal > div:first-child[class*="no-print"] { display: none !important; }
+.invoice-page {
+  display: block !important;
+  visibility: visible !important;
+  color: #000 !important;
+  background: #fff !important;
+  font-family: Arial, sans-serif !important;
+  font-weight: 600 !important;
+  padding: 8px !important;
+  margin: 0 auto !important;
+  max-width: 100% !important;
+}
+.invoice-page * {
+  color: #000 !important;
+  visibility: visible !important;
+}
+.invoice-page h2 { font-weight: 900 !important; }
+.invoice-page b, .invoice-page strong { font-weight: 900 !important; }
+.qty-circle {
+  background: #fff !important;
+  color: #000 !important;
+  border: 4px solid #000 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-direction: column !important;
+  margin: 14px auto !important;
+}
+.qty-circle * { color: #000 !important; }
+.del-type-pill {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid #000 !important;
+}
+img {
+  max-width: 100%;
+  display: inline-block;
+  visibility: visible !important;
+}
+table { width: 100%; border-collapse: collapse; }
+.print-slip {
+  page-break-inside: avoid;
+  page-break-after: always;
+  break-after: page;
+  display: block !important;
+  margin: 0 auto;
+}
+.print-slip:last-child { page-break-after: auto; break-after: auto; }
+.print-page-break { page-break-after: always; break-after: page; height: 0; }
+@media print {
+  @page { margin: 4mm; size: auto; }
+  body { padding: 0 !important; background: #fff !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
+@media screen {
+  body { padding: 20px; background: #f0f4ff; }
+  .invoice-page { box-shadow: 0 4px 12px rgba(0,0,0,.1); border-radius: 8px; max-width: 380px; }
+}
+</style>
+</head><body>
+${html}
+<script>
+  // Wait for all images to load before printing
+  function doPrint() {
+    setTimeout(function() {
+      window.print();
+      setTimeout(function() { window.close(); }, 1000);
+    }, 200);
+  }
+  window.onload = function() {
+    const imgs = document.querySelectorAll('img');
+    if (imgs.length === 0) { doPrint(); return; }
+    let loaded = 0;
+    const checkAll = function() {
+      loaded++;
+      if (loaded >= imgs.length) doPrint();
+    };
+    imgs.forEach(function(img) {
+      if (img.complete && img.naturalHeight !== 0) checkAll();
+      else { img.onload = checkAll; img.onerror = checkAll; }
+    });
+    // Fallback timeout
+    setTimeout(doPrint, 3000);
+  };
+</` + `script>
+</body></html>`;
+
+  win.document.open();
+  win.document.write(printDoc);
+  win.document.close();
+}
+
+
+/* ============================================================
+   Product image helper — handles both emoji + image URLs/data
+   ============================================================ */
+function productImageHTML(image, size, classes) {
+  size = size || 80;
+  classes = classes || '';
+  const fallback = '🧺';
+  const img = image || fallback;
+  // If it's a URL or data URI, render as <img> that fills its container
+  if (typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http') || img.startsWith('/') || img.startsWith('assets/'))) {
+    return `<img src="${img}" class="${classes}" onerror="this.outerHTML='<span>${fallback}</span>'" alt=""/>`;
+  }
+  // Otherwise treat as emoji/text — let CSS handle size
+  return `<span>${img}</span>`;
+}
+window.productImageHTML = productImageHTML;
+
+/* ============================================================
+   Image resize: file -> data URL of <= maxW x maxH, JPEG
+   ============================================================ */
+function resizeImageToDataURL(file, maxW, maxH, quality) {
+  maxW = maxW || 200; maxH = maxH || 200; quality = quality || 0.85;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        const ratio = Math.min(maxW / w, maxH / h, 1);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        // white bg for transparent PNGs
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('Invalid image'));
+      img.src = ev.target.result;
+    };
+    reader.onerror = () => reject(new Error('Read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+window.resizeImageToDataURL = resizeImageToDataURL;
+
+/* ============================================================
+   Emoji picker (simple, organized for laundry shop)
+   ============================================================ */
+const LAUNDRY_EMOJIS = {
+  'Clothing': ['👔','👕','👖','🧥','🧦','🧢','👒','👗','👘','🥻','🩱','🩳','🩲','🥼','🎽','🧣','🧤','🥾','👠','👟','🦺','👞','🩴','👚','👜'],
+  'Bedding': ['🛏️','🛌','🧶','🧵','🪡','🪢','🧺','🧽','🧼'],
+  'Pakistani': ['🤵','🥻','👳','🧕','🕌','🕋'],
+  'Kids': ['🧸','🧒','👶','🎒','👶'],
+  'Other': ['🪟','🚿','🧖','🪞','🛋️','🪑','🛁'],
+};
+function openEmojiPicker(onPick) {
+  const groups = Object.keys(LAUNDRY_EMOJIS).map(g => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-soft);text-transform:uppercase;margin-bottom:6px;">${g}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${LAUNDRY_EMOJIS[g].map(e => `<button type="button" class="emoji-btn" data-em="${e}" style="font-size:24px;padding:8px;background:#fff;border:1px solid #e5e9f2;border-radius:8px;cursor:pointer;">${e}</button>`).join('')}
+      </div>
+    </div>
+  `).join('');
+  openModal(`
+    <h3>😀 Pick an Emoji</h3>
+    ${groups}
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>
+  `, { onOpen(m) {
+    m.querySelectorAll('.emoji-btn').forEach(b => b.onclick = () => {
+      onPick(b.dataset.em);
+      closeModal();
+    });
+  }});
+}
+window.openEmojiPicker = openEmojiPicker;
+
+    /* ===================== INVOICE / RECEIPT ===================== */
+function openInvoice(orderId, autoPrint) {
+  const o = DB.get('orders', orderId);
+  if (!o) { toast('Order not found','error'); return; }
+  const c = DB.get('customers', o.customerId) || { name:'Walk-in Customer' };
+  const cashier = DB.get('users', o.cashierId) || { name:'-' };
+  const s = DB.settings();
+  const invoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+  const totalPcs = (o.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);
+  const delTypeMap = {
+    hanger: { icon: '🧥', label: 'HANGER' },
+    fold:   { icon: '📦', label: 'FOLD' },
+    both:   { icon: '🧺', label: 'BOTH / MIXED' }
+  };
+  const delTypeInfo = delTypeMap[(o.deliveryType||'').toLowerCase()] || delTypeMap.hanger;
+
+  const qrData = (s.baseUrl ? s.baseUrl.replace(/\/$/, '') + '/invoice/' : '') + o.id;
+  const dualCopy = s.printDualCopy !== false;
+
+  const customerSlip = buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo);
+  const officeSlip = dualCopy ? buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) : '';
+
+  openModal(`
+    <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <h3>🧾 Invoice ${invoiceNo}</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" id="photosBtn" title="Manage order photos (for disputes)">📷 Photos${(o.photos&&o.photos.length)?` (${o.photos.length})`:''}</button>
+        ${c.phone ? `<button class="btn btn-success btn-sm" id="waBtn" title="Send invoice via WhatsApp">📱 WhatsApp</button>` : ''}
+        ${DB.currentUser().role==='admin' ? `<button class="btn btn-secondary btn-sm" id="customizeInv">⚙️ Customize</button><button class="btn btn-warning btn-sm" id="editFromInv">✏️ Edit</button>`:''}
+        <button class="btn btn-secondary btn-sm" id="printCustomerOnly" title="Print only customer copy">🖨️ Customer Only</button>
+        <button class="btn btn-primary btn-sm" id="printBoth" title="Print customer + office copy together">🖨️🖨️ Print Both</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Close</button>
+      </div>
+    </div>
+
+    ${dualCopy ? `
+      <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;background:#f0f4ff;padding:14px;border-radius:10px;" class="no-print">
+        <div style="flex:0 0 auto;">
+          <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;text-transform:uppercase;">📄 Customer Copy (Page 1)</div>
+          ${customerSlip}
+        </div>
+        <div style="flex:0 0 auto;">
+          <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;text-transform:uppercase;">📋 Office Copy — Small (Page 2)</div>
+          ${officeSlip}
+        </div>
+      </div>
+    ` : `<div class="no-print" style="background:#f0f4ff;padding:14px;border-radius:10px;display:flex;justify-content:center;">${customerSlip}</div>`}
+
+    <!-- Hidden print container -->
+    <div id="printArea" class="print-only" style="display:none;">
+      <div class="print-slip">${customerSlip}</div>
+      ${dualCopy ? `<div class="print-page-break"></div><div class="print-slip">${officeSlip}</div>` : ''}
+    </div>
+  `, { large: true, onOpen(m) {
+    drawInvoiceQRs(m, qrData || o.id, s);
+    const editBtn = $('#editFromInv', m);
+    if (editBtn) editBtn.onclick = () => { closeModal(); openEditInvoice(o.id); };
+    const custBtn = $('#customizeInv', m);
+    if (custBtn) custBtn.onclick = () => { closeModal(); openInvoiceCustomizer(orderId); };
+    const recvBtn = m.querySelector('#recvFromInv');
+    if (recvBtn) recvBtn.onclick = () => { closeModal(); setTimeout(() => openReceivePayment(orderId), 150); };
+    const photosBtn = $('#photosBtn', m);
+    if (photosBtn) photosBtn.onclick = () => { closeModal(); openOrderPhotos(o.id); };
+    const waBtn = $('#waBtn', m);
+    if (waBtn) waBtn.onclick = () => sendWhatsAppInvoice(o, c, s, invoiceNo, totalPcs, delTypeInfo);
+    $('#printCustomerOnly', m).onclick = () => doPrint(false);
+    $('#printBoth', m).onclick = () => doPrint(dualCopy);
+    if (autoPrint) setTimeout(() => doPrint(dualCopy), 300);
+  }});
+}
+
+function drawInvoiceQRs(root, data, s) {
+  if (s.invoiceShowQR === false) return;
+  $$('.invQR', root).forEach(canvas => {
+    try { QRCode.toCanvas(canvas, data, { scale: 2, border: 1 }); } catch(e){}
+  });
+}
+
+function doPrint(includeOffice) {
+  // Find the print area in current modal
+  const printArea = document.getElementById('printArea');
+  if (!printArea) { alert('Print content not ready'); return; }
+
+  // Build temporary element with only what we want to print
+  const wrap = document.createElement('div');
+  wrap.id = 'printWrapper';
+  // Clone first slip (customer copy)
+  const slips = printArea.querySelectorAll('.print-slip');
+  if (slips.length > 0) wrap.appendChild(slips[0].cloneNode(true));
+  // Add office copy only if requested
+  if (includeOffice && slips.length > 1) {
+    const breakDiv = document.createElement('div');
+    breakDiv.className = 'print-page-break';
+    wrap.appendChild(breakDiv);
+    wrap.appendChild(slips[1].cloneNode(true));
+  }
+
+  // Use universal printElement helper
+  if (typeof printElement === 'function') {
+    printElement(wrap, { title: 'Invoice Print' });
+  } else {
+    alert('Print helper not loaded. Refresh page.');
+  }
+}
+
+/* ============================================================
+   CUSTOMER COPY (Page 1 — Full details)
+   ============================================================ */
+function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
+  const showLogo = s.invoiceShowLogo !== false;
+  const showAddress = s.invoiceShowAddress !== false;
+  const showPhone = s.invoiceShowPhone !== false;
+  const showTagline = s.invoiceShowTagline !== false;
+  const showCashier = s.invoiceShowCashier !== false;
+  const showQR = s.invoiceShowQR !== false;
+  const showDelType = s.invoiceShowDeliveryType !== false;
+  const showItems = s.invoiceShowItemBreakdown !== false;
+  const showPayMethod = s.invoiceShowPaymentMethod !== false;
+  const showDiscount = s.invoiceShowDiscount !== false;
+  const showNotes = s.invoiceShowNotes !== false;
+  const showFooter = s.invoiceShowFooter !== false;
+  const showEdited = s.invoiceShowEditedBadge !== false;
+  const showQtyCircle = s.invoiceQtyCircle !== false;
+  const showTerms = s.invoiceShowTerms === true;
+  // Bumping default sizes to make it clearer for thermal
+  const fontSize = Math.max(12, Math.min(24, (+s.invoiceFontSize || 13) + 2));
+  const width = Math.max(280, Math.min(800, +s.invoiceWidth || 360));
+
+  const itemsHtml = (o.items || []).map(it => `
+    <tr>
+      <td style="padding:6px 0;font-size:${fontSize+1}px;font-weight:bold;">${escapeHtml(it.name)}<br><span style="font-size:${fontSize-1}px;font-weight:normal;">${it.qty} × ${fmtMoney(it.price)}</span></td>
+      <td style="text-align:right;padding:6px 0;font-size:${fontSize+1}px;font-weight:bold;">${fmtMoney(it.qty*it.price)}</td>
+    </tr>
+  `).join('');
+
+  const logoBlock = showLogo ? (s.logoImage
+    ? `<div style="text-align:center;margin-bottom:8px;"><img src="${s.logoImage}" style="max-width:${Math.min(200,width*0.6)}px;max-height:100px;object-fit:contain;background:#fff;padding:4px;"/></div>`
+    : `<div style="text-align:center;font-size:${fontSize+18}px;font-weight:900;line-height:1.2;">${escapeHtml(s.shopName)}</div>`) : '';
+
+  const totalDisc = (o.discount || ((o.manualDiscount||0) + (o.loyaltyDiscount||0)));
+  const discountLines = showDiscount ? `
+    ${o.manualDiscount>0 ? `<tr><td style="padding:4px 0;">Discount:</td><td style="text-align:right;padding:4px 0;">- ${fmtMoney(o.manualDiscount)}</td></tr>` : ''}
+    ${o.loyaltyDiscount>0 ? `<tr><td style="padding:4px 0;">Loyalty:</td><td style="text-align:right;padding:4px 0;">- ${fmtMoney(o.loyaltyDiscount)}</td></tr>` : ''}
+    ${(!o.manualDiscount && !o.loyaltyDiscount && totalDisc>0) ? `<tr><td style="padding:4px 0;">Discount:</td><td style="text-align:right;padding:4px 0;">- ${fmtMoney(totalDisc)}</td></tr>` : ''}
+  ` : '';
+
+  return `
+    <div class="invoice-page invoice-customer" style="max-width:${width}px;font-size:${fontSize}px;background:#fff;padding:16px;">
+      ${logoBlock}
+      <div style="text-align:center;font-size:${fontSize}px;margin-bottom:12px;line-height:1.4;">
+        ${showTagline && s.tagline ? '<b>'+escapeHtml(s.tagline)+'</b><br>':''}
+        ${showAddress && s.address ? escapeHtml(s.address)+'<br>':''}
+        ${showPhone && s.phone ? escapeHtml(s.phone):''}
+      </div>
+      
+      <div style="text-align:center;font-size:${fontSize+2}px;font-weight:900;margin:12px 0;letter-spacing:1px;color:#000;padding:6px 0;border-top:2px dashed #000;border-bottom:2px dashed #000;">★ CUSTOMER COPY ★</div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div style="display:inline-block;background:#fff;color:#000;border:2px solid #000;border-radius:10px;padding:8px 14px;flex:1;margin-right:12px;text-align:center;">
+          <div style="font-size:${fontSize-2}px;font-weight:800;letter-spacing:1px;">INVOICE NO.</div>
+          <div style="font-size:${fontSize+12}px;font-weight:900;line-height:1.2;letter-spacing:1px;">${invoiceNo}</div>
+        </div>
+        ${showQtyCircle ? `
+          <div style="border:2px solid #000;border-radius:50%;min-width:70px;height:70px;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#fff;color:#000;">
+            <div style="font-size:${fontSize+10}px;font-weight:900;line-height:1;">${totalPcs}</div>
+            <div style="font-size:${fontSize-4}px;font-weight:800;line-height:1;margin-top:2px;">PCS</div>
+          </div>
+        ` : ''}
+      </div>
+
+      ${showDelType ? `
+        <div style="text-align:center;margin-bottom:16px;">
+          <span style="font-size:${fontSize+2}px;font-weight:900;border:2px solid #000;border-radius:16px;padding:6px 20px;display:inline-block;">${delTypeInfo.icon} ${delTypeInfo.label}</span>
+        </div>
+      ` : ''}
+
+      <table style="font-size:${fontSize+1}px;width:100%;border-collapse:collapse;margin-bottom:12px;line-height:1.5;">
+        <tr><td style="padding:6px 0;border-top:1px dashed #000;font-weight:bold;">Booking Date</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;">${fmtDate(o.createdAt)}</td></tr>
+        ${o.deliveryDate? `<tr><td style="padding:6px 0;border-top:1px dashed #000;font-weight:bold;">Delivery Date</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;color:#000;"><b>${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
+        ${showCashier ? `<tr><td style="padding:6px 0;border-top:1px dashed #000;font-weight:bold;">Cashier</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;">${escapeHtml(cashier.name)}</td></tr>`:''}
+        <tr><td style="padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+2}px;font-weight:bold;">Customer</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+3}px;"><b>${escapeHtml(c.name)}</b></td></tr>
+        ${c.phone? `<tr><td style="padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+2}px;font-weight:bold;">Phone</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+3}px;"><b>${escapeHtml(c.phone)}</b></td></tr>`:''}
+      </table>
+
+      ${showItems ? `
+        <table style="font-size:${fontSize+1}px;width:100%;border-collapse:collapse;margin-bottom:10px;line-height:1.5;">
+          <tr style="border-top:2px solid #000;border-bottom:2px solid #000;">
+            <td style="padding:8px 0;font-weight:900;font-size:${fontSize+2}px;">ITEMS</td>
+            <td style="text-align:right;padding:8px 0;font-weight:900;font-size:${fontSize+2}px;">TOTAL</td>
+          </tr>
+          ${itemsHtml}
+        </table>
+      ` : ''}
+
+      <table style="font-size:${fontSize+2}px;width:100%;border-collapse:collapse;line-height:1.5;">
+        <tr style="border-top:2px solid #000;"><td style="padding:8px 0;font-weight:bold;">Total</td><td style="text-align:right;padding:8px 0;font-weight:bold;font-size:${fontSize+4}px;">${fmtMoney(o.total)}</td></tr>
+        ${discountLines}
+        ${o.tax>0?`<tr><td style="padding:6px 0;">Tax</td><td style="text-align:right;padding:6px 0;">${fmtMoney(o.tax)}</td></tr>`:''}
+        <tr><td style="padding:6px 0;">Paid</td><td style="text-align:right;padding:6px 0;">${fmtMoney(o.paid)}</td></tr>
+        ${o.due>0?`<tr><td style="padding:8px 0;font-size:${fontSize+4}px;font-weight:900;"><b style="color:#000;">Payment Due</b></td><td style="text-align:right;padding:8px 0;font-size:${fontSize+4}px;"><b style="color:#000;font-weight:900;">${fmtMoney(o.due)}</b></td></tr>`:''}
+        ${o.due==0?`<tr><td style="padding:8px 0;font-size:${fontSize+4}px;font-weight:900;"><b style="color:#000;">Payment</b></td><td style="text-align:right;padding:8px 0;font-size:${fontSize+4}px;"><b style="color:#000;font-weight:900;">${fmtMoney(o.total)}</b></td></tr>`:''}
+      </table>
+
+      ${showNotes && o.notes?`<div style="font-size:${fontSize}px;font-weight:bold;margin-top:16px;padding:8px;border:2px dashed #000;">📝 ${escapeHtml(o.notes)}</div>`:''}
+      ${showTerms && s.invoiceTerms?`<div style="font-size:${fontSize-1}px;text-align:center;margin-top:16px;padding-top:12px;border-top:2px dashed #000;font-weight:bold;">${escapeHtml(s.invoiceTerms)}</div>`:''}
+      
+      ${showQR ? `<div style="text-align:center;margin-top:20px;"><canvas class="invQR"></canvas></div>` : ''}
+      ${showFooter ? `<div style="text-align:center;font-size:${fontSize+2}px;font-weight:900;margin-top:16px;">${escapeHtml(s.invoiceFooter || '')}</div>` : ''}
+    </div>
+  `;
+}
+/* ============================================================
+   OFFICE COPY (Page 2 — Compact, paper-saving)
+   ============================================================ */
+function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
+  const width = Math.max(220, Math.min(400, +s.officeCopyWidth || 280));
+  const fontSize = Math.max(10, Math.min(20, (+s.officeCopyFontSize || 11) + 2));
+
+  return `
+    <div class="invoice-page invoice-office" style="max-width:${width}px;font-size:${fontSize}px;padding:16px;background:#fff;border:1px dashed #ccc;">
+      <div style="text-align:center;font-weight:900;font-size:${fontSize+8}px;margin-bottom:8px;color:#000;line-height:1.2;">
+        ${escapeHtml(s.shopName)}
+      </div>
+      <div style="text-align:center;font-weight:900;font-size:${fontSize+2}px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;color:#000;">
+        <hr style="flex:1; border:none; border-top:2px solid #000; margin-right:8px;">
+        OFFICE COPY
+        <hr style="flex:1; border:none; border-top:2px solid #000; margin-left:8px;">
+      </div>
+
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="display:inline-block;background:#fff;color:#000;border:2px solid #000;border-radius:10px;padding:8px 24px;">
+          <div style="font-size:${fontSize}px;font-weight:800;letter-spacing:1px;margin-bottom:2px;">INVOICE NO.</div>
+          <div style="font-size:${fontSize+14}px;font-weight:900;line-height:1.1;">${invoiceNo}</div>
+        </div>
+      </div>
+
+      <table style="font-size:${fontSize+1}px;width:100%;border-collapse:collapse;border:2px solid #000;margin-bottom:14px;background:#fff;line-height:1.5;">
+        <tr><td style="border:1px solid #000;padding:6px 8px;font-weight:bold;">Booked:</td><td style="border:1px solid #000;padding:6px 8px;">${fmtDateShort(o.createdAt)}</td></tr>
+        ${o.deliveryDate? `<tr><td style="border:1px solid #000;padding:6px 8px;font-weight:bold;">Delivery:</td><td style="border:1px solid #000;padding:6px 8px;color:#000;"><b>${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
+        <tr><td style="border:1px solid #000;padding:6px 8px;font-weight:bold;">Customer:</td><td style="border:1px solid #000;padding:6px 8px;font-size:${fontSize+3}px;"><b>${escapeHtml(c.name)}</b></td></tr>
+        ${c.phone? `<tr><td style="border:1px solid #000;padding:6px 8px;font-weight:bold;">Phone:</td><td style="border:1px solid #000;padding:6px 8px;font-size:${fontSize+2}px;"><b>${escapeHtml(c.phone)}</b></td></tr>`:''}
+        <tr><td style="border:1px solid #000;padding:6px 8px;font-weight:bold;">By:</td><td style="border:1px solid #000;padding:6px 8px;">${escapeHtml(cashier.name)}</td></tr>
+      </table>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="flex:1;border:2px solid #000;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;background:#fff;">
+          <div style="background:#fff;border-bottom:2px solid #000;color:#000;text-align:center;font-size:${fontSize}px;padding:6px 0;font-weight:900;">PIECES</div>
+          <div style="text-align:center;font-size:${fontSize+10}px;font-weight:900;padding:8px 0;">${totalPcs}</div>
+        </div>
+        <div style="flex:2;border:2px solid #000;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;background:#fff;">
+          <div style="background:#fff;border-bottom:2px solid #000;color:#000;text-align:center;font-size:${fontSize}px;padding:6px 0;font-weight:900;">PACKAGING</div>
+          <div style="text-align:center;font-size:${fontSize+4}px;font-weight:900;padding:8px 0;display:flex;align-items:center;justify-content:center;gap:4px;">
+             ${delTypeInfo.icon} ${delTypeInfo.label}
+          </div>
+        </div>
+      </div>
+
+      <div style="border:2px solid #000; border-radius:6px; padding:10px; background:#fff;">
+        <table style="font-size:${fontSize+2}px;width:100%;border-collapse:collapse;line-height:1.5;">
+          ${(o.items || []).map(it => `
+            <tr><td style="padding:6px 0;font-weight:bold;">${escapeHtml(it.name)} <span style="font-size:${fontSize+4}px;float:right;">×${it.qty}</span></td></tr>
+          `).join('')}
+        </table>
+        <div style="border-top:2px solid #000; margin-top:8px; padding-top:8px;">
+          <table style="font-size:${fontSize+3}px;width:100%;border-collapse:collapse;line-height:1.5;">
+            <tr><td style="padding:4px 0;">Total</td><td style="text-align:right;padding:4px 0;font-weight:bold;">${fmtMoney(o.total)}</td></tr>
+            <tr><td style="padding:4px 0;">Paid</td><td style="text-align:right;padding:4px 0;font-weight:bold;">${fmtMoney(o.paid)}</td></tr>
+            ${o.due>0?`<tr><td style="padding:4px 0;color:#000;font-weight:900;">Due</td><td style="text-align:right;padding:4px 0;color:#000;font-weight:900;">${fmtMoney(o.due)}</td></tr>`:''}
+          </table>
+        </div>
+      </div>
+
+      ${s.invoiceShowQR !== false ? `<div style="text-align:center;margin-top:16px;"><canvas class="invQR" style="max-width:90px;"></canvas></div>`:''}
+    </div>
+  `;
+}
+/* ============================================================
+   WHATSAPP INVOICE
+   ============================================================ */
+function sendWhatsAppInvoice(o, c, s, invoiceNo, totalPcs, delTypeInfo) {
+  if (!c.phone) { toast('Customer phone number missing', 'error'); return; }
+
+  // Clean phone: digits only, with country code
+  let phone = c.phone.replace(/[^\d+]/g, '');
+  if (phone.startsWith('+')) phone = phone.substring(1);
+  // PK pattern: 03XXXXXXXXX (11 digits) -> 923XXXXXXXXX
+  if (phone.startsWith('0') && phone.length === 11) phone = '92' + phone.substring(1);
+
+  const itemsText = (o.items || [])
+    .map(it => `• ${it.name} × ${it.qty} = ${fmtMoney(it.qty * it.price)}`)
+    .join('\n');
+
+  const template = s.whatsappTemplate || `Hello {name}, thank you for your order at {shop}!
+
+Invoice: {invoice}
+Total Pcs: {pcs}
+Amount: {total}
+Paid: {paid}
+Due: {due}
+Delivery: {delivery} ({type})
+
+{footer}`;
+
+  const vars = {
+    '{name}':     c.name,
+    '{shop}':     s.shopName,
+    '{invoice}':  invoiceNo,
+    '{pcs}':      totalPcs,
+    '{items}':    itemsText,
+    '{subtotal}': fmtMoney(o.subtotal),
+    '{discount}': fmtMoney(o.discount || 0),
+    '{total}':    fmtMoney(o.total),
+    '{paid}':     fmtMoney(o.paid),
+    '{due}':      fmtMoney(o.due),
+    '{delivery}': o.deliveryDate || '-',
+    '{type}':     delTypeInfo.label,
+    '{phone}':    s.phone || '',
+    '{address}':  s.address || '',
+    '{footer}':   s.invoiceFooter || 'Thank You!'
+  };
+
+  let msg = template;
+  Object.entries(vars).forEach(([k,v]) => { msg = msg.split(k).join(v); });
+
+  // Open preview dialog so user can edit before sending
+  openModal(`
+    <h3>📱 Send Invoice via WhatsApp</h3>
+    <p class="sub">Sending to: <b>${escapeHtml(c.name)}</b> (${escapeHtml(c.phone)}) → WhatsApp: <code>+${phone}</code></p>
+    <div class="field">
+      <label>Message Preview (you can edit before sending)</label>
+      <textarea id="waMsg" rows="14" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">${escapeHtml(msg)}</textarea>
+    </div>
+    <div style="background:var(--surface-alt);padding:10px;border-radius:8px;font-size:12px;color:var(--text-soft);margin-bottom:14px;">
+      💡 Clicking <b>Send</b> opens WhatsApp Web (on PC) or the WhatsApp app (on phone) with this message pre-filled. You just need to press the send arrow there.
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-secondary" id="copyBtn">📋 Copy Text</button>
+      <button class="btn btn-success" id="sendBtn">📱 Open WhatsApp</button>
+    </div>
+  `, { large: true, onOpen(m) {
+    $('#copyBtn', m).onclick = () => {
+      const text = $('#waMsg', m).value;
+      navigator.clipboard.writeText(text).then(() => toast('Message copied to clipboard','success'));
+    };
+    $('#sendBtn', m).onclick = () => {
+      const text = $('#waMsg', m).value;
+      const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+      window.open(url, '_blank');
+      toast('Opening WhatsApp...', 'success');
+      closeModal();
+    };
+  }});
+}
+
+/* ============================================================
+   INVOICE CUSTOMIZER (admin)
+   ============================================================ */
+function openInvoiceCustomizer(reopenOrderId) {
+  const s = DB.settings();
+  const html = `
+    <h3>⚙️ Customize Invoice</h3>
+    <p class="sub">Control what's printed for customer copy & office copy.</p>
+
+    <div class="form-row">
+      <div class="field">
+        <label>Customer Copy Font Size (px)</label>
+        <input type="number" id="cfFont" value="${s.invoiceFontSize||13}" min="10" max="20"/>
+      </div>
+      <div class="field">
+        <label>Customer Copy Width (px)</label>
+        <select id="cfWidth">
+          <option value="280" ${s.invoiceWidth==280?'selected':''}>280 — Thermal 58mm</option>
+          <option value="360" ${(!s.invoiceWidth||s.invoiceWidth==360)?'selected':''}>360 — Thermal 80mm (default)</option>
+          <option value="420" ${s.invoiceWidth==420?'selected':''}>420 — A6 paper</option>
+          <option value="560" ${s.invoiceWidth==560?'selected':''}>560 — A5 paper</option>
+          <option value="720" ${s.invoiceWidth==720?'selected':''}>720 — A4 paper</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="background:#fffbe6;border:1px solid #f59e0b;border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="font-weight:700;margin-bottom:10px;">📋 Office Copy (Small slip for paper saving)</div>
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <input type="checkbox" id="cfDual" ${s.printDualCopy!==false?'checked':''}/>
+        <b>Always print Customer + Office copy together</b>
+      </label>
+      <div class="form-row">
+        <div class="field" style="margin:0;">
+          <label>Office Copy Width (px)</label>
+          <input type="number" id="cfOffW" value="${s.officeCopyWidth||280}" min="220" max="400"/>
+        </div>
+        <div class="field" style="margin:0;">
+          <label>Office Copy Font Size (px)</label>
+          <input type="number" id="cfOffF" value="${s.officeCopyFontSize||11}" min="9" max="14"/>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface-alt);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="font-weight:700;margin-bottom:10px;">👁️ What to Show on Customer Copy</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:13px;">
+        ${invToggle('invoiceQtyCircle', '🔵 Big Quantity Circle', s.invoiceQtyCircle)}
+        ${invToggle('invoiceShowDeliveryType', '📦 Hanger/Fold Type', s.invoiceShowDeliveryType)}
+        ${invToggle('invoiceShowLogo', '🏷️ Shop Logo', s.invoiceShowLogo)}
+        ${invToggle('invoiceShowTagline', '📝 Shop Tagline', s.invoiceShowTagline)}
+        ${invToggle('invoiceShowAddress', '🏠 Shop Address', s.invoiceShowAddress)}
+        ${invToggle('invoiceShowPhone', '📞 Shop Phone', s.invoiceShowPhone)}
+        ${invToggle('invoiceShowCashier', '👤 Cashier Name', s.invoiceShowCashier)}
+        ${invToggle('invoiceShowItemBreakdown', '📋 Item-by-Item List', s.invoiceShowItemBreakdown)}
+        ${invToggle('invoiceShowDiscount', '💸 Discount Lines', s.invoiceShowDiscount)}
+        ${invToggle('invoiceShowPaymentMethod', '💳 Payment Method', s.invoiceShowPaymentMethod)}
+        ${invToggle('invoiceShowNotes', '📝 Order Notes', s.invoiceShowNotes)}
+        ${invToggle('invoiceShowQR', '🔳 QR Code', s.invoiceShowQR)}
+        ${invToggle('invoiceShowFooter', '💬 Footer Message', s.invoiceShowFooter)}
+        ${invToggle('invoiceShowEditedBadge', '✏️ "Edited" Note', s.invoiceShowEditedBadge)}
+        ${invToggle('invoiceShowTerms', '📜 Short T&C on Receipt', s.invoiceShowTerms)}
+        ${invToggle('invoiceShowPortalTerms', '🌐 "Full T&C on Portal" Line', s.invoiceShowPortalTerms !== false)}
+      </div>
+    </div>
+
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>Footer Message</label>
+        <input id="cfFooter" value="${escapeHtml(s.invoiceFooter||'')}"/>
+      </div>
+    </div>
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>📜 Short Terms on Receipt <small style="color:var(--text-soft);font-weight:400;">(keep short to save paper!)</small></label>
+        <textarea id="cfTerms" rows="2" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(s.invoiceTerms||'')}</textarea>
+      </div>
+    </div>
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>🌐 Full Terms &amp; Conditions (shown on Customer Portal page)
+          <small style="color:var(--text-soft);font-weight:400;display:block;margin-top:2px;">Customers see this in a collapsible card on portal.html — no paper wasted! 📜</small>
+        </label>
+        <textarea id="cfPortalTerms" rows="10" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.6;">${escapeHtml(s.portalTerms||'')}</textarea>
+      </div>
+    </div>
+
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>📱 WhatsApp Message Template</label>
+        <textarea id="cfWaTpl" rows="8" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:12px;">${escapeHtml(s.whatsappTemplate||'')}</textarea>
+        <small style="color:var(--text-soft);">Variables: {name} {shop} {invoice} {pcs} {items} {subtotal} {discount} {total} {paid} {due} {delivery} {type} {phone} {address} {footer}</small>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      ${reopenOrderId ? `<button class="btn btn-secondary" id="reopenBtn">Save & Preview</button>` : ''}
+      <button class="btn btn-primary" id="saveBtn">💾 Save Settings</button>
+    </div>
+  `;
+  openModal(html, { large: true, onOpen(m) {
+    const collect = () => {
+      const patch = {
+        invoiceFontSize: Math.max(10, Math.min(20, +$('#cfFont', m).value || 13)),
+        invoiceWidth: +$('#cfWidth', m).value || 360,
+        invoiceFooter: $('#cfFooter', m).value,
+        invoiceTerms: $('#cfTerms', m).value,
+        portalTerms: $('#cfPortalTerms', m).value,
+        printDualCopy: $('#cfDual', m).checked,
+        officeCopyWidth: +$('#cfOffW', m).value || 280,
+        officeCopyFontSize: +$('#cfOffF', m).value || 11,
+        whatsappTemplate: $('#cfWaTpl', m).value
+      };
+      $$('input[data-inv-toggle]', m).forEach(cb => { patch[cb.dataset.invToggle] = cb.checked; });
+      return patch;
+    };
+    $('#saveBtn', m).onclick = () => { DB.saveSettings(collect()); toast('Invoice settings saved','success'); closeModal(); };
+    const reopenBtn = $('#reopenBtn', m);
+    if (reopenBtn) reopenBtn.onclick = () => { DB.saveSettings(collect()); toast('Saved','success'); closeModal(); setTimeout(()=>openInvoice(reopenOrderId), 100); };
+  }});
+}
+
+function invToggle(key, label, currentVal) {
+  const checked = currentVal === false ? '' : 'checked';
+  return `<label style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
+    <input type="checkbox" data-inv-toggle="${key}" ${checked}/> ${label}
+  </label>`;
+}
+
+
+    const order = {
+      id: "ord_123456",
+      createdAt: "2026-06-12T19:03:00Z",
+      deliveryDate: "2026-06-15",
+      items: [
+        { name: "Shalwar Suit", qty: 2, price: 175 }
+      ],
+      total: 350,
+      paid: 0,
+      due: 350,
+      discount: 150,
+      manualDiscount: 150,
+      notes: ""
+    };
+    const c = { name: "Palejo", phone: "03232041811" };
+    const cashier = { name: "Muhammad Kashif" };
+    const s = DB.settings();
+    const invoiceNo = "INV-1137";
+    const totalPcs = 2;
+    const delTypeInfo = { icon: "🧥", label: "HANGER" };
+
+    const cSlip = buildCustomerSlip(order, c, cashier, s, invoiceNo, totalPcs, delTypeInfo);
+    const oSlip = buildOfficeSlip(order, c, cashier, s, invoiceNo, totalPcs, delTypeInfo);
+
+    document.getElementById('output').innerHTML = oSlip + cSlip;
+  </script>
+</body>
+</html>
