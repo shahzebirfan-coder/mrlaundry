@@ -67,7 +67,7 @@ const DB = {
   },
 
   _seed() {
-    const now = new Date().toISOString();
+    const now = '2024-01-01T00:00:00.000Z'; // Force old date so cloud data perfectly overrides this on fresh devices
     return {
       _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
