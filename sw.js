@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mr-laundry-pos-v4';
+const CACHE_NAME = 'mr-laundry-pos-v5';
 const urlsToCache = [
   './',
   './index.html',
@@ -66,7 +66,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('fetch', event => {
   event.respondWith(
-    caches.match(event.request)
+    caches.match(event.request, { ignoreSearch: true })
       .then(response => {
         if (response) {
           return response; // Return from cache
