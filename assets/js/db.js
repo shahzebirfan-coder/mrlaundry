@@ -9,11 +9,26 @@ const SESSION_KEY = 'mrLaundrySession';
 const DB = {
   _data: null,
 
+
   load() {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       try { this._data = JSON.parse(raw); }
       catch(e){ this._data = this._seed(); this.save(); }
+      
+      // EMERGENCY STORAGE FIX: If the raw JSON is larger than 3MB, aggressively wipe all photos from memory to save the system!
+      if (raw.length > 3000000 && this._data.orders) {
+        console.warn('⚠️ Emergency Memory Scrub Triggered: DB is over 3MB. Wiping all photos from orders.');
+        this._data.orders.forEach(o => {
+          if (o.photos && o.photos.length > 0) {
+            o.photos = [];
+            o.photoNotes = '';
+          }
+        });
+        // Save immediately to free up space
+        try { localStorage.setItem(DB_KEY, JSON.stringify(this._data)); } catch(e) {}
+      }
+
       // Migration: ensure new top-level tables exist
       const seed = this._seed();
     const now = '2024-01-01T00:00:00.000Z'; // Fixed date so remote data always overwrites local defaults on a fresh device!
