@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script>
+    const DB = {
+      currentUser: () => ({ id: 'u1', username: 'admin', name: 'Admin', role: 'admin' }),
+      insert: (table, o) => { console.log('Inserted', table, o); return { id: 'ord_999' }; },
+      nextInvoiceNumber: () => '1170'
+    };
+    function toast(m) { console.log('Toast:', m); }
+    function closeModal() { console.log('Modal closed'); }
+    function openInvoice(id) { console.log('Opened Invoice:', id); }
+    const posState = { cart: [{ price: 100, qty: 1 }], customerId: 'c1', discountType: 'fixed', discountValue: 0 };
+    const tot = { subtotal: 100, totalDiscount: 0, manualDiscount: 0, loyaltyDiscount: 0, loyaltyPercent: 0, tax: 0, total: 100 };
+    const orderMeta = { deliveryDate: '2026-06-15', deliveryType: 'hanger', bookingDate: '2026-06-13', notes: '' };
+    function getActiveBranchId() { return 'main'; }
+    const m = document.createElement('div');
+    m.innerHTML = `
+      <input id="paidInput" value="100"/>
+      <input id="backdateInput" value=""/>
+      <select id="payStatus"><option value="pending" selected></option></select>
+      <select id="payMethod"><option value="cash" selected></option></select>
+      <button id="confirmBtn"></button>
+    `;
+    const $ = (sel, root) => root.querySelector(sel);
+    
+    $('#confirmBtn', m).onclick = () => {
+      console.log("Confirm clicked");
+      let currentType = 'paid';
+      const paid = Math.max(0, +$('#paidInput', m).value || 0);
+      const actualPaid = Math.min(tot.total, paid);
+      const due = Math.max(0, tot.total - actualPaid);
+      // Determine paymentType label
+      let paymentType = 'paid';
+      if (actualPaid === 0) paymentType = 'credit';
+      else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
+
+      let createdTs = new Date().toISOString();
+      if ($('#backdateInput', m) && $('#backdateInput', m).value) {
+        try { createdTs = new Date($('#backdateInput', m).value).toISOString(); } catch(e) {}
+      }
+
+      const order = {
+        invoiceNo: DB.nextInvoiceNumber(),
+        items: posState.cart.map(i => ({ ...i, lineTotal: i.price * i.qty })),
+        customerId: posState.customerId,
+        subtotal: tot.subtotal,
+        discount: tot.totalDiscount,
+        manualDiscount: tot.manualDiscount,
+        loyaltyDiscount: tot.loyaltyDiscount,
+        loyaltyPercent: tot.loyaltyPercent,
+        discountType: posState.discountType,
+        discountValue: posState.discountValue,
+        tax: tot.tax,
+        total: tot.total,
+        paid: actualPaid,
+        createdAt: createdTs,
+        due,
+        advance: paymentType === 'advance' ? actualPaid : 0,
+        paymentType,
+        isCredit: actualPaid === 0,
+        status: $('#payStatus', m).value,
+        paymentMethod: $('#payMethod', m).value,
+        deliveryDate: orderMeta.deliveryDate,
+        deliveryType: orderMeta.deliveryType,
+        bookingDate: orderMeta.bookingDate,
+        notes: orderMeta.notes,
+        cashierId: DB.currentUser().id,
+        cashierUsername: DB.currentUser().username,
+        cashierName: DB.currentUser().name,
+        branchId: (typeof getActiveBranchId === 'function') ? getActiveBranchId() : 'main'
+      };
+      const saved = DB.insert('orders', order);
+      // Auto-deduct hangers & shoppers from inventory
+      if (typeof autoDeductInventory === 'function') {
+        try {
+          const alerts = autoDeductInventory(saved);
+          if (typeof showLowStockAlert === 'function' && alerts.length) showLowStockAlert(alerts);
+        } catch(e) { console.warn('Inventory auto-deduct failed:', e); }
+      }
+      posState.cart = []; posState.discountValue = 0; posState.customerId = 'cu1';
+      closeModal();
+      toast('Order booked successfully!', 'success');
+      openInvoice(saved.id);
+    };
+    
+    $('#confirmBtn', m).click();
+  </script>
+</body>
+</html>

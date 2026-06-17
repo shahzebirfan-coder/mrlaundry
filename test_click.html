@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<body>
+<button id="btn">Click Me</button>
+<script>
+  // test double assigning event listener
+  const btn = document.getElementById('btn');
+  btn.onclick = () => console.log('onclick 1');
+  btn.addEventListener('click', () => console.log('addEventListener 1'));
+  btn.onclick = () => console.log('onclick 2');
+  btn.addEventListener('click', () => console.log('addEventListener 2'));
+</script>
+</body>
+</html>
