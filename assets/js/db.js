@@ -46,7 +46,19 @@ const DB = {
   },
 
   save() {
-    localStorage.setItem(DB_KEY, JSON.stringify(this._data));
+    try {
+      localStorage.setItem(DB_KEY, JSON.stringify(this._data));
+    } catch (e) {
+      if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
+        console.error('CRITICAL: LocalStorage is full!');
+        if (!this._notifiedQuota) {
+          alert('⚠️ CRITICAL STORAGE FULL WARNING\n\nYour device memory is completely full from saved photos. The POS cannot save new orders until you clear old photos.\n\nPlease go to Orders -> Photos, delete some old photos, or go to Settings and clear cache!');
+          this._notifiedQuota = true;
+        }
+      } else {
+        throw e;
+      }
+    }
   },
 
   reset() {
