@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mr-laundry-pos-v3';
+const CACHE_NAME = 'mr-laundry-pos-v4';
 const urlsToCache = [
   './',
   './index.html',
@@ -68,17 +68,22 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request)
       .then(response => {
-        // Return cached version if found
-        if (response) return response;
+        if (response) {
+          return response; // Return from cache
+        }
         
-        // Else try network
+        // If not in cache, try network
         return fetch(event.request).then(networkResponse => {
-           // Optionally cache new responses here
            return networkResponse;
         }).catch(() => {
-           // If network fails and not in cache, just fail gracefully
-           console.log('Offline: Could not fetch ' + event.request.url);
+           // Network failed. If it's a navigation request (like refreshing the page), return the cached index.html!
+           if (event.request.mode === 'navigate') {
+             return caches.match('./index.html');
+           }
         });
+      })
+  );
+});
       })
   );
 });
