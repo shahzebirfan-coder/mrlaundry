@@ -327,7 +327,7 @@ function renderAllPhotos() {
           ${ordersWithPhotos.length === 0 ? `<tr><td colspan="7"><div class="empty"><div class="emoji">🎉</div><h4>Storage is clean!</h4><p>No photos are currently saved in the database.</p></div></td></tr>` : ''}
           ${ordersWithPhotos.map(o => {
             const c = DB.get('customers', o.customerId) || {};
-            const inv = o.invoiceNo ? \`INV-${o.invoiceNo}\` : '#' + o.id.slice(-6).toUpperCase();
+            const inv = o.invoiceNo ? ('INV-' + o.invoiceNo) : ('#' + o.id.slice(-6).toUpperCase());
             let oBytes = 0;
             o.photos.forEach(p => oBytes += p.size || Math.round(p.data.length * 0.75));
             const oKb = Math.round(oBytes / 1024);
