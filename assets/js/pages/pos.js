@@ -725,9 +725,9 @@ function openPaymentDialog(orderMeta) {
     updateDue();
     $('#paidInput', m).oninput = updateDue;
 
-    $('#backBtn', m).addEventListener('click', () => { closeModal(); openBookingForm(); });
+    $('#backBtn', m).onclick = () => { closeModal(); openBookingForm(); };
 
-    $('#confirmBtn', m).addEventListener('click', () => {
+    $('#confirmBtn', m).onclick = () => {
       const paid = Math.max(0, +$('#paidInput', m).value || 0);
       const actualPaid = Math.min(tot.total, paid);
       const due = Math.max(0, tot.total - actualPaid);
@@ -778,7 +778,7 @@ function openPaymentDialog(orderMeta) {
       closeModal();
       toast('Order booked successfully!', 'success');
       openInvoice(saved.id);
-    });
+    };
   }});
 }
 

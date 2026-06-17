@@ -489,7 +489,7 @@ function openReceivePayment(orderId) {
       $('#rcvAmt', m).value = v === 'full' ? o.due : Math.round(o.due/2);
     });
 
-    $('#rcvSave', m).addEventListener('click', () => {
+    $('#rcvSave', m).onclick = () => {
       const amt = Math.max(0, Math.min(o.due, +$('#rcvAmt', m).value || 0));
       if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
 
