@@ -545,7 +545,7 @@ function openReceivePayment(orderId) {
       if (wantPrint) {
         setTimeout(() => printPaymentReceipt(orderId, payRecord), 300);
       }
-    };
+    });
 
     // Focus amount field
     setTimeout(() => $('#rcvAmt', m)?.focus(), 100);
