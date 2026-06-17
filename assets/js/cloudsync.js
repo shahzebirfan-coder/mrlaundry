@@ -461,7 +461,7 @@ async function reconnectCloudSync() {
   let pushTimer = null;
   DB.save = function() {
     origSave();
-    localStorage.setItem('mrLaundryLocalVersion', Date.now());
+    try { localStorage.setItem('mrLaundryLocalVersion', Date.now()); } catch(e) {}
     if (CLOUD._suppressPush) return;
     if (!CLOUD.isEnabled() || !CLOUD.isReady()) return;
     clearTimeout(pushTimer);

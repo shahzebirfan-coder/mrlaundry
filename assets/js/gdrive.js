@@ -70,7 +70,11 @@ const GDRIVE = {
     opts.headers = opts.headers || {};
     opts.headers['Authorization'] = 'Bearer ' + t.token;
     const r = await fetch(url, opts);
-    if (r.status === 401) { this.disconnect(); throw new Error('Token expired — please reconnect'); }
+    if (r.status === 401) { 
+       // Instead of fully disconnecting, just remove the token and ask to click reconnect 
+       localStorage.removeItem(this.TOKEN_KEY); 
+       throw new Error('Google Drive session expired (1 hour limit). Please go to Settings and click Connect again to resume auto-backups.'); 
+    }
     return r;
   },
 

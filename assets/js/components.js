@@ -27,6 +27,7 @@ function renderLayout(activePage, contentHtml) {
     { id:'claims',    icon:'🛡️', label:'Claims' },
     { id:'delivery',  icon:'🚚', label:'Pickup & Delivery' },
     { id:'reportBuilder', icon:'📈', label:'Report Builder' },
+    { id:'allPhotos', icon:'📸', label:'Photo Manager' },
     { id:'promoAdmin',icon:'🎁', label:'Promo Codes' },
     { id:'marketing', icon:'📢', label:'Marketing Studio' },
     { id:'purchaseOrders', icon:'📑', label:t('nav.purchaseOrders') },

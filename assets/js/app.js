@@ -16,7 +16,7 @@ const app = {
     }
 
     // Admin-only pages (no override possible)
-    const adminOnly = ['users','settings','inbox','promoAdmin','marketing','delivery','reportBuilder','refundLog'];
+    const adminOnly = ['users','settings','inbox','promoAdmin','marketing','delivery','reportBuilder','refundLog','allPhotos'];
 
     if (page !== 'login' && user.role !== 'admin') {
       if (adminOnly.includes(page)) {
@@ -58,6 +58,7 @@ const app = {
       case 'delivery':        return renderDelivery();
       case 'drawings':        return renderDrawings();
       case 'reportBuilder':   return renderReportBuilder();
+      case 'allPhotos':       return renderAllPhotos();
       default:                return renderDashboard();
     }
   }
