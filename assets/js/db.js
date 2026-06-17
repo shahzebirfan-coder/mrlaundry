@@ -65,10 +65,23 @@ const DB = {
       localStorage.setItem(DB_KEY, JSON.stringify(this._data));
     } catch (e) {
       if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
-        console.error('CRITICAL: LocalStorage is full!');
-        if (!this._notifiedQuota) {
-          alert('⚠️ CRITICAL STORAGE FULL WARNING\n\nYour device memory is completely full from saved photos. The POS cannot save new orders until you clear old photos.\n\nPlease go to Orders -> Photos, delete some old photos, or go to Settings and clear cache!');
-          this._notifiedQuota = true;
+        console.warn('⚠️ LocalStorage is full! Attempting emergency auto-clean of ALL photos...');
+        // Force delete all photos to save the database
+        if (this._data.orders) {
+          this._data.orders.forEach(o => { o.photos = []; o.photoNotes = ''; });
+        }
+        try {
+          localStorage.setItem(DB_KEY, JSON.stringify(this._data));
+          if (!this._notifiedQuota) {
+             toast('Storage was full. All old photos were automatically deleted to make space.', 'warning');
+             this._notifiedQuota = true;
+          }
+        } catch(e2) {
+          console.error('CRITICAL: LocalStorage is STILL full after deleting photos!');
+          if (!this._notifiedQuota) {
+             alert('⚠️ CRITICAL STORAGE ERROR\n\nYour device memory is completely full. Please clear your browser cache/history immediately to continue using the POS.');
+             this._notifiedQuota = true;
+          }
         }
       } else {
         throw e;
@@ -87,7 +100,7 @@ const DB = {
       _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
         { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
-        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now }
+        { id: 'u2', name: 'kashif Cashier', username: 'kashif', password: '123456', role: 'cashier', createdAt: now }
       ],
       categories: [
         { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },
