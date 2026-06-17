@@ -1,0 +1,159 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marketing Studio Preview</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+    
+    body { font-family: 'Inter', sans-serif; background: #f1f5f9; padding: 20px; color: #0f172a; margin: 0; }
+    .container { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+    
+    h1 { margin: 0; font-size: 28px; font-weight: 900; display: flex; align-items: center; gap: 10px; }
+    .sub { color: #64748b; font-size: 14px; margin-top: 4px; }
+    
+    .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border: 1px solid #e2e8f0; }
+    .card-title { font-size: 16px; font-weight: 800; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }
+    
+    /* Idea Banner */
+    .idea-banner { background: linear-gradient(135deg, #fef08a, #fde047); padding: 16px 20px; border-radius: 12px; border-left: 6px solid #eab308; display: flex; align-items: center; gap: 16px; }
+    .idea-icon { font-size: 32px; }
+    .idea-text h3 { margin: 0 0 4px 0; color: #854d0e; font-size: 16px; }
+    .idea-text p { margin: 0; color: #713f12; font-size: 14px; font-weight: 500; }
+    
+    /* Layout for Studio & Blaster */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1.2fr; gap: 20px; }
+    
+    /* Studio */
+    .canvas-container { background: #cbd5e1; height: 250px; border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; margin-bottom: 15px; border: 2px dashed #94a3b8; }
+    .mock-img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.8); }
+    .mock-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 15px; }
+    .m-logo { font-size: 20px; font-weight: 900; color: #fff; text-shadow: 1px 1px 4px rgba(0,0,0,0.8); display: flex; align-items: center; gap: 6px; }
+    .m-badge { background: #ef4444; color: #fff; padding: 8px 16px; border-radius: 30px; font-weight: 900; font-size: 22px; align-self: flex-start; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 2px solid #fff; transform: rotate(-5deg); margin-top: auto; margin-bottom: 20px; }
+    .m-phone { background: rgba(0,0,0,0.7); color: #fff; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 14px; align-self: center; width: 100%; text-align: center; box-sizing: border-box; }
+    
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 4px; text-transform: uppercase; }
+    .field input, .field select, .field textarea { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 14px; box-sizing: border-box; }
+    
+    /* Blaster */
+    .btn { padding: 10px 16px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-dark { background: #0f172a; color: #fff; width: 100%; justify-content: center; }
+    
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px; border-bottom: 2px solid #e2e8f0; color: #64748b; }
+    td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .bg-green { background: #22c55e; }
+    .bg-orange { background: #f97316; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div>
+      <h1>📢 Marketing & Promotions</h1>
+      <div class="sub">Run daily WhatsApp campaigns to bring customers back to the shop.</div>
+    </div>
+
+    <!-- AI IDEA GENERATOR -->
+    <div class="idea-banner">
+      <div class="idea-icon">💡</div>
+      <div class="idea-text">
+        <h3>Today's AI Marketing Idea</h3>
+        <p><b>Carpet Cleaning Season!</b> Offer a 50% discount on carpet and curtain washing when customers pay in advance. Great for weekend cash flow!</p>
+      </div>
+      <button class="btn btn-primary" style="margin-left: auto;">Use this Template</button>
+    </div>
+
+    <div class="grid-2">
+      <!-- AUTO BRANDING STUDIO -->
+      <div class="card">
+        <div class="card-title">🎨 1. Auto-Branding Studio</div>
+        <p style="font-size:12px;color:#64748b;margin-top:0;">Upload a plain AI image, and we will automatically stamp your logo and offer on it!</p>
+        
+        <div class="canvas-container">
+          <img src="https://images.unsplash.com/photo-1550989460-0adf9ea622e2?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" class="mock-img" alt="Carpet">
+          <div class="mock-overlay">
+            <div class="m-logo">🧺 Mr Laundry</div>
+            <div class="m-badge">50% OFF CARPETS!</div>
+            <div class="m-phone">📞 Booking: 0334 3691210</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Upload Background Image</label>
+          <input type="file" />
+        </div>
+        <div class="field">
+          <label>Sticker / Offer Text</label>
+          <input type="text" value="50% OFF CARPETS!" />
+        </div>
+        <button class="btn btn-dark">⬇️ Download Branded Ad</button>
+      </div>
+
+      <!-- WHATSAPP CAMPAIGN BLASTER -->
+      <div class="card">
+        <div class="card-title">🚀 2. WhatsApp Campaign Blaster</div>
+        
+        <div style="display:flex;gap:10px;margin-bottom:15px;">
+          <div class="field" style="flex:1;margin:0;">
+            <label>Target Audience</label>
+            <select>
+              <option>Sleeping Customers (No visit in 30 days)</option>
+              <option>All Customers</option>
+              <option>VIP / Loyalty Members</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1;margin:0;">
+            <label>Message Template</label>
+            <select>
+              <option>Carpet Promo (Advance Pay)</option>
+              <option>Buy 3 Get 1 Free</option>
+              <option>Online Portal Booking</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Message Preview (Variables: {name})</label>
+          <textarea rows="3">Hi {name}! Special offer today: Get 50% OFF on all Carpet & Curtain washes if you book with Advance Payment! Drop your carpets today at Mr Laundry.</textarea>
+        </div>
+
+        <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+          <div style="background:#f8fafc;padding:8px 12px;font-size:12px;font-weight:bold;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;">
+            <span>Queue: 42 Customers Found</span>
+            <span style="color:#ef4444;">0 / 42 Sent</span>
+          </div>
+          <div style="max-height: 200px; overflow-y: auto;">
+            <table>
+              <thead><tr><th>Customer</th><th>Last Visit</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><b>Tariq Ali</b><br><span style="color:#64748b;font-size:11px;">03001234567</span></td>
+                  <td><span class="status-dot bg-orange"></span> 45 days ago</td>
+                  <td style="text-align:right;"><button class="btn btn-success" style="padding:6px 10px;font-size:12px;">📱 Send Ad</button></td>
+                </tr>
+                <tr>
+                  <td><b>Aslam Motiwala</b><br><span style="color:#64748b;font-size:11px;">03232041811</span></td>
+                  <td><span class="status-dot bg-orange"></span> 32 days ago</td>
+                  <td style="text-align:right;"><button class="btn btn-success" style="padding:6px 10px;font-size:12px;">📱 Send Ad</button></td>
+                </tr>
+                <tr>
+                  <td><b>Kashif</b><br><span style="color:#64748b;font-size:11px;">03119876543</span></td>
+                  <td><span class="status-dot bg-orange"></span> 60 days ago</td>
+                  <td style="text-align:right;"><button class="btn btn-success" style="padding:6px 10px;font-size:12px;">📱 Send Ad</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</body>
+</html>

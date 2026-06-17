@@ -1,0 +1,55 @@
+const fs = require('fs');
+
+const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: sans-serif; background: #f8fafc; padding: 20px; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 800px; margin: 0 auto; border-top: 4px solid #ef4444; }
+    h3 { margin: 0 0 16px 0; color: #b91c1c; display: flex; align-items: center; gap: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 12px; background: #fef2f2; border-bottom: 2px solid #fca5a5; font-size: 13px; color: #991b1b; }
+    td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+    .btn { background: #22c55e; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .tag { background: #fee2e2; color: #b91c1c; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3>⚠️ Overdue & Uncollected Orders Dashboard</h3>
+    <p style="font-size:14px; color:#475569; margin-bottom:20px;">These orders have been "Ready" for more than 14 days and taking up space on your racks.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice</th>
+          <th>Customer</th>
+          <th>Ready Since</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>INV-1120</b></td>
+          <td>Tariq Khan<br><small style="color:#64748b;">03001234567</small></td>
+          <td>16 May 2026<br><small style="color:#ef4444;font-weight:bold;">27 days ago</small></td>
+          <td><span class="tag">Overdue</span></td>
+          <td><button class="btn">📱 Send Final Warning</button></td>
+        </tr>
+        <tr>
+          <td><b>INV-1122</b></td>
+          <td>Zahid Ali<br><small style="color:#64748b;">03219876543</small></td>
+          <td>22 May 2026<br><small style="color:#ef4444;font-weight:bold;">21 days ago</small></td>
+          <td><span class="tag">Overdue</span></td>
+          <td><button class="btn">📱 Send Final Warning</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>
+`;
+
+fs.writeFileSync('overdue_preview.html', html);
