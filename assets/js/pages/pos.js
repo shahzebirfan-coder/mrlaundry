@@ -736,6 +736,11 @@ function openPaymentDialog(orderMeta) {
       if (actualPaid === 0) paymentType = 'credit';
       else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
 
+      let createdTs = new Date().toISOString();
+      if ($('#backdateInput', m) && $('#backdateInput', m).value) {
+        try { createdTs = new Date($('#backdateInput', m).value).toISOString(); } catch(e) {}
+      }
+
       const order = {
         invoiceNo: DB.nextInvoiceNumber(),
         items: posState.cart.map(i => ({ ...i, lineTotal: i.price * i.qty })),
@@ -750,7 +755,7 @@ function openPaymentDialog(orderMeta) {
         tax: tot.tax,
         total: tot.total,
         paid: actualPaid,
-        createdAt: ($('#backdateInput', m) && $('#backdateInput', m).value) ? new Date($('#backdateInput', m).value).toISOString() : new Date().toISOString(),
+        createdAt: createdTs,
         due,
         advance: paymentType === 'advance' ? actualPaid : 0,
         paymentType,
