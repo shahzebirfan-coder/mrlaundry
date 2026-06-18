@@ -266,7 +266,17 @@ const DB = {
   },
   nextInvoiceNumber() {
     if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
-    this._data._counters.invoice += 1;
+    
+    // Safety check: Scan all orders to find the absolute highest invoice number so we NEVER duplicate!
+    let highest = this._data._counters.invoice || 1000;
+    if (this._data.orders) {
+      this._data.orders.forEach(o => {
+        const inv = parseInt(o.invoiceNo, 10);
+        if (inv && inv > highest) highest = inv;
+      });
+    }
+    
+    this._data._counters.invoice = highest + 1;
     this.save();
     return this._data._counters.invoice;
   },
