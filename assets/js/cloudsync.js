@@ -115,7 +115,13 @@ const CLOUD = {
           if (!existing) { byId[rec.id] = rec; continue; }
           const lTs = +new Date(existing.updatedAt || existing.createdAt || 0) || 0;
           const rTs = +new Date(rec.updatedAt || rec.createdAt || 0) || 0;
-          if (rTs >= lTs) byId[rec.id] = rec;
+          
+          // Special override for default seed IDs (u1, u2, cu1, etc.) to ensure cloud wins on a new device
+          if (['u1', 'u2', 'cu1', 'main', 'inv_hanger', 'inv_shopper'].includes(rec.id) && lTs < 1720000000000) {
+             byId[rec.id] = rec;
+          } else if (rTs >= lTs) {
+             byId[rec.id] = rec;
+          }
         }
         merged[tbl] = Object.values(byId).filter(rec => !rec._deleted);
       } else if (tbl === 'settings' && typeof r === 'object') {
@@ -579,12 +585,37 @@ function openCloudSyncManager() {
     });
 
     $('#pullNowBtn', m)?.addEventListener('click', () => {
-      confirmDialog('FORCE Pull will OVERWRITE local data with cloud. You probably want "Merge Now" instead. Continue?', async () => {
+      confirmDialog('FORCE Pull will OVERWRITE ALL local data with cloud. Continue?', async () => {
         try {
-          const remote = await CLOUD.pull();
-          if (!remote) { log('No data in cloud yet','error'); return; }
+          const db = await CLOUD.init();
+          const shopId = CLOUD.getShopId();
+          const mainDoc = await db.collection('shops').doc(shopId).get();
+          if (!mainDoc.exists) { log('No data in cloud yet','error'); return; }
+          const meta = mainDoc.data();
+          let remote = null;
+          if (meta._format === 'chunked-v1' && meta.tables) {
+            remote = {};
+            const tablesRef = db.collection('shops').doc(shopId).collection('tables');
+            for (const tbl of Object.keys(meta.tables)) {
+              const info = meta.tables[tbl];
+              if (info.chunks === 1) {
+                const doc = await tablesRef.doc(tbl).get();
+                if (doc.exists) { try { remote[tbl] = JSON.parse(doc.data().data); } catch(e){} }
+              } else {
+                const chunks = [];
+                for (let i = 0; i < info.chunks; i++) {
+                  const doc = await tablesRef.doc(`${tbl}__c${i}`).get();
+                  if (doc.exists) chunks[i] = doc.data().data;
+                }
+                if (chunks.length === info.chunks) { try { remote[tbl] = JSON.parse(chunks.join('')); } catch(e){} }
+              }
+            }
+          } else if (meta.data) {
+            try { remote = JSON.parse(meta.data); } catch(e) {}
+          }
+          if (!remote) { log('Cloud data corrupted','error'); return; }
           DB._data = remote; DB.save();
-          toast('Pulled from cloud. Reloading...','success');
+          toast('Force Pulled from cloud. Reloading...','success');
           setTimeout(() => location.reload(), 1000);
         } catch(e) { log('❌ ' + e.message, 'error'); }
       });

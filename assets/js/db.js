@@ -100,7 +100,7 @@ const DB = {
       _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
         { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
-        { id: 'u2', name: 'kashif Cashier', username: 'kashif', password: '123456', role: 'cashier', createdAt: now }
+        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now }
       ],
       categories: [
         { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },
