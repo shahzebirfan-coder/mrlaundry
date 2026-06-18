@@ -24,7 +24,7 @@ function openInvoice(orderId, autoPrint) {
     <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
       <h3>🧾 Invoice ${invoiceNo}</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-secondary btn-sm" id="photosBtn" title="Manage order photos (for disputes)">📷 Photos${(o.photos&&o.photos.length)?` (${o.photos.length})`:''}</button>
+        <!-- Photos disabled -->
         ${c.phone ? `<button class="btn btn-success btn-sm" id="waBtn" title="Send invoice via WhatsApp">📱 WhatsApp</button>` : ''}
         ${DB.currentUser().role==='admin' ? `<button class="btn btn-secondary btn-sm" id="customizeInv">⚙️ Customize</button><button class="btn btn-warning btn-sm" id="editFromInv">✏️ Edit</button>`:''}
         <button class="btn btn-secondary btn-sm" id="printCustomerOnly" title="Print only customer copy">🖨️ Customer Only</button>

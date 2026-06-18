@@ -136,7 +136,7 @@ function renderOrdersBody() {
         <button class="btn btn-secondary btn-sm" data-act="partial" data-id="${o.id}" title="Partial Delivery">🛍️</button>
         ${(o.due||0) > 0 ? `<button class="btn btn-success btn-sm" data-act="receive" data-id="${o.id}" title="${t('rcv.title')}">💰</button>` : ''}
         ${c.phone ? `<button class="btn btn-success btn-sm" data-act="wa" data-id="${o.id}" title="${t('ord.sendWa')}">📱${(o.whatsappLog && o.whatsappLog.length) ? ` ${o.whatsappLog.length}` : ""}</button>` : ''}
-        <button class="btn btn-secondary btn-sm" data-act="photos" data-id="${o.id}" title="${t('ord.photos')}">📷${(o.photos&&o.photos.length)?` ${o.photos.length}`:''}</button>
+        <!-- Photos disabled due to storage limits -->
         <button class="btn btn-secondary btn-sm" data-act="print" data-id="${o.id}" title="${t('ord.printInv')}">🖨️</button>
         ${c.isB2B ? `<button class="btn btn-secondary btn-sm" data-act="challan" data-id="${o.id}" title="Print Delivery Challan" style="border-color:#1e40af;color:#1e40af;background:#eff6ff;">📄 Challan</button>` : ''}
         ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" data-act="edit" data-id="${o.id}" title="${t('ord.edit')}">✏️</button><button class="btn btn-danger btn-sm" data-act="del" data-id="${o.id}" title="${t('ord.delete')}">🗑️</button>` : ''}
