@@ -64,7 +64,16 @@ const DB = {
   },
 
   save() {
-    localStorage.setItem(DB_KEY, JSON.stringify(this._data));
+    try {
+      const serialized = JSON.stringify(this._data);
+      localStorage.setItem(DB_KEY, serialized);
+    } catch (e) {
+      if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
+        console.error('DB.save failed: localStorage quota exceeded. Try removing old photos or reducing data.');
+        throw new Error('Storage full! Backup too large. Remove old photos or export without photos.');
+      }
+      throw e;
+    }
   },
 
   reset() {
@@ -347,7 +356,7 @@ const DB = {
     try { return JSON.parse(raw); } catch(e){ return null; }
   },
 
-  exportJSON() { return JSON.stringify(this._data, null, 2); },
+  exportJSON() { return JSON.stringify(this._data); },
   importJSON(json) {
     try {
       const parsed = (typeof json === 'string') ? JSON.parse(json) : json;
