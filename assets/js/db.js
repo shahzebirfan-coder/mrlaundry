@@ -16,7 +16,7 @@ const DB = {
       catch(e){ this._data = this._seed(); this.save(); }
       // Migration: ensure new top-level tables exist
       const seed = this._seed();
-    const now = '2024-01-01T00:00:00.000Z'; // Fixed date so remote data always overwrites local defaults on a fresh device!
+      const now = '2024-01-01T00:00:00.000Z'; // Fixed date so remote data always overwrites local defaults on a fresh device!
       // Ensure default Hanger & Shopper inventory items exist (auto-add if missing)
       const inv = this._data.inventory;
       if (!inv.find(i => i.autoDeduct === 'hanger')) {
@@ -37,7 +37,6 @@ const DB = {
       if (!this._data.branches || !this._data.branches.length) {
         this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }];
       }
-      
       
       // Client Migration: Update credentials
       if (this._data.users) {
@@ -101,7 +100,7 @@ const DB = {
       ],
       orders: [],
       expenses: [],
-      ownerDrawings: [],     // Owner's personal withdrawals from shop money
+      ownerDrawings: [],
       vendors: [
         { id: 'v1', name: 'Sample Laundry Vendor', contactPerson: '', phone: '', address: '', openingBalance: 0, createdAt: now }
       ],
@@ -148,17 +147,16 @@ const DB = {
         defaultLoyaltyDiscountPercent: 10,
         autoBackupReminder: true,
         poPrefix: 'PO',
-        // ===== INVOICE CUSTOMIZATION =====
-        invoiceFontSize: 14,           // base font size in px
-        invoiceWidth: 360,             // max width in px (thermal=300, A6=420, A5=560)
-        invoiceQtyCircle: true,        // show big quantity circle
+        invoiceFontSize: 14,
+        invoiceWidth: 360,
+        invoiceQtyCircle: true,
         invoiceShowLogo: true,
         invoiceShowAddress: true,
         invoiceShowPhone: true,
         invoiceShowTagline: true,
         invoiceShowCashier: true,
         invoiceShowQR: true,
-        invoiceShowDeliveryType: true, // Hanger/Fold
+        invoiceShowDeliveryType: true,
         invoiceShowItemBreakdown: true,
         invoiceShowPaymentMethod: true,
         invoiceShowDiscount: true,
@@ -167,18 +165,15 @@ const DB = {
         invoiceShowEditedBadge: true,
         invoiceTerms: 'Items not collected within 30 days are non-refundable.',
         invoiceShowTerms: false,
-        // Office-copy & WhatsApp settings
-        printDualCopy: true,           // when true, prints customer + office copy together
-        officeCopyWidth: 280,          // small slip for office
+        printDualCopy: true,
+        officeCopyWidth: 280,
         officeCopyFontSize: 11,
-        photoRetentionDays: 30,        // auto-cleanup photos older than X days after delivery
+        photoRetentionDays: 30,
         photoAutoCleanup: true,
-        // === Portal-specific settings ===
         shopHours: 'Mon-Sat: 9:00 AM - 9:00 PM\nSunday: Closed',
         shopLocation: '',
         shopMapUrl: '',
         portalLang: 'en',
-        // === Payment settings ===
         bankName: '',
         bankAccountTitle: 'Shahzeb Vakani',
         bankAccountNumber: '',
@@ -187,30 +182,22 @@ const DB = {
         easypaisaName: 'Shahzeb Vakani',
         easypaisaNumber: '0302 8244803',
         paymentInstructions: 'Please pay to the above account and upload screenshot below. We will verify and mark your invoice as PAID within 30 minutes.',
-        // === Loyalty / Referral ===
         referralDiscountPercent: 10,
-        // === Claims Policy ===
         claimPolicyPercent: 30,
         claimVoucherFreeCount: 7,
         claimVoucherValidDays: 180,
         claimPrefix: 'CLM',
         voucherPrefix: 'VCH',
-        // === Cash close lock ===
-        forceCashClose: true,             // require day close before logout
-        // === Sound effects ===
+        forceCashClose: true,
         soundEffects: true,
-        // === Suspicious alerts ===
         suspiciousAlerts: true,
-        largeDiscountThreshold: 500,      // alert if discount > Rs.500
+        largeDiscountThreshold: 500,
         largeRefundThreshold: 1000,
-        // === Auto-reply ===
         autoReplyEnabled: true,
-        // === Public reviews ===
         showPublicReviews: true,
-        minReviewStars: 4,                // only show reviews with 4+ stars publicly
+        minReviewStars: 4,
         claimTerms: 'Claim valid only with original purchase slip. Voucher valid for 7 free wash services within 6 months from issue date. Non-transferable. Cannot be exchanged for cash.',
-        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from delivery date will not be the responsibility of Laundry POS.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
-        // === Push notifications ===
+        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from the delivery date will not be the responsibility of Laundry POS.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
         pushVapidPublicKey: '',
         whatsappTemplate: 'Hello {name}, thank you for your order at {shop}!\n\nInvoice: {invoice}\nTotal Pcs: {pcs}\nAmount: {total}\nPaid: {paid}\nDue: {due}\nDelivery: {delivery} ({type})\n\n{footer}'
       }
@@ -251,8 +238,6 @@ const DB = {
   
   nextInvoiceNumber() {
     if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
-    
-    // Find highest existing invoice number in orders array to prevent ANY duplication
     let maxExisting = 1000;
     if (this._data.orders && this._data.orders.length > 0) {
       for (let o of this._data.orders) {
@@ -261,7 +246,6 @@ const DB = {
         }
       }
     }
-    
     let nextVal = Math.max(this._data._counters.invoice || 1000, maxExisting) + 1;
     this._data._counters.invoice = nextVal;
     this.save();
@@ -301,7 +285,6 @@ const DB = {
     const un = username.toLowerCase();
     const u = this._data.users.find(x => x.username.toLowerCase() === un && x.password === password);
     if (!u) {
-      // Log failed attempt
       try {
         this._data.auditLog = this._data.auditLog || [];
         this._data.auditLog.push({
@@ -317,7 +300,6 @@ const DB = {
       return null;
     }
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: u.id, name: u.name, username: u.username, role: u.role }));
-    // Log successful login
     try {
       this._data.auditLog = this._data.auditLog || [];
       this._data.auditLog.push({
@@ -396,12 +378,10 @@ const DB = {
 
 /* ============================================================
    MR LAUNDRY OFFICIAL RATE LIST
-   Update prices here, then click "Import/Reset Price List" in admin Products page.
    ============================================================ */
 function getMrLaundryRateList() {
   const G = 'cgents', L = 'cladies', O = 'cothers', P = 'cpress';
   const list = [
-    // ===== GENTS WEAR =====
     { name: 'Suit 2 Pcs',            category: G, price: 800,  image: '🤵' },
     { name: 'Suit 3 Pcs',            category: G, price: 1000, image: '🤵' },
     { name: 'Coat',                  category: G, price: 600,  image: '🧥' },
@@ -427,8 +407,6 @@ function getMrLaundryRateList() {
     { name: 'Kids Shorts',           category: G, price: 120,  image: '🩳' },
     { name: 'Kids Shirt',            category: G, price: 120,  image: '👔' },
     { name: 'Kids Trouser / Jeans',  category: G, price: 120,  image: '👖' },
-
-    // ===== LADIES WEAR =====
     { name: 'Shalwar Suit Plain - 3 Pcs', category: L, price: 400, image: '🥻' },
     { name: 'Shalwar Suit Plain - 2 Pcs', category: L, price: 300, image: '🥻' },
     { name: 'Dupatta',                    category: L, price: 150, image: '🧣' },
@@ -450,8 +428,6 @@ function getMrLaundryRateList() {
     { name: 'Bridal Dress - Maxi',        category: L, price: 6000, image: '👰' },
     { name: 'Bridal Dress - 3 Pcs Suit',  category: L, price: 6000, image: '👰' },
     { name: 'Ladies Undergarments (BRA)', category: L, price: 80,   image: '🩲' },
-
-    // ===== OTHERS =====
     { name: 'Hoodie / Cardigan / Sweater', category: O, price: 600,  image: '🧥' },
     { name: 'Heavy Jacket',               category: O, price: 800,  image: '🧥' },
     { name: 'Jacket Leather',             category: O, price: 1000, image: '🧥' },
@@ -493,8 +469,6 @@ function getMrLaundryRateList() {
     { name: 'Pillow Cover',               category: O, price: 120,  image: '🛏️' },
     { name: 'Rafooh',                     category: O, price: 0,    image: '🧵' },
     { name: 'Sofa',                       category: O, price: 0,    image: '🛋️' },
-
-    // ===== PRESS / IRONING ONLY (rates can be set later) =====
     { name: 'Suit 2 Pcs (Press)',           category: P, price: 0, image: '🤵' },
     { name: 'Suit 3 Pcs (Press)',           category: P, price: 0, image: '🤵' },
     { name: 'Coat (Press)',                 category: P, price: 0, image: '🧥' },
