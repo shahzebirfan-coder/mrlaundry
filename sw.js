@@ -80,7 +80,6 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Never cache API or auth requests
   if (event.request.url.includes('googleapis.com') || 
       event.request.url.includes('googleusercontent.com')) {
     return;
@@ -88,7 +87,6 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // Update cache with fresh response
         if (response && response.status === 200) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then(cache => {
