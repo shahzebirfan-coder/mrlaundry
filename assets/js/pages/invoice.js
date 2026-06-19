@@ -1,8 +1,33 @@
 /* ===================== INVOICE / RECEIPT ===================== */
+/* ===================== INVOICE / PRINT ===================== */
+
+/* Robust customer lookup: tries ID first, then name/phone fallback */
+function getCustomerForOrder(order) {
+  if (!order) return { name: 'Walk-in', phone: '' };
+  if (order.customerId) {
+    const c = DB.get('customers', order.customerId);
+    if (c) return c;
+  }
+  if (order.customerName || order.customerPhone || order.customerMobile) {
+    const all = DB.all('customers');
+    const match = all.find(c =>
+      (order.customerName && c.name === order.customerName) ||
+      (order.customerPhone && c.phone === order.customerPhone) ||
+      (order.customerMobile && c.phone === order.customerMobile)
+    );
+    if (match) return match;
+  }
+  if (order.customerName) {
+    const all = DB.all('customers');
+    const match = all.find(c => c.name && c.name.toLowerCase() === order.customerName.toLowerCase());
+    if (match) return match;
+  }
+  return { name: 'Walk-in', phone: '' };
+}
 function openInvoice(orderId, autoPrint) {
   const o = DB.get('orders', orderId);
   if (!o) { toast('Order not found','error'); return; }
-  const c = DB.get('customers', o.customerId) || { name:'Walk-in Customer' };
+  const c = getCustomerForOrder(o);
   const cashier = DB.get('users', o.cashierId) || { name:'-' };
   const s = DB.settings();
   const invoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
@@ -496,7 +521,7 @@ function invToggle(key, label, currentVal) {
 function printChallan(orderId) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = DB.get('customers', o.customerId) || { name: 'Customer' };
+  const c = getCustomerForOrder(o);
   const s = DB.settings();
   const challanNo = o.invoiceNo ? `CH-${o.invoiceNo}` : 'CH-' + o.id.slice(-6).toUpperCase();
   const totalPcs = (o.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);

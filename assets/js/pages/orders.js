@@ -1,6 +1,34 @@
 /* ===================== ORDERS / INVOICES ===================== */
 let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' };
 
+/* Robust customer lookup: tries ID first, then name/phone fallback */
+function getCustomerForOrder(order) {
+  if (!order) return { name: 'Walk-in', phone: '' };
+  // 1. Try exact ID match
+  if (order.customerId) {
+    const c = DB.get('customers', order.customerId);
+    if (c) return c;
+  }
+  // 2. Try legacy fields if present in order (backward compat with old backups)
+  if (order.customerName || order.customerPhone || order.customerMobile) {
+    const all = DB.all('customers');
+    const match = all.find(c =>
+      (order.customerName && c.name === order.customerName) ||
+      (order.customerPhone && c.phone === order.customerPhone) ||
+      (order.customerMobile && c.phone === order.customerMobile)
+    );
+    if (match) return match;
+  }
+  // 3. Try fuzzy name match
+  if (order.customerName) {
+    const all = DB.all('customers');
+    const match = all.find(c => c.name && c.name.toLowerCase() === order.customerName.toLowerCase());
+    if (match) return match;
+  }
+  // 4. Final fallback
+  return { name: 'Walk-in', phone: '' };
+}
+
 function renderOrders() {
   const content = `
     <h1 class="page-title">📦 ${t('ord.title')}</h1>
@@ -83,7 +111,7 @@ function filteredOrders() {
     if (ordersFilter.dateTo && d > ordersFilter.dateTo) return false;
     if (ordersFilter.search) {
       const q = ordersFilter.search.toLowerCase();
-      const c = DB.get('customers', o.customerId) || {};
+      const c = getCustomerForOrder(o);
       const invStr = String(o.invoiceNo || o.id);
       if (!invStr.toLowerCase().includes(q)
         && !(c.name||'').toLowerCase().includes(q)
@@ -116,7 +144,7 @@ function renderOrdersBody() {
   }
 
   $('#ordersBody').innerHTML = filtered.map(o => {
-    const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
+    const c = getCustomerForOrder(o);
     const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
     return `<tr>
       <td><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
@@ -177,7 +205,7 @@ function renderOrdersBody() {
 function openStatusChange(orderId) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = DB.get('customers', o.customerId) || {};
+  const c = getCustomerForOrder(o);
   const html = `
     <h3>🔄 Update Order — INV-${o.invoiceNo || o.id.slice(-6).toUpperCase()}</h3>
     <p class="sub">Customer: ${escapeHtml(c.name)} • ${escapeHtml(c.phone||'')}</p>
@@ -237,7 +265,7 @@ function openEditInvoice(orderId) {
   if (DB.currentUser().role !== 'admin') { toast('Admin access only','error'); return; }
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = DB.get('customers', o.customerId) || {};
+  const c = getCustomerForOrder(o);
 
   const itemsHtml = (items) => items.map((it,i) => `
     <tr data-i="${i}">
@@ -417,7 +445,7 @@ function openReceivePayment(orderId) {
   if (!o) { toast('Order not found', 'error'); return; }
   if ((o.due || 0) <= 0) { toast(t('rcv.noDue') + ' ✅', 'success'); return; }
 
-  const c = DB.get('customers', o.customerId) || { name: 'Walk-in', phone: '' };
+  const c = getCustomerForOrder(o);
   const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
   const s = DB.settings();
 
@@ -556,7 +584,7 @@ function openReceivePayment(orderId) {
 function printPaymentReceipt(orderId, payRecord) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = DB.get('customers', o.customerId) || { name: 'Walk-in', phone: '' };
+  const c = getCustomerForOrder(o);
   const s = DB.settings();
   const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
   const width = s.invoiceWidth || 360;
@@ -640,7 +668,7 @@ function openQuickPay() {
       const digits = q.replace(/\D/g, '');
       const orders = DB.all('orders').filter(o => {
         const inv = String(o.invoiceNo || '');
-        const c = DB.get('customers', o.customerId) || {};
+        const c = getCustomerForOrder(o);
         const phone = String(c.phone || '').replace(/\D/g, '');
         return inv.includes(digits) || phone.includes(digits) || (c.name||'').toLowerCase().includes(q);
       }).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
@@ -655,7 +683,7 @@ function openQuickPay() {
     function renderRows(orders) {
       return `<table class="tbl" style="margin-top:6px;"><thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>` +
         orders.map(o => {
-          const c = DB.get('customers', o.customerId) || { name:'Walk-in', phone:'' };
+          const c = getCustomerForOrder(o);
           const inv = o.invoiceNo ? `INV-${o.invoiceNo}` : '#'+o.id.slice(-6).toUpperCase();
           const due = o.due || 0;
           return `<tr>
@@ -699,7 +727,7 @@ window.printPaymentReceipt = printPaymentReceipt;
 function openPartialDelivery(orderId) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = DB.get('customers', o.customerId) || {};
+  const c = getCustomerForOrder(o);
   
   const items = o.items || [];
   // Migrate old data on the fly
@@ -806,7 +834,7 @@ function openPartialDelivery(orderId) {
 
 function printPartialSlip(orderId) {
   const o = DB.get('orders', orderId);
-  const c = DB.get('customers', o.customerId) || { name: 'Customer' };
+  const c = getCustomerForOrder(o);
   const s = DB.settings();
   const invoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
   
