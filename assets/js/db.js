@@ -367,8 +367,44 @@ const DB = {
         if (!Array.isArray(parsed[table])) parsed[table] = [];
       });
       this._data = parsed;
-      this.save();
-      return true;
+      // Try normal save first
+      try {
+        this.save();
+        return true;
+      } catch (saveErr) {
+        // If storage quota exceeded, strip photos and retry
+        if (saveErr.message && saveErr.message.includes('Storage full')) {
+          let stripped = 0;
+          if (this._data.orders) {
+            this._data.orders.forEach(o => {
+              if (o.photos && o.photos.length) {
+                stripped += o.photos.length;
+                o.photos = [];
+              }
+            });
+          }
+          try {
+            this.save();
+            console.warn(`[DB] Storage quota exceeded. Stripped ${stripped} photos from orders. Data restored successfully.`);
+            return { success: true, photosStripped: stripped, warning: `Backup restored but ${stripped} photos were removed to fit browser storage. Consider using Google Drive backup for full photo backup.` };
+          } catch (retryErr) {
+            // Still too large — try stripping payment proofs too
+            let proofsStripped = 0;
+            if (this._data.paymentProofs) {
+              proofsStripped = this._data.paymentProofs.length;
+              this._data.paymentProofs = [];
+            }
+            try {
+              this.save();
+              console.warn(`[DB] Stripped ${stripped} photos + ${proofsStripped} payment proofs. Data restored.`);
+              return { success: true, photosStripped: stripped, proofsStripped: proofsStripped, warning: `Backup restored but ${stripped} photos and ${proofsStripped} payment proofs were removed to fit browser storage.` };
+            } catch (finalErr) {
+              throw new Error('Backup too large even after removing photos. Try clearing browser data or using a smaller backup.');
+            }
+          }
+        }
+        throw saveErr;
+      }
     } catch (e) {
       console.error('DB.importJSON failed:', e);
       throw new Error('Backup file invalid or corrupted: ' + e.message);
