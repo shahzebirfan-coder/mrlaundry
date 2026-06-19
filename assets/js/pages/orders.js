@@ -507,7 +507,7 @@ function openReceivePayment(orderId) {
     </div>
 
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
       <button class="btn btn-success btn-lg" id="rcvSave">${t('rcv.confirmBtn')}</button>
     </div>
   `;

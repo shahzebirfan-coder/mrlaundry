@@ -316,9 +316,15 @@ function renderSettings() {
         confirmDialog('This will REPLACE all current data with the backup. Continue?', () => {
           try {
             console.log('[Restore] Calling DB.importJSON...');
-            DB.importJSON(reader.result);
-            console.log('[Restore] importJSON succeeded');
-            toast('Restored! Saving to persistent storage...', 'success');
+            const result = DB.importJSON(reader.result);
+            console.log('[Restore] importJSON result:', result);
+            
+            let msg = 'Restored! Saving to persistent storage...';
+            if (result && result.warning) {
+              msg = '✅ ' + result.warning;
+              console.log('[Restore] Warning:', result.warning);
+            }
+            toast(msg, 'success');
 
             // CRITICAL: Prevent persistent.js from overwriting with old data
             sessionStorage.setItem('mrLaundryRestoring', 'true');
