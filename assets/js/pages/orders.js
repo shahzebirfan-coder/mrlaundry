@@ -9,20 +9,21 @@ function getCustomerForOrder(order) {
     const c = DB.get('customers', order.customerId);
     if (c) return c;
   }
-  // 2. Try legacy fields if present in order (backward compat with old backups)
-  if (order.customerName || order.customerPhone || order.customerMobile) {
+  // 2. Use snapshot data stored in order (new feature for resilience)
+  if (order.customerName) {
+    return { 
+      name: order.customerName, 
+      phone: order.customerPhone || '',
+      id: order.customerId || 'unknown'
+    };
+  }
+  // 3. Try legacy fields if present in order (backward compat with old backups)
+  if (order.customerPhone || order.customerMobile) {
     const all = DB.all('customers');
     const match = all.find(c =>
-      (order.customerName && c.name === order.customerName) ||
       (order.customerPhone && c.phone === order.customerPhone) ||
       (order.customerMobile && c.phone === order.customerMobile)
     );
-    if (match) return match;
-  }
-  // 3. Try fuzzy name match
-  if (order.customerName) {
-    const all = DB.all('customers');
-    const match = all.find(c => c.name && c.name.toLowerCase() === order.customerName.toLowerCase());
     if (match) return match;
   }
   // 4. Final fallback

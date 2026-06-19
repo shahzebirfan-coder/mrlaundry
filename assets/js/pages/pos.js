@@ -736,10 +736,13 @@ function openPaymentDialog(orderMeta) {
       if (actualPaid === 0) paymentType = 'credit';
       else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
 
+      const cust = DB.get('customers', posState.customerId) || { name: 'Walk-in', phone: '' };
       const order = {
         invoiceNo: DB.nextInvoiceNumber(),
         items: posState.cart.map(i => ({ ...i, lineTotal: i.price * i.qty })),
         customerId: posState.customerId,
+        customerName: cust.name,
+        customerPhone: cust.phone,
         subtotal: tot.subtotal,
         discount: tot.totalDiscount,
         manualDiscount: tot.manualDiscount,
