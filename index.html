@@ -8,8 +8,11 @@
       if (!cleared && localStorage.getItem('mrLaundryDB')) {
         try {
           const db = JSON.parse(localStorage.getItem('mrLaundryDB'));
-          // Only clear if it's literally the OLD demo seed with adminshahzeb as username
-          const isOldDemo = db && db.users && db.users.some(u => u.username === 'adminshahzeb' || u.username === 'demo');
+          // Only clear if it's EXACTLY the old IT demo seed (adminshahzeb + aibot only, no real orders)
+          const isOldDemo = db && db.users && 
+            db.users.length <= 2 && 
+            db.users.some(u => u.username === 'adminshahzeb') &&
+            (!db.orders || db.orders.length === 0);
           if (isOldDemo) {
             localStorage.removeItem('mrLaundryDB');
             localStorage.removeItem('mrLaundrySession');
