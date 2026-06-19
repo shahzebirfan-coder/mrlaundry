@@ -68,8 +68,28 @@ const DB = {
       localStorage.setItem(DB_KEY, serialized);
     } catch (e) {
       if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-        console.error('DB.save failed: localStorage quota exceeded. Try removing old photos or reducing data.');
-        throw new Error('Storage full! Backup too large. Remove old photos or export without photos.');
+        // Auto-strip photos from all orders to free space
+        let photosRemoved = 0;
+        if (this._data.orders) {
+          this._data.orders.forEach(o => {
+            if (o.photos && o.photos.length) {
+              photosRemoved += o.photos.length;
+              o.photos = [];
+            }
+          });
+        }
+        // Also strip payment proofs
+        if (this._data.paymentProofs) {
+          this._data.paymentProofs = [];
+        }
+        try {
+          const serialized = JSON.stringify(this._data);
+          localStorage.setItem(DB_KEY, serialized);
+          console.warn(`[DB] Storage quota exceeded. Auto-removed ${photosRemoved} photos from orders to free space. Data saved successfully.`);
+          return; // success after stripping
+        } catch (e2) {
+          throw new Error('Storage full! Even after removing photos. Please go to Settings > Photo Cleanup and click "Clean Up Now", or clear browser data and restore from a smaller backup.');
+        }
       }
       throw e;
     }
