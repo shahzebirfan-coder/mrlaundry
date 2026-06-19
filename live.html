@@ -8,7 +8,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Mr Laundry — Live Dashboard</title>
+  <title>Laundry POS — Live Dashboard</title>
   <link rel="icon" href="assets/img/logo.jpeg" />
   <style>
     /* ============================================================
@@ -211,7 +211,7 @@
         <img src="assets/img/logo.jpeg" alt="" onerror="this.parentElement.innerHTML='🧺'"/>
       </div>
       <div class="title-block">
-        <h1 id="shopName">Mr Laundry</h1>
+        <h1 id="shopName">Laundry POS</h1>
         <div class="sub">Live Owner Dashboard</div>
       </div>
       <div class="live-dot">LIVE</div>
@@ -255,12 +255,12 @@
     // 2) Firebase config — pre-filled from your POS Cloud Sync settings.
     //    Reads data directly from Firebase. No sync/merge button needed.
     const FIREBASE_CFG = {
-      apiKey: "AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY",
-      authDomain: "mr-laundry-pos-a6740.firebaseapp.com",
-      projectId: "mr-laundry-pos-a6740",
-      storageBucket: "mr-laundry-pos-a6740.firebasestorage.app",
-      messagingSenderId: "927434668958",
-      appId: "1:927434668958:web:2516175f4046edcfbcf48f"
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
     };
 
     // 3) Shop ID (same as in your POS → Settings → Cloud Sync → Shop ID)
@@ -598,7 +598,7 @@
         if (_firstLoad) renderLoading();
         const data = await fetchCloudData();
         const stats = computeTodayStats(data);
-        const shopName = (data.settings && data.settings.shopName) || 'Mr Laundry';
+        const shopName = (data.settings && data.settings.shopName) || 'Laundry POS';
         renderStats(stats, shopName);
         const now = new Date();
         document.getElementById('lastUpdate').textContent =

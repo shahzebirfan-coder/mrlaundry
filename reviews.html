@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mr Laundry — Customer Reviews</title>
+  <title>Laundry POS — Customer Reviews</title>
   <link rel="stylesheet" href="assets/css/style.css" />
   <link rel="icon" href="assets/img/logo.jpeg" />
   <style>
@@ -29,7 +29,7 @@
   <div class="rev-container">
     <div class="rev-header">
       <img src="assets/img/logo.jpeg" alt="logo" onerror="this.style.display='none'"/>
-      <h1 id="shopName">Mr Laundry</h1>
+      <h1 id="shopName">Laundry POS</h1>
       <p style="opacity:.9;">⭐ What our customers say</p>
     </div>
 
@@ -45,7 +45,7 @@
   <script src="assets/js/cloudsync.js"></script>
   <script>
     const s = DB.settings();
-    document.getElementById('shopName').textContent = s.shopName || 'Mr Laundry';
+    document.getElementById('shopName').textContent = s.shopName || 'Laundry POS';
     document.title = s.shopName + ' — Reviews';
 
     const minStars = s.minReviewStars || 4;

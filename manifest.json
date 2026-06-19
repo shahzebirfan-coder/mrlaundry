@@ -1,6 +1,6 @@
 {
-  "name": "Mr Laundry POS",
-  "short_name": "Mr Laundry",
+  "name": "Laundry POS",
+  "short_name": "Laundry POS",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#4f7cff",

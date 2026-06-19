@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mr Laundry — Order Tracker</title>
+  <title>Laundry POS — Order Tracker</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css" />
@@ -757,7 +757,7 @@
       </div>
       <div class="portal-header">
         <img src="assets/img/logo.jpeg" alt="logo" onerror="this.style.display='none'"/>
-        <h1 id="shopName">Mr Laundry</h1>
+        <h1 id="shopName">Laundry POS</h1>
         <p>📦 <span data-i18n="track_orders">Track your order status anytime, anywhere</span></p>
       </div>
 
@@ -802,13 +802,13 @@
         <div id="termsBody" style="display:none;padding:0 20px 20px;border-top:1px solid #eef1f7;">
           <div id="termsContent" style="font-size:13px;line-height:1.7;color:#444;white-space:pre-wrap;padding-top:14px;"></div>
           <div style="margin-top:14px;padding:12px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:8px;font-size:12px;color:#92400e;">
-            ⚠️ <strong id="termsNoteTitle">Please Note:</strong> <span id="termsNoteBody">By giving your articles to Mr Laundry for any service, you automatically agree to all the terms above.</span>
+            ⚠️ <strong id="termsNoteTitle">Please Note:</strong> <span id="termsNoteBody">By giving your articles to Laundry POS for any service, you automatically agree to all the terms above.</span>
           </div>
         </div>
       </div>
 
       <div class="footer-help">
-        Powered by Mr Laundry POS<br>
+        Powered by Laundry POS POS<br>
         <a href="index.html">Staff Login →</a>
       </div>
     </div>
@@ -827,12 +827,12 @@
        Allows the portal to search cloud data and submit pickups!
        ============================================================ */
     const FIREBASE_CFG = {
-      apiKey: "AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY",
-      authDomain: "mr-laundry-pos-a6740.firebaseapp.com",
-      projectId: "mr-laundry-pos-a6740",
-      storageBucket: "mr-laundry-pos-a6740.firebasestorage.app",
-      messagingSenderId: "927434668958",
-      appId: "1:927434668958:web:2516175f4046edcfbcf48f"
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
     };
     const SHOP_ID = 'shahzeb-laundry-private-pos';
 
@@ -878,8 +878,8 @@
         if (fetched.settings) {
            DB._data.settings = Object.assign({}, DB._data.settings, fetched.settings);
            const s = DB._data.settings;
-           document.getElementById('shopName').textContent = s.shopName || 'Mr Laundry';
-           document.title = (s.shopName || 'Mr Laundry') + ' — Order Tracker';
+           document.getElementById('shopName').textContent = s.shopName || 'Laundry POS';
+           document.title = (s.shopName || 'Laundry POS') + ' — Order Tracker';
            if (s.phone) {
                const cb = document.getElementById('contactCall');
                const wb = document.getElementById('contactWa');
@@ -1039,8 +1039,8 @@
 
 
     const s = DB.settings();
-    document.getElementById('shopName').textContent = s.shopName || 'Mr Laundry';
-    document.title = (s.shopName || 'Mr Laundry') + ' — Order Tracker';
+    document.getElementById('shopName').textContent = s.shopName || 'Laundry POS';
+    document.title = (s.shopName || 'Laundry POS') + ' — Order Tracker';
 
     // Contact buttons
     if (s.phone) {
@@ -1395,9 +1395,9 @@
         document.getElementById('termsContent').textContent = t;
         var lang = (localStorage.getItem('mrLaundryPortalLang') || 'en');
         var labels = {
-          en:  { title:'Terms & Conditions', note:'Please Note:', body:'By giving your articles to Mr Laundry for any service, you automatically agree to all the terms above.' },
+          en:  { title:'Terms & Conditions', note:'Please Note:', body:'By giving your articles to Laundry POS for any service, you automatically agree to all the terms above.' },
           ur:  { title:'شرائط و ضوابط',       note:'خاص نوٹ:',     body:'آپ کا اپنے کپڑے مسٹر لانڈری کو دینا، ان تمام شرائط سے اتفاق سمجھا جائے گا۔' },
-          rmn: { title:'Shartein aur Hidayaat', note:'Khaas Note:', body:'Aap apne kapde Mr Laundry ko denay say in tamam shartoon say muttafiq hotay hain.' }
+          rmn: { title:'Shartein aur Hidayaat', note:'Khaas Note:', body:'Aap apne kapde Laundry POS ko denay say in tamam shartoon say muttafiq hotay hain.' }
         };
         var L = labels[lang] || labels.en;
         document.getElementById('termsTitle').textContent = L.title;
