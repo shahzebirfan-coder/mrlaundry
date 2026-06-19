@@ -137,13 +137,6 @@ function renderSettings() {
         </div>
 
         <div class="card" style="margin-bottom:20px;">
-          <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Real-time sync via Firebase. Premium feature. Contact IT Department to enable.</p>
-          <button class="btn btn-primary btn-block" id="openCloudBtn">🔄 Configure Cloud Sync (IT Admin)</button>
-          <div id="cloudStatus" style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center;"></div>
-        </div>
-
-        
-        <div class="card" style="margin-bottom:20px;">
           <div class="card-header"><h3>🔄 Cloud Sync (Multi-Device)</h3></div>
           <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Real-time sync via Firebase. Premium feature. Contact IT Department to enable.</p>
           <button class="btn btn-primary btn-block" id="openCloudBtn">🔄 Configure Cloud Sync (IT Admin)</button>
@@ -194,8 +187,11 @@ function renderSettings() {
           <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Your data lives in your browser. <b>Always keep a recent backup!</b></p>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <button class="btn btn-success btn-lg" id="exportBtn">📥 Download Backup</button>
-            <button class="btn btn-secondary" id="importFileBtn">📤 Restore from Backup</button>
-            <input type="file" id="importFile" accept=".json,.txt,application/json" style="display:none;"/>
+            <!-- Use label + hidden input for bulletproof cross-browser file picker -->
+            <label class="btn btn-secondary" style="cursor:pointer;text-align:center;position:relative;display:block;">
+              📤 Restore from Backup
+              <input type="file" id="importFile" accept=".json,.txt,application/json" style="display:none;"/>
+            </label>
             <hr style="margin:8px 0;border:none;border-top:1px solid var(--border);"/>
             <button class="btn btn-danger" id="resetBtn">⚠️ Reset All Data</button>
           </div>
@@ -230,31 +226,31 @@ function renderSettings() {
   $('#saveSetBtn').onclick = () => {
     promptPasswordModal('Unlock Settings Save', (pwd) => {
       let itPwd = window._IT_BRAND.pwd;
-    if (pwd !== itPwd) {
+      if (pwd !== itPwd) {
         toast('Incorrect IT ADMIN Password!', 'error');
         return;
       }
       const patch = {
         shopName: $('#sName').value.trim(),
-      logo: $('#sLogo').value.trim() || '🧺',
-      tagline: $('#sTag').value.trim(),
-      phone: $('#sPhone').value.trim(),
-      currency: $('#sCurrency').value.trim() || 'Rs.',
-      address: $('#sAddr').value.trim(),
-      taxPercent: Math.max(0, +$('#sTax').value || 0),
-      baseUrl: $('#sBase').value.trim(),
-      invoiceFooter: $('#sFooter').value.trim(),
-      loyaltyPrefix: ($('#sLoyPrefix').value || 'MRL').toUpperCase(),
-      defaultLoyaltyDiscountPercent: Math.max(0, +$('#sLoyPct').value || 0),
-      defaultDeliveryDays: +$('#sDeliveryDays').value || 2,
-      autoBackupReminder: $('#sBackupReminder').value === 'true',
-      photoRetentionDays: Math.max(1, +($('#sPhotoDays')?.value || 30)),
-      photoAutoCleanup: ($('#sPhotoAuto')?.value || 'true') === 'true'
-    };
-    if (pendingLogoDataUrl !== null) patch.logoImage = pendingLogoDataUrl;
-    DB.saveSettings(patch);
-    toast('Settings saved','success');
-    renderSettings();
+        logo: $('#sLogo').value.trim() || '🧺',
+        tagline: $('#sTag').value.trim(),
+        phone: $('#sPhone').value.trim(),
+        currency: $('#sCurrency').value.trim() || 'Rs.',
+        address: $('#sAddr').value.trim(),
+        taxPercent: Math.max(0, +$('#sTax').value || 0),
+        baseUrl: $('#sBase').value.trim(),
+        invoiceFooter: $('#sFooter').value.trim(),
+        loyaltyPrefix: ($('#sLoyPrefix').value || 'MRL').toUpperCase(),
+        defaultLoyaltyDiscountPercent: Math.max(0, +$('#sLoyPct').value || 0),
+        defaultDeliveryDays: +$('#sDeliveryDays').value || 2,
+        autoBackupReminder: $('#sBackupReminder').value === 'true',
+        photoRetentionDays: Math.max(1, +($('#sPhotoDays')?.value || 30)),
+        photoAutoCleanup: ($('#sPhotoAuto')?.value || 'true') === 'true'
+      };
+      if (pendingLogoDataUrl !== null) patch.logoImage = pendingLogoDataUrl;
+      DB.saveSettings(patch);
+      toast('Settings saved','success');
+      renderSettings();
     });
   };
 
@@ -281,6 +277,7 @@ function renderSettings() {
     });
   };
   if ($('#openSubBtnTop')) $('#openSubBtnTop').onclick = () => openSubscriptionManager();
+
   // Status indicators
   const gdEl = $('#gdriveStatus');
   if (gdEl) {
@@ -297,14 +294,9 @@ function renderSettings() {
     } else cEl.innerHTML = CLOUD.getConfig() ? '⏸️ Configured but paused' : '❌ Not set up';
   }
 
-  // Restore from Backup — bulletproof button + file input handler
-  const importFileBtn = $('#importFileBtn');
+  // Restore from Backup — bulletproof cross-browser handler
   const importFileInput = $('#importFile');
-  if (importFileBtn && importFileInput) {
-    importFileBtn.onclick = () => {
-      console.log('[Restore] Opening file picker...');
-      importFileInput.click();
-    };
+  if (importFileInput) {
     importFileInput.onchange = (e) => {
       const file = e.target.files[0];
       console.log('[Restore] File selected:', file ? file.name : 'none');
@@ -325,9 +317,26 @@ function renderSettings() {
           try {
             console.log('[Restore] Calling DB.importJSON...');
             DB.importJSON(reader.result);
-            console.log('[Restore] importJSON succeeded, reloading...');
-            toast('Restored! Reloading...', 'success');
-            setTimeout(() => location.reload(), 800);
+            console.log('[Restore] importJSON succeeded');
+            toast('Restored! Saving to persistent storage...', 'success');
+
+            // CRITICAL: Prevent persistent.js from overwriting with old data
+            sessionStorage.setItem('mrLaundryRestoring', 'true');
+
+            // Save to IndexedDB immediately so persistent.js restores THIS data on next load
+            if (typeof Persistent !== 'undefined' && Persistent.backupAll) {
+              console.log('[Restore] Backing up to IndexedDB...');
+              Persistent.backupAll().then(() => {
+                console.log('[Restore] IndexedDB backed up. Reloading...');
+                location.reload();
+              }).catch(err => {
+                console.warn('[Restore] IndexedDB backup failed, reloading anyway:', err);
+                location.reload();
+              });
+            } else {
+              console.log('[Restore] Persistent not available, reloading...');
+              location.reload();
+            }
           }
           catch(err) {
             console.error('[Restore] ERROR:', err);
@@ -337,7 +346,7 @@ function renderSettings() {
         });
       };
       reader.readAsText(file);
-      e.target.value = '';
+      e.target.value = ''; // reset so same file can be selected again
     };
   }
 
@@ -362,7 +371,6 @@ function openSubscriptionManager() {
       toast('Incorrect IT ADMIN Password!', 'error');
       return;
     }
-    
     
     const s = DB.settings();
     const expiry = s.subscriptionExpiry || 0;
