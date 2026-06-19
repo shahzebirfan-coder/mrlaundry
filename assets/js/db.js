@@ -349,8 +349,39 @@ const DB = {
 
   exportJSON() { return JSON.stringify(this._data, null, 2); },
   importJSON(json) {
-    const parsed = typeof json === 'string' ? JSON.parse(json) : json;
-    this._data = parsed; this.save();
+    try {
+      const parsed = (typeof json === 'string') ? JSON.parse(json) : json;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Backup must be a valid JSON object');
+      }
+      // Ensure all required tables exist (backward compatibility with older backups)
+      const seed = this._seed();
+      Object.keys(seed).forEach(key => {
+        if (parsed[key] === undefined || parsed[key] === null) {
+          parsed[key] = seed[key];
+        }
+      });
+      // Deep merge settings so missing new fields are filled from defaults
+      if (parsed.settings && typeof parsed.settings === 'object') {
+        parsed.settings = Object.assign({}, seed.settings, parsed.settings);
+      } else {
+        parsed.settings = seed.settings;
+      }
+      // Ensure _counters exist
+      if (!parsed._counters || typeof parsed._counters !== 'object') {
+        parsed._counters = seed._counters;
+      }
+      // Ensure critical arrays are actually arrays
+      ['orders', 'customers', 'products', 'expenses', 'inventory', 'auditLog', 'messages'].forEach(table => {
+        if (!Array.isArray(parsed[table])) parsed[table] = [];
+      });
+      this._data = parsed;
+      this.save();
+      return true;
+    } catch (e) {
+      console.error('DB.importJSON failed:', e);
+      throw new Error('Backup file invalid or corrupted: ' + e.message);
+    }
   }
 };
 
