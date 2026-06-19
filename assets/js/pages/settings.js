@@ -194,10 +194,8 @@ function renderSettings() {
           <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Your data lives in your browser. <b>Always keep a recent backup!</b></p>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <button class="btn btn-success btn-lg" id="exportBtn">📥 Download Backup</button>
-            <label class="btn btn-secondary" style="cursor:pointer;text-align:center;position:relative;overflow:hidden;">
-              📤 Restore from Backup
-              <input type="file" id="importFile" accept=".json,application/json" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer;"/>
-            </label>
+            <button class="btn btn-secondary" id="importFileBtn">📤 Restore from Backup</button>
+            <input type="file" id="importFile" accept=".json,.txt,application/json" style="display:none;"/>
             <hr style="margin:8px 0;border:none;border-top:1px solid var(--border);"/>
             <button class="btn btn-danger" id="resetBtn">⚠️ Reset All Data</button>
           </div>
@@ -299,37 +297,47 @@ function renderSettings() {
     } else cEl.innerHTML = CLOUD.getConfig() ? '⏸️ Configured but paused' : '❌ Not set up';
   }
 
+  // Restore from Backup — bulletproof button + file input handler
+  const importFileBtn = $('#importFileBtn');
   const importFileInput = $('#importFile');
-  if (importFileInput) {
+  if (importFileBtn && importFileInput) {
+    importFileBtn.onclick = () => {
+      console.log('[Restore] Opening file picker...');
+      importFileInput.click();
+    };
     importFileInput.onchange = (e) => {
       const file = e.target.files[0];
+      console.log('[Restore] File selected:', file ? file.name : 'none');
       if (!file) { toast('No file selected', 'error'); return; }
 
-      // Extension check fallback for systems where MIME type is missing
       const name = file.name.toLowerCase();
-      if (!name.endsWith('.json') && !name.endsWith('.txt') && file.type !== 'application/json') {
+      if (!name.endsWith('.json') && !name.endsWith('.txt')) {
         toast('Please select a .json or .txt backup file', 'error');
-        e.target.value = ''; // reset so same file can be picked again
+        e.target.value = '';
         return;
       }
 
       const reader = new FileReader();
-      reader.onerror = () => toast('Failed to read file', 'error');
+      reader.onerror = () => { toast('Failed to read file', 'error'); console.error('[Restore] FileReader error'); };
       reader.onload = () => {
+        console.log('[Restore] File read, length:', reader.result.length);
         confirmDialog('This will REPLACE all current data with the backup. Continue?', () => {
           try {
+            console.log('[Restore] Calling DB.importJSON...');
             DB.importJSON(reader.result);
+            console.log('[Restore] importJSON succeeded, reloading...');
             toast('Restored! Reloading...', 'success');
             setTimeout(() => location.reload(), 800);
           }
           catch(err) {
-            console.error('Restore error:', err);
+            console.error('[Restore] ERROR:', err);
+            alert('Restore failed: ' + err.message);
             toast('Invalid backup file: ' + err.message, 'error');
           }
         });
       };
       reader.readAsText(file);
-      e.target.value = ''; // reset so same file can be selected again
+      e.target.value = '';
     };
   }
 
