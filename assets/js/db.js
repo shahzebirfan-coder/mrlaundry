@@ -68,27 +68,67 @@ const DB = {
       localStorage.setItem(DB_KEY, serialized);
     } catch (e) {
       if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-        // Auto-strip photos from all orders to free space
-        let photosRemoved = 0;
+        console.warn('[DB] Storage quota exceeded — aggressively stripping heavy data...');
+        let stripped = { photos: 0, proofs: 0, auditLog: 0, messages: 0, inventoryMovements: 0, dayClosures: 0 };
+
+        // 1. Strip ALL photos from orders
         if (this._data.orders) {
           this._data.orders.forEach(o => {
             if (o.photos && o.photos.length) {
-              photosRemoved += o.photos.length;
+              stripped.photos += o.photos.length;
               o.photos = [];
             }
           });
         }
-        // Also strip payment proofs
-        if (this._data.paymentProofs) {
+        // 2. Strip payment proofs
+        if (this._data.paymentProofs && this._data.paymentProofs.length) {
+          stripped.proofs = this._data.paymentProofs.length;
           this._data.paymentProofs = [];
         }
+        // 3. Truncate auditLog to last 100
+        if (this._data.auditLog && this._data.auditLog.length > 100) {
+          stripped.auditLog = this._data.auditLog.length - 100;
+          this._data.auditLog = this._data.auditLog.slice(-100);
+        }
+        // 4. Truncate messages to last 100
+        if (this._data.messages && this._data.messages.length > 100) {
+          stripped.messages = this._data.messages.length - 100;
+          this._data.messages = this._data.messages.slice(-100);
+        }
+        // 5. Truncate inventoryMovements to last 50
+        if (this._data.inventoryMovements && this._data.inventoryMovements.length > 50) {
+          stripped.inventoryMovements = this._data.inventoryMovements.length - 50;
+          this._data.inventoryMovements = this._data.inventoryMovements.slice(-50);
+        }
+        // 6. Truncate dayClosures to last 30
+        if (this._data.dayClosures && this._data.dayClosures.length > 30) {
+          stripped.dayClosures = this._data.dayClosures.length - 30;
+          this._data.dayClosures = this._data.dayClosures.slice(-30);
+        }
+
         try {
           const serialized = JSON.stringify(this._data);
           localStorage.setItem(DB_KEY, serialized);
-          console.warn(`[DB] Storage quota exceeded. Auto-removed ${photosRemoved} photos from orders to free space. Data saved successfully.`);
-          return; // success after stripping
+          console.warn(`[DB] Saved after stripping: ${JSON.stringify(stripped)}`);
+          return;
         } catch (e2) {
-          throw new Error('Storage full! Even after removing photos. Please go to Settings > Photo Cleanup and click "Clean Up Now", or clear browser data and restore from a smaller backup.');
+          // Last resort: strip ALL heavy arrays completely
+          if (this._data.auditLog) this._data.auditLog = [];
+          if (this._data.messages) this._data.messages = [];
+          if (this._data.inventoryMovements) this._data.inventoryMovements = [];
+          if (this._data.dayClosures) this._data.dayClosures = [];
+          if (this._data.promoCodes) this._data.promoCodes = [];
+          if (this._data.reviews) this._data.reviews = [];
+          if (this._data.pushSubs) this._data.pushSubs = [];
+          if (this._data.refundReasons) this._data.refundReasons = [];
+          try {
+            const serialized = JSON.stringify(this._data);
+            localStorage.setItem(DB_KEY, serialized);
+            console.warn('[DB] Last-resort save: stripped all heavy arrays. Data saved.');
+            return;
+          } catch (e3) {
+            throw new Error('Storage completely full! Please go to Chrome Settings > Privacy > Clear browsing data > Select "Cached images and files" and "Cookies and other site data", then reload and restore from backup.');
+          }
         }
       }
       throw e;
@@ -419,7 +459,21 @@ const DB = {
               console.warn(`[DB] Stripped ${stripped} photos + ${proofsStripped} payment proofs. Data restored.`);
               return { success: true, photosStripped: stripped, proofsStripped: proofsStripped, warning: `Backup restored but ${stripped} photos and ${proofsStripped} payment proofs were removed to fit browser storage.` };
             } catch (finalErr) {
-              throw new Error('Backup too large even after removing photos. Try clearing browser data or using a smaller backup.');
+            // Last resort for importJSON too: strip ALL heavy data
+            if (this._data.auditLog) this._data.auditLog = [];
+            if (this._data.messages) this._data.messages = [];
+            if (this._data.inventoryMovements) this._data.inventoryMovements = [];
+            if (this._data.dayClosures) this._data.dayClosures = [];
+            if (this._data.promoCodes) this._data.promoCodes = [];
+            if (this._data.reviews) this._data.reviews = [];
+            if (this._data.pushSubs) this._data.pushSubs = [];
+            if (this._data.refundReasons) this._data.refundReasons = [];
+            try {
+              this.save();
+              console.warn('[DB] Import last-resort: stripped all heavy arrays. Data restored.');
+              return { success: true, warning: 'Backup restored but heavy data (audit logs, messages, photos, etc.) were removed to fit storage.' };
+            } catch (e4) {
+              throw new Error('Backup too large even after stripping everything. Clear browser data and try a smaller backup.');
             }
           }
         }
