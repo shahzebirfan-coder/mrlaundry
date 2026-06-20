@@ -18,7 +18,7 @@ function renderProducts() {
             </select>
             <button class="btn btn-primary btn-sm" id="addProdBtn">+ Add Product</button>
             <button class="btn btn-success btn-sm" id="bulkImgBtn" title="Upload images for many products quickly">📷 Bulk Image Manager</button>
-            ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" id="importRateBtn" title="Replace all products with Laundry POS official rate list">📋 Import Rate List</button>`:''}
+            ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" id="importRateBtn" title="Replace all products with Mr Laundry official rate list">📋 Import Rate List</button>`:''}
           </div>
         </div>
         <div style="padding:8px 16px;font-size:12px;color:var(--text-soft);border-bottom:1px solid var(--border);background:var(--surface-alt);">
@@ -50,7 +50,7 @@ function renderProducts() {
 }
 
 function importRateList() {
-  confirmDialog('⚠️ This will REPLACE all products with the official Laundry POS rate list (Gents, Ladies, Others). Your customers, orders, and expenses will NOT be affected. Continue?', () => {
+  confirmDialog('⚠️ This will REPLACE all products with the official Mr Laundry rate list (Gents, Ladies, Others). Your customers, orders, and expenses will NOT be affected. Continue?', () => {
     DB._data.products = getMrLaundryRateList();
     DB._data.categories = [
       { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },

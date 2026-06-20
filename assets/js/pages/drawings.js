@@ -352,7 +352,7 @@ function printDrawingReceipt(id) {
   div.innerHTML = `
     <div style="text-align:center;border-bottom:2px dashed #000;padding-bottom:8px;margin-bottom:8px;">
       ${s.logoImage ? `<img src="${s.logoImage}" style="max-width:80px;max-height:60px;background:#000;padding:4px;border-radius:6px;"/>` : ''}
-      <div style="font-size:16px;font-weight:800;margin-top:6px;">${escapeHtml(s.shopName || 'Laundry POS')}</div>
+      <div style="font-size:16px;font-weight:800;margin-top:6px;">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
       <div style="font-size:10px;">${escapeHtml(s.address || '')}</div>
     </div>
     <div style="text-align:center;font-size:14px;font-weight:800;margin:6px 0;padding:6px;background:#000;color:#fff;">OWNER WITHDRAWAL</div>

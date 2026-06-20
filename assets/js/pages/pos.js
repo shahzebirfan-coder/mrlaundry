@@ -165,18 +165,8 @@ function calcCartTotals() {
 function renderCart() {
   const items = posState.cart;
   const cust = DB.get('customers', posState.customerId);
-  
-  // Loyalty expiry check
-  if (cust && cust.loyaltyActive && cust.loyaltyExpiry && cust.loyaltyExpiry < isoDay()) {
-    cust.loyaltyActive = false; // Expired for this transaction
-    if (!posState._loyaltyWarned) {
-      toast(`Loyalty card expired on ${fmtDateShort(cust.loyaltyExpiry)}`, 'error');
-      posState._loyaltyWarned = true;
-    }
-  }
-
   const custLabel = cust
-    ? `${cust.name}${cust.phone? ` • ${cust.phone}`:''}${cust.loyaltyActive? ` ⭐${cust.loyaltyDiscountPercent}%`: (cust.loyaltyExpiry && cust.loyaltyExpiry < isoDay() ? ' ❌ Expired' : '')}`
+    ? `${cust.name}${cust.phone? ` • ${cust.phone}`:''}${cust.loyaltyActive? ` ⭐${cust.loyaltyDiscountPercent}%`:''}`
     : 'Walk-in Customer';
   $('#custName').textContent = custLabel;
 
@@ -674,12 +664,6 @@ function openPaymentDialog(orderMeta) {
         <input type="number" id="paidInput" value="${tot.total}" min="0"/>
       </div>
     </div>
-    <div class="form-row cols-1" style="${DB.currentUser().role === 'admin' ? '' : 'display:none;'}">
-      <div class="field">
-        <label>🔙 Backdate Order <span style="font-weight:normal;color:#64748b;">(Optional - Leaves current date/time if empty)</span></label>
-        <input type="datetime-local" id="backdateInput" />
-      </div>
-    </div>
 
     <div id="dueLine" style="padding:12px;background:var(--surface-alt);border-radius:8px;margin-bottom:10px;font-weight:600;text-align:center;font-size:15px;"></div>
 
@@ -736,13 +720,10 @@ function openPaymentDialog(orderMeta) {
       if (actualPaid === 0) paymentType = 'credit';
       else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
 
-      const cust = DB.get('customers', posState.customerId) || { name: 'Walk-in', phone: '' };
       const order = {
         invoiceNo: DB.nextInvoiceNumber(),
         items: posState.cart.map(i => ({ ...i, lineTotal: i.price * i.qty })),
         customerId: posState.customerId,
-        customerName: cust.name,
-        customerPhone: cust.phone,
         subtotal: tot.subtotal,
         discount: tot.totalDiscount,
         manualDiscount: tot.manualDiscount,
@@ -753,7 +734,6 @@ function openPaymentDialog(orderMeta) {
         tax: tot.tax,
         total: tot.total,
         paid: actualPaid,
-        createdAt: $('#backdateInput', m).value ? new Date($('#backdateInput', m).value).toISOString() : new Date().toISOString(),
         due,
         advance: paymentType === 'advance' ? actualPaid : 0,
         paymentType,

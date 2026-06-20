@@ -2,7 +2,7 @@
    Persistent Storage System
    1. Requests "persistent storage" permission (browser wont auto-clear)
    2. Backs up critical settings to IndexedDB (survives cache clears)
-   3. Auto-restores from IndexedDB on every page load if storage is empty
+   3. Auto-restores from Firebase on every page load if storage is empty
    ============================================================ */
 
 const Persistent = {
@@ -55,6 +55,7 @@ const Persistent = {
   ],
 
   _db: null,
+
   async openIDB() {
     if (this._db) return this._db;
     return new Promise((resolve, reject) => {
@@ -67,6 +68,7 @@ const Persistent = {
       req.onsuccess = () => { this._db = req.result; resolve(req.result); };
     });
   },
+
   async idbSet(key, value) {
     try {
       const db = await this.openIDB();
@@ -78,6 +80,7 @@ const Persistent = {
       });
     } catch (e) { console.warn('[Persistent] idbSet failed:', e); }
   },
+
   async idbGet(key) {
     try {
       const db = await this.openIDB();
@@ -100,18 +103,8 @@ const Persistent = {
     console.log('[Persistent] Backup to IndexedDB complete');
   },
 
-  /* Restore from IndexedDB if localStorage is empty — BUT skip if restore was just in progress */
+  /* Restore from IndexedDB if localStorage is empty */
   async restoreIfNeeded() {
-    // NEW: If a restore was just performed, don't overwrite it with IndexedDB data
-    const restoring = sessionStorage.getItem('mrLaundryRestoring');
-    if (restoring) {
-      console.log('[Persistent] Restore flag detected — skipping auto-restore to prevent overwrite');
-      sessionStorage.removeItem('mrLaundryRestoring');
-      // Backup the restored data to IndexedDB immediately
-      await this.backupAll();
-      return 0;
-    }
-
     let restored = 0;
     for (const key of this.CRITICAL_KEYS) {
       if (localStorage.getItem(key) === null) {
@@ -133,19 +126,24 @@ const Persistent = {
 /* === Auto-run on page load === */
 (async function initPersistent() {
   if (typeof window === 'undefined') return;
+
   // Step 1: Try to restore lost settings from IndexedDB BEFORE app loads
   try {
     const restored = await Persistent.restoreIfNeeded();
     if (restored > 0) {
       console.log('[Persistent] Restored lost settings — reloading page...');
+      // Soft reload to apply restored DB
       setTimeout(() => location.reload(), 300);
       return;
     }
-  } catch (e) { }
+  } catch (e) {}
+
   // Step 2: Request persistent storage permission
   await Persistent.requestPersistence();
+
   // Step 3: Backup every 30 seconds (in case settings change)
   setInterval(() => Persistent.backupAll(), 30000);
+
   // Step 4: Backup before window closes
   window.addEventListener('beforeunload', () => {
     Persistent.CRITICAL_KEYS.forEach(key => {
@@ -153,10 +151,12 @@ const Persistent = {
       if (val !== null) Persistent.idbSet(key, val);
     });
   });
+
   // Step 5: Backup on visibility change (when user switches tab/app)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') Persistent.backupAll();
   });
+
   // Initial backup after 5 seconds
   setTimeout(() => Persistent.backupAll(), 5000);
 })();
@@ -166,9 +166,10 @@ function showStorageStatus() {
   Persistent.getStorageInfo().then(info => {
     if (!info) return alert('Storage API not available');
     const msg = `📊 Browser Storage Status:\n\n` +
-      `Quota: ${info.quota} MB\n` +
-      `Used: ~${info.used} KB\n` +
-      `Persistent: ${info.isPersistent ? '✅ Yes' : '❌ No (data may be cleared by browser)'}`;
+      `✅ Persistent: ${info.isPersistent ? 'YES — data will not be auto-cleared' : 'NO — browser may clear data'}\n` +
+      `📦 Used: ${info.used} KB\n` +
+      `💾 Available: ${info.quota} MB\n\n` +
+      `${info.isPersistent ? '🎉 Your data is safe!' : '⚠️ Click "Enable Persistent Storage" to prevent data loss'}`;
     alert(msg);
   });
 }

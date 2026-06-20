@@ -10,7 +10,7 @@ const GDRIVE = {
   FOLDER_KEY: 'mrLaundryGDriveFolderId',
   LAST_BACKUP_KEY: 'mrLaundryGDriveLastBackup',
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
-  FOLDER_NAME: 'Laundry POS POS Backups',
+  FOLDER_NAME: 'Mr Laundry POS Backups',
 
   isConfigured() { return !!localStorage.getItem(this.CLIENT_ID_KEY); },
   isConnected()  { return !!this.getToken(); },
@@ -336,12 +336,12 @@ function openGDriveSetupGuide() {
 
     <ol style="font-size:13px;line-height:1.8;padding-left:20px;">
       <li>Go to <a href="https://console.cloud.google.com/" target="_blank"><b>console.cloud.google.com</b></a> and sign in</li>
-      <li>Click <b>"Select a project"</b> → <b>"New Project"</b> → name it <b>"Laundry POS POS"</b> → Create</li>
+      <li>Click <b>"Select a project"</b> → <b>"New Project"</b> → name it <b>"Mr Laundry POS"</b> → Create</li>
       <li>In the search bar type <b>"Google Drive API"</b> → Click on it → <b>Enable</b></li>
       <li>Left menu → <b>APIs & Services</b> → <b>OAuth consent screen</b>:
         <ul>
           <li>User Type: <b>External</b> → Create</li>
-          <li>App name: <b>Laundry POS POS</b>, support email: your email</li>
+          <li>App name: <b>Mr Laundry POS</b>, support email: your email</li>
           <li>Save and Continue through all steps</li>
           <li>Under "Test users" add your own Gmail address</li>
         </ul>
@@ -350,7 +350,7 @@ function openGDriveSetupGuide() {
         <ul>
           <li>Click <b>"+ Create Credentials"</b> → <b>"OAuth client ID"</b></li>
           <li>Application type: <b>Web application</b></li>
-          <li>Name: <b>Laundry POS POS</b></li>
+          <li>Name: <b>Mr Laundry POS</b></li>
           <li>Under <b>"Authorized JavaScript origins"</b> add:
             <ul>
               <li><code>http://localhost</code></li>
@@ -368,7 +368,7 @@ function openGDriveSetupGuide() {
     </ol>
 
     <div style="background:#dbeafe;padding:10px;border-radius:8px;font-size:12px;margin-top:10px;">
-      💡 <b>Privacy:</b> Backups go to YOUR Google Drive only. Laundry POS POS never has access — only you do.
+      💡 <b>Privacy:</b> Backups go to YOUR Google Drive only. Mr Laundry POS never has access — only you do.
     </div>
 
     <div class="modal-footer">
@@ -391,8 +391,8 @@ function openGDriveSetupGuide() {
     try {
       await GDRIVE.uploadBackup();
       await GDRIVE.pruneOldBackups(s.gdriveKeepN || 30);
-      console.log('[Laundry POS] Auto-backup to Google Drive complete');
-    } catch(e) { console.warn('[Laundry POS] Auto-backup failed:', e.message); }
+      console.log('[Mr Laundry] Auto-backup to Google Drive complete');
+    } catch(e) { console.warn('[Mr Laundry] Auto-backup failed:', e.message); }
   }, 5000);
 })();
 

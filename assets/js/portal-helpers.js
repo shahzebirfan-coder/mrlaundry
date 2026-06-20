@@ -640,7 +640,7 @@ function openPortalConfigDialog() {
     </div>
     <div class="form-row">
       <div class="field"><label>Bank Name</label><input id="pcfgBN" value="${escapeHtml(s.bankName||'')}" placeholder="HBL / Meezan / etc."/></div>
-      <div class="field"><label>Account Title</label><input id="pcfgBT" value="${escapeHtml(s.bankAccountTitle||'')}" placeholder="Laundry POS"/></div>
+      <div class="field"><label>Account Title</label><input id="pcfgBT" value="${escapeHtml(s.bankAccountTitle||'')}" placeholder="Mr Laundry"/></div>
     </div>
     <div class="form-row cols-1">
       <div class="field"><label>Bank Account Number / IBAN</label><input id="pcfgBA" value="${escapeHtml(s.bankAccountNumber||'')}" placeholder="PK00 ABCD..."/></div>

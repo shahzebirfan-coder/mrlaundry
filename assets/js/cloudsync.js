@@ -55,7 +55,6 @@ const CLOUD = {
   _suppressPush: false,
   _initialMergeDone: false,
   _lastAppliedVersion: 0,
-  _lastPushedJson: {},
   _toastDebounceTimer: null,
 
   getConfig() {
@@ -121,7 +120,7 @@ const CLOUD = {
       } else if (tbl === 'settings' && typeof r === 'object') {
         const lTs = +new Date((l && l._settingsUpdatedAt) || 0) || 0;
         const rTs = +new Date((r && r._settingsUpdatedAt) || 0) || 0;
-        if (rTs >= lTs) merged.settings = Object.assign({}, l || {}, r);
+        if (rTs > lTs) merged.settings = Object.assign({}, l || {}, r);
         else merged.settings = Object.assign({}, r || {}, l || {});
       } else if (tbl === '_counters' && typeof r === 'object') {
         merged._counters = Object.assign({}, l || {});
@@ -158,20 +157,6 @@ const CLOUD = {
       for (const tbl of Object.keys(data)) {
         const json = JSON.stringify(data[tbl] ?? null);
         totalSize += json.length;
-        
-        // OPTIMIZATION: Only push if data actually changed to save Firebase Quota
-        if (this._lastPushedJson[tbl] === json) {
-          // Keep existing meta for the main doc
-          if (this._lastPushedMeta && this._lastPushedMeta[tbl]) {
-            tableMeta[tbl] = this._lastPushedMeta[tbl];
-          } else {
-             const num = Math.ceil(json.length / MAX_DOC_SIZE) || 1;
-             tableMeta[tbl] = { chunks: num, size: json.length, skipped: true };
-          }
-          continue;
-        }
-        
-        this._lastPushedJson[tbl] = json;
 
         if (json.length < MAX_DOC_SIZE) {
           tableMeta[tbl] = { chunks: 1, size: json.length };
@@ -200,7 +185,6 @@ const CLOUD = {
         }
       }
 
-      this._lastPushedMeta = tableMeta;
       // Write main meta doc — triggers listen() on other devices
       await db.collection('shops').doc(shopId).set({
         tables: tableMeta,
@@ -355,7 +339,7 @@ const CLOUD = {
         await CLOUD.push();
         await CLOUD.listen();
         CLOUD._initialMergeDone = true;
-        console.log('[Laundry POS] Cloud sync active — chunked storage');
+        console.log('[Mr Laundry] Cloud sync active — chunked storage');
         setTimeout(() => {
           if (typeof toast === 'function') toast('☁️ Cloud Sync active', 'success');
         }, 1500);
@@ -460,6 +444,7 @@ async function reconnectCloudSync() {
   const origSave = DB.save.bind(DB);
   let pushTimer = null;
   DB.save = function() {
+    if (DB._data.settings) DB._data.settings._settingsUpdatedAt = new Date().toISOString();
     origSave();
     localStorage.setItem('mrLaundryLocalVersion', Date.now());
     if (CLOUD._suppressPush) return;
@@ -605,7 +590,7 @@ function openFirebaseSetupGuide() {
 
     <ol style="font-size:13px;line-height:1.8;padding-left:20px;">
       <li>Go to <a href="https://console.firebase.google.com/" target="_blank"><b>console.firebase.google.com</b></a> → sign in with Gmail</li>
-      <li>Click <b>"Add project"</b> → name it <b>"Laundry POS POS"</b> → continue</li>
+      <li>Click <b>"Add project"</b> → name it <b>"Mr Laundry POS"</b> → continue</li>
       <li>On the project home page, click the <b>Web icon</b> <code>&lt;/&gt;</code> to add a web app</li>
       <li>Left menu → <b>Build</b> → <b>Firestore Database</b> → <b>Create database</b></li>
       <li>Go to <b>Rules</b> tab and replace with:

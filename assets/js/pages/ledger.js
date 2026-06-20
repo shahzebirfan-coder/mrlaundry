@@ -157,20 +157,11 @@ function openCustomerLedger(custId) {
   const totalPaid = orders.reduce((s,o)=>s+(o.paid||0),0);
 
   openModal(`
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-      <div>
-        <h3>📜 ${escapeHtml(c.name)} — Full Ledger ${c.isB2B ? `<span style="font-size:12px;background:#2563eb;color:#fff;padding:2px 6px;border-radius:4px;vertical-align:middle;margin-left:6px;">B2B</span>` : ''}</h3>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--text-soft);margin-bottom:10px;">
-          <div>📞 ${escapeHtml(c.phone||'-')}</div>
-          ${c.loyaltyActive?`<div>⭐ ${escapeHtml(c.loyaltyNo)} (${c.loyaltyDiscountPercent}%)</div>`:''}
-          ${c.isB2B?`<div style="color:#2563eb;">🏢 Corporate Discount: ${c.b2bDiscount||0}%</div>`:''}
-          ${c.address?`<div>🏠 ${escapeHtml(c.address)}</div>`:''}
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;">
-        ${totalDue > 0 ? `<button class="btn btn-warning" id="btnConsolidated" style="padding:6px 12px;font-size:13px;font-weight:bold;">🧾 Print Consolidated Bill</button>` : ''}
-        ${c.isB2B ? `<button class="btn btn-primary" id="btnGenB2B" style="padding:6px 12px;font-size:13px;font-weight:bold;">📄 Generate Monthly Statement</button>` : ''}
-      </div>
+    <h3>📜 ${escapeHtml(c.name)} — Full Ledger</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--text-soft);margin-bottom:10px;">
+      <div>📞 ${escapeHtml(c.phone||'-')}</div>
+      ${c.loyaltyActive?`<div>⭐ ${escapeHtml(c.loyaltyNo)} (${c.loyaltyDiscountPercent}%)</div>`:''}
+      ${c.address?`<div>🏠 ${escapeHtml(c.address)}</div>`:''}
     </div>
 
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;">

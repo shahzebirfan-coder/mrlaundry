@@ -467,7 +467,7 @@ function showAdminContactInfo() {
     <p class="sub">Ask the shop owner to reset your password.</p>
 
     <div style="background:#f0f9ff;border-left:4px solid #0ea5e9;padding:14px;border-radius:8px;margin-bottom:14px;">
-      <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(s.shopName || 'Laundry POS')}</div>
+      <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
       ${s.phone ? `📞 <a href="tel:${escapeHtml(s.phone)}">${escapeHtml(s.phone)}</a><br>` : ''}
       ${s.email ? `📧 <a href="mailto:${escapeHtml(s.email)}">${escapeHtml(s.email)}</a><br>` : ''}
       ${s.address ? `📍 ${escapeHtml(s.address)}<br>` : ''}

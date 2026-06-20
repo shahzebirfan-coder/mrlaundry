@@ -1,5 +1,5 @@
 /* ============================================================
-   Laundry POS POS — Database (localStorage abstraction)
+   Mr Laundry POS — Database (localStorage abstraction)
    Swap functions in this file later to use real backend (PHP/MySQL).
    ============================================================ */
 
@@ -16,14 +16,14 @@ const DB = {
       catch(e){ this._data = this._seed(); this.save(); }
       // Migration: ensure new top-level tables exist
       const seed = this._seed();
-      const now = '2024-01-01T00:00:00.000Z'; // Fixed date so remote data always overwrites local defaults on a fresh device!
+      ['vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
       // Ensure default Hanger & Shopper inventory items exist (auto-add if missing)
       const inv = this._data.inventory;
       if (!inv.find(i => i.autoDeduct === 'hanger')) {
-        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: '2024-01-01T00:00:00.000Z' });
+        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: new Date().toISOString() });
       }
       if (!inv.find(i => i.autoDeduct === 'shopper')) {
-        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: '2024-01-01T00:00:00.000Z' });
+        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() });
       }
       ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
       this._data.settings = Object.assign({}, seed.settings, this._data.settings);
@@ -35,25 +35,8 @@ const DB = {
       });
       this._data._counters = this._data._counters || { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
       if (!this._data.branches || !this._data.branches.length) {
-        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }];
+        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }];
       }
-      
-      // Client Migration: Update credentials
-      if (this._data.users) {
-        let adminUser = this._data.users.find(u => u.username === 'demo' || u.username === 'adminshahzeb' || u.role === 'admin');
-        if (adminUser && typeof CLIENT_CONFIG !== 'undefined') {
-          adminUser.username = CLIENT_CONFIG.adminUsername;
-          adminUser.password = CLIENT_CONFIG.adminPassword;
-          adminUser.name = CLIENT_CONFIG.adminName;
-        }
-      }
-      if (this._data.settings && (this._data.settings.shopName === 'Laundry POS' || this._data.settings.shopName === 'Mr Laundry')) {
-        this._data.settings.shopName = typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.shopName : 'Laundry POS';
-        this._data.settings.tagline = typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.tagline : '';
-        this._data.settings.phone = '';
-        this._data.settings.address = '';
-      }
-
       if (this._data._counters.po == null) this._data._counters.po = 1000;
     } else {
       this._data = this._seed();
@@ -63,76 +46,7 @@ const DB = {
   },
 
   save() {
-    try {
-      const serialized = JSON.stringify(this._data);
-      localStorage.setItem(DB_KEY, serialized);
-    } catch (e) {
-      if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-        console.warn('[DB] Storage quota exceeded — aggressively stripping heavy data...');
-        let stripped = { photos: 0, proofs: 0, auditLog: 0, messages: 0, inventoryMovements: 0, dayClosures: 0 };
-
-        // 1. Strip ALL photos from orders
-        if (this._data.orders) {
-          this._data.orders.forEach(o => {
-            if (o.photos && o.photos.length) {
-              stripped.photos += o.photos.length;
-              o.photos = [];
-            }
-          });
-        }
-        // 2. Strip payment proofs
-        if (this._data.paymentProofs && this._data.paymentProofs.length) {
-          stripped.proofs = this._data.paymentProofs.length;
-          this._data.paymentProofs = [];
-        }
-        // 3. Truncate auditLog to last 100
-        if (this._data.auditLog && this._data.auditLog.length > 100) {
-          stripped.auditLog = this._data.auditLog.length - 100;
-          this._data.auditLog = this._data.auditLog.slice(-100);
-        }
-        // 4. Truncate messages to last 100
-        if (this._data.messages && this._data.messages.length > 100) {
-          stripped.messages = this._data.messages.length - 100;
-          this._data.messages = this._data.messages.slice(-100);
-        }
-        // 5. Truncate inventoryMovements to last 50
-        if (this._data.inventoryMovements && this._data.inventoryMovements.length > 50) {
-          stripped.inventoryMovements = this._data.inventoryMovements.length - 50;
-          this._data.inventoryMovements = this._data.inventoryMovements.slice(-50);
-        }
-        // 6. Truncate dayClosures to last 30
-        if (this._data.dayClosures && this._data.dayClosures.length > 30) {
-          stripped.dayClosures = this._data.dayClosures.length - 30;
-          this._data.dayClosures = this._data.dayClosures.slice(-30);
-        }
-
-        try {
-          const serialized = JSON.stringify(this._data);
-          localStorage.setItem(DB_KEY, serialized);
-          console.warn(`[DB] Saved after stripping: ${JSON.stringify(stripped)}`);
-          return;
-        } catch (e2) {
-          // Last resort: strip ALL heavy arrays completely
-          if (this._data.auditLog) this._data.auditLog = [];
-          if (this._data.messages) this._data.messages = [];
-          if (this._data.inventoryMovements) this._data.inventoryMovements = [];
-          if (this._data.dayClosures) this._data.dayClosures = [];
-          if (this._data.promoCodes) this._data.promoCodes = [];
-          if (this._data.reviews) this._data.reviews = [];
-          if (this._data.pushSubs) this._data.pushSubs = [];
-          if (this._data.refundReasons) this._data.refundReasons = [];
-          try {
-            const serialized = JSON.stringify(this._data);
-            localStorage.setItem(DB_KEY, serialized);
-            console.warn('[DB] Last-resort save: stripped all heavy arrays. Data saved.');
-            return;
-          } catch (e3) {
-            throw new Error('Storage completely full! Please go to Chrome Settings > Privacy > Clear browsing data > Select "Cached images and files" and "Cookies and other site data", then reload and restore from backup.');
-          }
-        }
-      }
-      throw e;
-    }
+    localStorage.setItem(DB_KEY, JSON.stringify(this._data));
   },
 
   reset() {
@@ -145,7 +59,7 @@ const DB = {
     return {
       _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
-        { id: 'u1', name: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.adminName : 'Admin', username: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.adminUsername : 'admin', password: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.adminPassword : 'password', role: 'admin', createdAt: now },
+        { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
         { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now }
       ],
       categories: [
@@ -160,17 +74,17 @@ const DB = {
       ],
       orders: [],
       expenses: [],
-      ownerDrawings: [],
+      ownerDrawings: [],     // Owner's personal withdrawals from shop money
       vendors: [
         { id: 'v1', name: 'Sample Laundry Vendor', contactPerson: '', phone: '', address: '', openingBalance: 0, createdAt: now }
       ],
       branches: [
-        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }
+        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }
       ],
       purchaseOrders: [],
       inventory: [
-        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: '2024-01-01T00:00:00.000Z' },
-        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: '2024-01-01T00:00:00.000Z' }
+        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: new Date().toISOString() },
+        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() }
       ],
       inventoryMovements: [],
       dayClosures: [],
@@ -192,31 +106,32 @@ const DB = {
       ],
       reportTemplates: [],
       settings: {
-        shopName: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.shopName : 'Laundry POS',
-        tagline: '',
-        address: '',
-        phone: '',
+        shopName: 'Mr Laundry',
+        tagline: 'Quality Dry Cleaner Service',
+        address: 'Your Shop Address Here',
+        phone: '+92 300 0000000',
         currency: 'Rs.',
         taxPercent: 0,
         logo: '🧺',
         logoImage: 'assets/img/logo.jpeg',
-        invoiceFooter: 'Thank you for choosing Laundry POS!',
+        invoiceFooter: 'Thank you for choosing Mr Laundry!',
         baseUrl: '',
         defaultDeliveryDays: 2,
         loyaltyPrefix: 'MRL',
         defaultLoyaltyDiscountPercent: 10,
         autoBackupReminder: true,
         poPrefix: 'PO',
-        invoiceFontSize: 14,
-        invoiceWidth: 360,
-        invoiceQtyCircle: true,
+        // ===== INVOICE CUSTOMIZATION =====
+        invoiceFontSize: 14,           // base font size in px
+        invoiceWidth: 360,             // max width in px (thermal=300, A6=420, A5=560)
+        invoiceQtyCircle: true,        // show big quantity circle
         invoiceShowLogo: true,
         invoiceShowAddress: true,
         invoiceShowPhone: true,
         invoiceShowTagline: true,
         invoiceShowCashier: true,
         invoiceShowQR: true,
-        invoiceShowDeliveryType: true,
+        invoiceShowDeliveryType: true, // Hanger/Fold
         invoiceShowItemBreakdown: true,
         invoiceShowPaymentMethod: true,
         invoiceShowDiscount: true,
@@ -225,15 +140,18 @@ const DB = {
         invoiceShowEditedBadge: true,
         invoiceTerms: 'Items not collected within 30 days are non-refundable.',
         invoiceShowTerms: false,
-        printDualCopy: true,
-        officeCopyWidth: 280,
+        // Office-copy & WhatsApp settings
+        printDualCopy: true,           // when true, prints customer + office copy together
+        officeCopyWidth: 280,          // small slip for office
         officeCopyFontSize: 11,
-        photoRetentionDays: 30,
+        photoRetentionDays: 30,        // auto-cleanup photos older than X days after delivery
         photoAutoCleanup: true,
+        // === Portal-specific settings ===
         shopHours: 'Mon-Sat: 9:00 AM - 9:00 PM\nSunday: Closed',
         shopLocation: '',
         shopMapUrl: '',
         portalLang: 'en',
+        // === Payment settings ===
         bankName: '',
         bankAccountTitle: 'Shahzeb Vakani',
         bankAccountNumber: '',
@@ -242,22 +160,30 @@ const DB = {
         easypaisaName: 'Shahzeb Vakani',
         easypaisaNumber: '0302 8244803',
         paymentInstructions: 'Please pay to the above account and upload screenshot below. We will verify and mark your invoice as PAID within 30 minutes.',
+        // === Loyalty / Referral ===
         referralDiscountPercent: 10,
+        // === Claims Policy ===
         claimPolicyPercent: 30,
         claimVoucherFreeCount: 7,
         claimVoucherValidDays: 180,
         claimPrefix: 'CLM',
         voucherPrefix: 'VCH',
-        forceCashClose: true,
+        // === Cash close lock ===
+        forceCashClose: true,             // require day close before logout
+        // === Sound effects ===
         soundEffects: true,
+        // === Suspicious alerts ===
         suspiciousAlerts: true,
-        largeDiscountThreshold: 500,
+        largeDiscountThreshold: 500,      // alert if discount > Rs.500
         largeRefundThreshold: 1000,
+        // === Auto-reply ===
         autoReplyEnabled: true,
+        // === Public reviews ===
         showPublicReviews: true,
-        minReviewStars: 4,
+        minReviewStars: 4,                // only show reviews with 4+ stars publicly
         claimTerms: 'Claim valid only with original purchase slip. Voucher valid for 7 free wash services within 6 months from issue date. Non-transferable. Cannot be exchanged for cash.',
-        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from the delivery date will not be the responsibility of Laundry POS.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
+        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from delivery date will not be the responsibility of Mr Laundry.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
+        // === Push notifications ===
         pushVapidPublicKey: '',
         whatsappTemplate: 'Hello {name}, thank you for your order at {shop}!\n\nInvoice: {invoice}\nTotal Pcs: {pcs}\nAmount: {total}\nPaid: {paid}\nDue: {due}\nDelivery: {delivery} ({type})\n\n{footer}'
       }
@@ -295,23 +221,12 @@ const DB = {
     const prefix = (this._data.settings.loyaltyPrefix || 'MRL').toUpperCase();
     return `${prefix}-${this._data._counters.loyalty}`;
   },
-  
   nextInvoiceNumber() {
     if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
-    let maxExisting = 1000;
-    if (this._data.orders && this._data.orders.length > 0) {
-      for (let o of this._data.orders) {
-        if (o.invoiceNo && !isNaN(o.invoiceNo) && parseInt(o.invoiceNo) > maxExisting) {
-          maxExisting = parseInt(o.invoiceNo);
-        }
-      }
-    }
-    let nextVal = Math.max(this._data._counters.invoice || 1000, maxExisting) + 1;
-    this._data._counters.invoice = nextVal;
+    this._data._counters.invoice += 1;
     this.save();
-    return nextVal;
+    return this._data._counters.invoice;
   },
-
   nextClaimNumber() {
     if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
     this._data._counters.claim = (this._data._counters.claim || 1000) + 1;
@@ -335,16 +250,12 @@ const DB = {
   },
 
   settings() { return this._data.settings; },
-  saveSettings(patch) { 
-    patch._settingsUpdatedAt = new Date().toISOString();
-    this._data.settings = { ...this._data.settings, ...patch }; 
-    this.save(); 
-  },
+  saveSettings(patch) { this._data.settings = { ...this._data.settings, ...patch }; this.save(); },
 
   login(username, password) {
-    const un = username.toLowerCase();
-    const u = this._data.users.find(x => x.username.toLowerCase() === un && x.password === password);
+    const u = this._data.users.find(x => x.username === username && x.password === password);
     if (!u) {
+      // Log failed attempt
       try {
         this._data.auditLog = this._data.auditLog || [];
         this._data.auditLog.push({
@@ -360,6 +271,7 @@ const DB = {
       return null;
     }
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: u.id, name: u.name, username: u.username, role: u.role }));
+    // Log successful login
     try {
       this._data.auditLog = this._data.auditLog || [];
       this._data.auditLog.push({
@@ -398,100 +310,21 @@ const DB = {
     try { return JSON.parse(raw); } catch(e){ return null; }
   },
 
-  exportJSON() { return JSON.stringify(this._data); },
+  exportJSON() { return JSON.stringify(this._data, null, 2); },
   importJSON(json) {
-    try {
-      const parsed = (typeof json === 'string') ? JSON.parse(json) : json;
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Backup must be a valid JSON object');
-      }
-      // Ensure all required tables exist (backward compatibility with older backups)
-      const seed = this._seed();
-      Object.keys(seed).forEach(key => {
-        if (parsed[key] === undefined || parsed[key] === null) {
-          parsed[key] = seed[key];
-        }
-      });
-      // Deep merge settings so missing new fields are filled from defaults
-      if (parsed.settings && typeof parsed.settings === 'object') {
-        parsed.settings = Object.assign({}, seed.settings, parsed.settings);
-      } else {
-        parsed.settings = seed.settings;
-      }
-      // Ensure _counters exist
-      if (!parsed._counters || typeof parsed._counters !== 'object') {
-        parsed._counters = seed._counters;
-      }
-      // Ensure critical arrays are actually arrays
-      ['orders', 'customers', 'products', 'expenses', 'inventory', 'auditLog', 'messages'].forEach(table => {
-        if (!Array.isArray(parsed[table])) parsed[table] = [];
-      });
-      this._data = parsed;
-      // Try normal save first
-      try {
-        this.save();
-        return true;
-      } catch (saveErr) {
-        // If storage quota exceeded, strip photos and retry
-        if (saveErr.message && saveErr.message.includes('Storage full')) {
-          let stripped = 0;
-          if (this._data.orders) {
-            this._data.orders.forEach(o => {
-              if (o.photos && o.photos.length) {
-                stripped += o.photos.length;
-                o.photos = [];
-              }
-            });
-          }
-          try {
-            this.save();
-            console.warn(`[DB] Storage quota exceeded. Stripped ${stripped} photos from orders. Data restored successfully.`);
-            return { success: true, photosStripped: stripped, warning: `Backup restored but ${stripped} photos were removed to fit browser storage. Consider using Google Drive backup for full photo backup.` };
-          } catch (retryErr) {
-            // Still too large — try stripping payment proofs too
-            let proofsStripped = 0;
-            if (this._data.paymentProofs) {
-              proofsStripped = this._data.paymentProofs.length;
-              this._data.paymentProofs = [];
-            }
-            try {
-              this.save();
-              console.warn(`[DB] Stripped ${stripped} photos + ${proofsStripped} payment proofs. Data restored.`);
-              return { success: true, photosStripped: stripped, proofsStripped: proofsStripped, warning: `Backup restored but ${stripped} photos and ${proofsStripped} payment proofs were removed to fit browser storage.` };
-            } catch (finalErr) {
-            // Last resort for importJSON too: strip ALL heavy data
-            if (this._data.auditLog) this._data.auditLog = [];
-            if (this._data.messages) this._data.messages = [];
-            if (this._data.inventoryMovements) this._data.inventoryMovements = [];
-            if (this._data.dayClosures) this._data.dayClosures = [];
-            if (this._data.promoCodes) this._data.promoCodes = [];
-            if (this._data.reviews) this._data.reviews = [];
-            if (this._data.pushSubs) this._data.pushSubs = [];
-            if (this._data.refundReasons) this._data.refundReasons = [];
-            try {
-              this.save();
-              console.warn('[DB] Import last-resort: stripped all heavy arrays. Data restored.');
-              return { success: true, warning: 'Backup restored but heavy data (audit logs, messages, photos, etc.) were removed to fit storage.' };
-            } catch (e4) {
-              throw new Error('Backup too large even after stripping everything. Clear browser data and try a smaller backup.');
-            }
-          }
-        }
-        throw saveErr;
-      }
-    } catch (e) {
-      console.error('DB.importJSON failed:', e);
-      throw new Error('Backup file invalid or corrupted: ' + e.message);
-    }
+    const parsed = typeof json === 'string' ? JSON.parse(json) : json;
+    this._data = parsed; this.save();
   }
 };
 
 /* ============================================================
    MR LAUNDRY OFFICIAL RATE LIST
+   Update prices here, then click "Import/Reset Price List" in admin Products page.
    ============================================================ */
 function getMrLaundryRateList() {
   const G = 'cgents', L = 'cladies', O = 'cothers', P = 'cpress';
   const list = [
+    // ===== GENTS WEAR =====
     { name: 'Suit 2 Pcs',            category: G, price: 800,  image: '🤵' },
     { name: 'Suit 3 Pcs',            category: G, price: 1000, image: '🤵' },
     { name: 'Coat',                  category: G, price: 600,  image: '🧥' },
@@ -517,6 +350,8 @@ function getMrLaundryRateList() {
     { name: 'Kids Shorts',           category: G, price: 120,  image: '🩳' },
     { name: 'Kids Shirt',            category: G, price: 120,  image: '👔' },
     { name: 'Kids Trouser / Jeans',  category: G, price: 120,  image: '👖' },
+
+    // ===== LADIES WEAR =====
     { name: 'Shalwar Suit Plain - 3 Pcs', category: L, price: 400, image: '🥻' },
     { name: 'Shalwar Suit Plain - 2 Pcs', category: L, price: 300, image: '🥻' },
     { name: 'Dupatta',                    category: L, price: 150, image: '🧣' },
@@ -538,6 +373,8 @@ function getMrLaundryRateList() {
     { name: 'Bridal Dress - Maxi',        category: L, price: 6000, image: '👰' },
     { name: 'Bridal Dress - 3 Pcs Suit',  category: L, price: 6000, image: '👰' },
     { name: 'Ladies Undergarments (BRA)', category: L, price: 80,   image: '🩲' },
+
+    // ===== OTHERS =====
     { name: 'Hoodie / Cardigan / Sweater', category: O, price: 600,  image: '🧥' },
     { name: 'Heavy Jacket',               category: O, price: 800,  image: '🧥' },
     { name: 'Jacket Leather',             category: O, price: 1000, image: '🧥' },
@@ -579,6 +416,8 @@ function getMrLaundryRateList() {
     { name: 'Pillow Cover',               category: O, price: 120,  image: '🛏️' },
     { name: 'Rafooh',                     category: O, price: 0,    image: '🧵' },
     { name: 'Sofa',                       category: O, price: 0,    image: '🛋️' },
+
+    // ===== PRESS / IRONING ONLY (rates can be set later) =====
     { name: 'Suit 2 Pcs (Press)',           category: P, price: 0, image: '🤵' },
     { name: 'Suit 3 Pcs (Press)',           category: P, price: 0, image: '🤵' },
     { name: 'Coat (Press)',                 category: P, price: 0, image: '🧥' },
@@ -651,7 +490,7 @@ function cleanupOldPhotos(force) {
   const lastRun = localStorage.getItem('mrLaundryLastPhotoCleanup');
   if (lastRun && Date.now() - new Date(lastRun).getTime() < 24*60*60*1000) return;
   const result = cleanupOldPhotos(false);
-  if (result.removed > 0) console.log(`[Laundry POS] Auto-cleanup: removed ${result.removed} old photos (${Math.round(result.freed/1024)} KB freed)`);
+  if (result.removed > 0) console.log(`[Mr Laundry] Auto-cleanup: removed ${result.removed} old photos (${Math.round(result.freed/1024)} KB freed)`);
   localStorage.setItem('mrLaundryLastPhotoCleanup', new Date().toISOString());
 })();
 

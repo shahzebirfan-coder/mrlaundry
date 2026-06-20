@@ -503,7 +503,7 @@ function buildVoucherDoc(claim, voucher, s, logoBlock) {
         </div>
       </div>
 
-      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Laundry POS POS</div>
+      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Mr Laundry POS</div>
     </div>
   `;
 }
@@ -570,7 +570,7 @@ function buildCashRefundDoc(claim, s, logoBlock) {
         </tr>
       </table>
 
-      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Laundry POS POS</div>
+      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Mr Laundry POS</div>
     </div>
   `;
 }

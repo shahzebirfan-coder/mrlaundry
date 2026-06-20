@@ -1,35 +1,6 @@
 /* ===================== ORDERS / INVOICES ===================== */
 let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' };
 
-/* Robust customer lookup: tries ID first, then name/phone fallback */
-function getCustomerForOrder(order) {
-  if (!order) return { name: 'Walk-in', phone: '' };
-  // 1. Try exact ID match
-  if (order.customerId) {
-    const c = DB.get('customers', order.customerId);
-    if (c) return c;
-  }
-  // 2. Use snapshot data stored in order (new feature for resilience)
-  if (order.customerName) {
-    return { 
-      name: order.customerName, 
-      phone: order.customerPhone || '',
-      id: order.customerId || 'unknown'
-    };
-  }
-  // 3. Try legacy fields if present in order (backward compat with old backups)
-  if (order.customerPhone || order.customerMobile) {
-    const all = DB.all('customers');
-    const match = all.find(c =>
-      (order.customerPhone && c.phone === order.customerPhone) ||
-      (order.customerMobile && c.phone === order.customerMobile)
-    );
-    if (match) return match;
-  }
-  // 4. Final fallback
-  return { name: 'Walk-in', phone: '' };
-}
-
 function renderOrders() {
   const content = `
     <h1 class="page-title">📦 ${t('ord.title')}</h1>
@@ -112,7 +83,7 @@ function filteredOrders() {
     if (ordersFilter.dateTo && d > ordersFilter.dateTo) return false;
     if (ordersFilter.search) {
       const q = ordersFilter.search.toLowerCase();
-      const c = getCustomerForOrder(o);
+      const c = DB.get('customers', o.customerId) || {};
       const invStr = String(o.invoiceNo || o.id);
       if (!invStr.toLowerCase().includes(q)
         && !(c.name||'').toLowerCase().includes(q)
@@ -145,7 +116,7 @@ function renderOrdersBody() {
   }
 
   $('#ordersBody').innerHTML = filtered.map(o => {
-    const c = getCustomerForOrder(o);
+    const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
     const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
     return `<tr>
       <td><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
@@ -153,22 +124,17 @@ function renderOrdersBody() {
       <td>${o.items.length} items<br><b style='color:var(--primary);'>${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
       <td><b>${fmtMoney(o.total)}</b></td>
       <td>${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
-      <td>
-        <span class="badge ${o.status}">${o.status}</span>
-        ${(o.status === 'ready' && o.location) ? `<br><span style="font-size:10px;font-weight:700;color:#000;background:#fef08a;padding:2px 6px;border-radius:6px;border:1px solid #f59e0b;margin-top:4px;display:inline-block;">📍 ${escapeHtml(o.location)}</span>` : ''}
-      </td>
+      <td><span class="badge ${o.status}">${o.status}</span></td>
       <td>${fmtDateShort(o.createdAt)}</td>
       <td>${escapeHtml(o.deliveryDate || '-')}</td>
       <td>
         <button class="btn btn-secondary btn-sm" data-act="view" data-id="${o.id}" title="${t('ord.viewInv')}">👁️</button>
         <button class="btn btn-secondary btn-sm" data-act="status" data-id="${o.id}" title="${t('ord.updateStatus')}">🔄</button>
-        <button class="btn btn-secondary btn-sm" data-act="partial" data-id="${o.id}" title="Partial Delivery">🛍️</button>
         ${(o.due||0) > 0 ? `<button class="btn btn-success btn-sm" data-act="receive" data-id="${o.id}" title="${t('rcv.title')}">💰</button>` : ''}
         ${c.phone ? `<button class="btn btn-success btn-sm" data-act="wa" data-id="${o.id}" title="${t('ord.sendWa')}">📱${(o.whatsappLog && o.whatsappLog.length) ? ` ${o.whatsappLog.length}` : ""}</button>` : ''}
         <button class="btn btn-secondary btn-sm" data-act="photos" data-id="${o.id}" title="${t('ord.photos')}">📷${(o.photos&&o.photos.length)?` ${o.photos.length}`:''}</button>
         <button class="btn btn-secondary btn-sm" data-act="print" data-id="${o.id}" title="${t('ord.printInv')}">🖨️</button>
-        ${c.isB2B ? `<button class="btn btn-secondary btn-sm" data-act="challan" data-id="${o.id}" title="Print Delivery Challan" style="border-color:#1e40af;color:#1e40af;background:#eff6ff;">📄 Challan</button>` : ''}
-        ${DB.currentUser().role==='admin' && !(typeof isAppExpired === 'function' && isAppExpired()) ? `<button class="btn btn-warning btn-sm" data-act="edit" data-id="${o.id}" title="${t('ord.edit')}">✏️</button><button class="btn btn-danger btn-sm" data-act="del" data-id="${o.id}" title="${t('ord.delete')}">🗑️</button>` : ''}
+        ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" data-act="edit" data-id="${o.id}" title="${t('ord.edit')}">✏️</button><button class="btn btn-danger btn-sm" data-act="del" data-id="${o.id}" title="${t('ord.delete')}">🗑️</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -176,9 +142,7 @@ function renderOrdersBody() {
   $$('[data-act]').forEach(b => b.onclick = () => {
     const id = b.dataset.id;
     if (b.dataset.act === 'view' || b.dataset.act === 'print') openInvoice(id, b.dataset.act === 'print');
-    else if (b.dataset.act === 'challan') printChallan(id);
     else if (b.dataset.act === 'status') openStatusChange(id);
-    else if (b.dataset.act === 'partial') openPartialDelivery(id);
     else if (b.dataset.act === 'receive') openReceivePayment(id);
     else if (b.dataset.act === 'wa') openWhatsAppPicker(id);
     else if (b.dataset.act === 'edit') openEditInvoice(id);
@@ -206,7 +170,7 @@ function renderOrdersBody() {
 function openStatusChange(orderId) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = getCustomerForOrder(o);
+  const c = DB.get('customers', o.customerId) || {};
   const html = `
     <h3>🔄 Update Order — INV-${o.invoiceNo || o.id.slice(-6).toUpperCase()}</h3>
     <p class="sub">Customer: ${escapeHtml(c.name)} • ${escapeHtml(c.phone||'')}</p>
@@ -221,11 +185,6 @@ function openStatusChange(orderId) {
           <option value="cancelled" ${o.status==='cancelled'?'selected':''}>❌ Cancelled</option>
         </select>
       </div>
-      <div class="field" id="rackField" style="display:${o.status==='ready'?'block':'none'};">
-        <label>📍 Rack/Shelf Location (Optional)</label>
-        <input type="text" id="newRack" placeholder="e.g. Rack A1, Shelf 3" value="${escapeHtml(o.location||'')}"/>
-        <small style="color:var(--text-soft);">Helps you find clothes instantly when customer arrives.</small>
-      </div>
       <div class="field">
         <label>Receive Additional Payment</label>
         <input type="number" id="addPay" value="${o.due}" min="0" max="${o.due}"/>
@@ -238,10 +197,6 @@ function openStatusChange(orderId) {
     </div>
   `;
   openModal(html, { onOpen(m){
-    $('#newStatus', m).onchange = (e) => {
-      $('#rackField', m).style.display = e.target.value === 'ready' ? 'block' : 'none';
-      if (e.target.value === 'ready') setTimeout(()=>$('#newRack', m).focus(), 100);
-    };
     $('#cancelBtn', m).onclick = closeModal;
     $('#saveBtn', m).onclick = () => {
       const newStatus = $('#newStatus', m).value;
@@ -249,10 +204,7 @@ function openStatusChange(orderId) {
       const paid = Math.min(o.total, o.paid + addPay);
       const due = o.total - paid;
       const oldStatus = o.status;
-      const patch = { status: newStatus, paid, due, isCredit: due > 0 };
-      if (newStatus === 'ready') patch.location = $('#newRack', m).value.trim();
-      
-      DB.update('orders', orderId, patch);
+      DB.update('orders', orderId, { status: newStatus, paid, due, isCredit: due > 0 });
       if (typeof maybePromptWhatsAppOnStatus === 'function' && oldStatus !== newStatus && !sessionStorage.getItem('mrLaundryWaPause')) {
         setTimeout(() => maybePromptWhatsAppOnStatus(orderId, newStatus, oldStatus), 300);
       }
@@ -266,7 +218,7 @@ function openEditInvoice(orderId) {
   if (DB.currentUser().role !== 'admin') { toast('Admin access only','error'); return; }
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = getCustomerForOrder(o);
+  const c = DB.get('customers', o.customerId) || {};
 
   const itemsHtml = (items) => items.map((it,i) => `
     <tr data-i="${i}">
@@ -446,7 +398,7 @@ function openReceivePayment(orderId) {
   if (!o) { toast('Order not found', 'error'); return; }
   if ((o.due || 0) <= 0) { toast(t('rcv.noDue') + ' ✅', 'success'); return; }
 
-  const c = getCustomerForOrder(o);
+  const c = DB.get('customers', o.customerId) || { name: 'Walk-in', phone: '' };
   const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
   const s = DB.settings();
 
@@ -507,7 +459,7 @@ function openReceivePayment(orderId) {
     </div>
 
     <div class="modal-footer">
-      <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
       <button class="btn btn-success btn-lg" id="rcvSave">${t('rcv.confirmBtn')}</button>
     </div>
   `;
@@ -585,7 +537,7 @@ function openReceivePayment(orderId) {
 function printPaymentReceipt(orderId, payRecord) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const c = getCustomerForOrder(o);
+  const c = DB.get('customers', o.customerId) || { name: 'Walk-in', phone: '' };
   const s = DB.settings();
   const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
   const width = s.invoiceWidth || 360;
@@ -596,7 +548,7 @@ function printPaymentReceipt(orderId, payRecord) {
   div.innerHTML = `
     <div style="text-align:center;border-bottom:2px dashed #000;padding-bottom:8px;margin-bottom:8px;">
       ${s.logoImage ? `<img src="${s.logoImage}" style="max-width:80px;max-height:60px;background:#000;padding:4px;border-radius:6px;"/>` : ''}
-      <div style="font-size:18px;font-weight:800;margin-top:6px;">${escapeHtml(s.shopName || 'Laundry POS')}</div>
+      <div style="font-size:18px;font-weight:800;margin-top:6px;">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
       <div style="font-size:11px;">${escapeHtml(s.address || '')}</div>
       <div style="font-size:11px;">${escapeHtml(s.phone || '')}</div>
     </div>
@@ -620,7 +572,7 @@ function printPaymentReceipt(orderId, payRecord) {
     </table>
     <div style="text-align:center;margin-top:10px;font-size:11px;border-top:2px dashed #000;padding-top:8px;">
       Thank you! 🙏<br>
-      ${escapeHtml(s.shopName || 'Laundry POS')}
+      ${escapeHtml(s.shopName || 'Mr Laundry')}
     </div>
   `;
   document.body.appendChild(div);
@@ -669,7 +621,7 @@ function openQuickPay() {
       const digits = q.replace(/\D/g, '');
       const orders = DB.all('orders').filter(o => {
         const inv = String(o.invoiceNo || '');
-        const c = getCustomerForOrder(o);
+        const c = DB.get('customers', o.customerId) || {};
         const phone = String(c.phone || '').replace(/\D/g, '');
         return inv.includes(digits) || phone.includes(digits) || (c.name||'').toLowerCase().includes(q);
       }).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
@@ -684,7 +636,7 @@ function openQuickPay() {
     function renderRows(orders) {
       return `<table class="tbl" style="margin-top:6px;"><thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>` +
         orders.map(o => {
-          const c = getCustomerForOrder(o);
+          const c = DB.get('customers', o.customerId) || { name:'Walk-in', phone:'' };
           const inv = o.invoiceNo ? `INV-${o.invoiceNo}` : '#'+o.id.slice(-6).toUpperCase();
           const due = o.due || 0;
           return `<tr>
@@ -693,10 +645,7 @@ function openQuickPay() {
             <td>${fmtMoney(o.total)}</td>
             <td style="color:var(--success);">${fmtMoney(o.paid)}</td>
             <td style="color:${due>0?'var(--danger)':'var(--success)'};font-weight:700;">${fmtMoney(due)}</td>
-            <td>
-        <span class="badge ${o.status}">${o.status}</span>
-        ${(o.status === 'ready' && o.location) ? `<br><span style="font-size:10px;font-weight:700;color:#000;background:#fef08a;padding:2px 6px;border-radius:6px;border:1px solid #f59e0b;margin-top:4px;display:inline-block;">📍 ${escapeHtml(o.location)}</span>` : ''}
-      </td>
+            <td><span class="badge ${o.status}">${o.status}</span></td>
             <td>
               ${due > 0
                 ? `<button class="btn btn-success btn-sm" data-qpay="${o.id}">💰 ${t('rcv.title')}</button>`
@@ -724,181 +673,3 @@ function openQuickPay() {
 window.openReceivePayment = openReceivePayment;
 window.openQuickPay = openQuickPay;
 window.printPaymentReceipt = printPaymentReceipt;
-
-function openPartialDelivery(orderId) {
-  const o = DB.get('orders', orderId);
-  if (!o) return;
-  const c = getCustomerForOrder(o);
-  
-  const items = o.items || [];
-  // Migrate old data on the fly
-  items.forEach(it => {
-    if (typeof it.deliveredQty === 'undefined') {
-      it.deliveredQty = it.delivered ? it.qty : 0;
-    }
-    if (typeof it.rewashQty === 'undefined') {
-      it.rewashQty = (!it.delivered && it.redryclean) ? it.qty : 0;
-    }
-  });
-
-  const html = `
-    <h3>🛍️ Partial Delivery — INV-${o.invoiceNo || o.id.slice(-6).toUpperCase()}</h3>
-    <p class="sub">Customer: ${escapeHtml(c.name)}</p>
-    <div style="background:var(--surface-alt);padding:14px;border-radius:10px;margin-bottom:14px;">
-      <p style="margin:0 0 10px 0;font-size:13px;color:var(--text-soft);">Enter the exact quantity being delivered or sent for free re-wash today.</p>
-      <table class="tbl" style="width:100%;font-size:13px;">
-        <thead><tr><th>Item</th><th style="text-align:center;">Delivered</th><th style="text-align:center;">Re-Wash</th></tr></thead>
-        <tbody>
-          ${items.map((it, idx) => `
-            <tr>
-              <td style="padding:8px 4px;"><b>${escapeHtml(it.name)}</b><br><small style="color:var(--text-soft);">Total Qty: ${it.qty}</small></td>
-              <td style="text-align:center;padding:8px 4px;">
-                <input type="number" id="pd_del_${idx}" value="${it.deliveredQty}" min="0" max="${it.qty}" style="width:60px;text-align:center;padding:6px;border:1px solid var(--border);border-radius:6px;font-weight:bold;" onchange="const max=${it.qty}; let v=parseInt(this.value)||0; if(v>max)this.value=max; else if(v<0)this.value=0;"/>
-              </td>
-              <td style="text-align:center;padding:8px 4px;">
-                <input type="number" id="pd_rewash_${idx}" value="${it.rewashQty}" min="0" max="${it.qty}" style="width:60px;text-align:center;padding:6px;border:1px solid var(--border);border-radius:6px;font-weight:bold;" onchange="const max=${it.qty}; let v=parseInt(this.value)||0; if(v>max)this.value=max; else if(v<0)this.value=0;"/>
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-    
-    <div class="form-row cols-1" id="pdPaySec">
-      <div class="field">
-        <label>Receive Payment (Remaining Due: <b style="color:var(--danger);">${fmtMoney(o.due)}</b>)</label>
-        <input type="number" id="pdAddPay" value="0" min="0" max="${o.due}"/>
-      </div>
-    </div>
-    
-    <div class="modal-footer">
-      <button class="btn btn-ghost" id="pdCancelBtn">Cancel</button>
-      <button class="btn btn-warning" id="pdPrintBtn">🖨️ Print Partial Slip</button>
-      <button class="btn btn-primary" id="pdSaveBtn">💾 Save Delivery</button>
-    </div>
-  `;
-
-  openModal(html, { onOpen(m) {
-    if (o.due === 0) $('#pdPaySec', m).style.display = 'none';
-
-    $('#pdCancelBtn', m).onclick = closeModal;
-    
-    const collectData = () => {
-      let totalDelivered = 0;
-      let totalQty = 0;
-      
-      items.forEach((it, idx) => {
-        totalQty += it.qty;
-        let dQty = parseInt($('#pd_del_' + idx, m).value) || 0;
-        let rQty = parseInt($('#pd_rewash_' + idx, m).value) || 0;
-        
-        // Prevent exceeding total quantity
-        if (dQty + rQty > it.qty) {
-          rQty = it.qty - dQty; // prioritize delivered, clamp rewash
-        }
-        
-        it.deliveredQty = dQty;
-        it.rewashQty = rQty;
-        // Keep legacy flags synced for backward compatibility
-        it.delivered = (dQty === it.qty);
-        it.redryclean = (rQty > 0);
-        
-        totalDelivered += dQty;
-      });
-      
-      let newStatus = o.status;
-      if (totalDelivered === 0) newStatus = 'ready';
-      else if (totalDelivered === totalQty) newStatus = 'delivered';
-      else newStatus = 'partial'; // custom status
-
-      const addPay = Math.max(0, +$('#pdAddPay', m)?.value || 0);
-      const paid = Math.min(o.total, o.paid + addPay);
-      const due = o.total - paid;
-      return { status: newStatus, items, paid, due, isCredit: due > 0 };
-    };
-
-    $('#pdSaveBtn', m).onclick = () => {
-      const patch = collectData();
-      DB.update('orders', orderId, patch);
-      closeModal(); toast('Partial delivery saved','success'); renderOrdersBody();
-    };
-
-    $('#pdPrintBtn', m).onclick = () => {
-      const patch = collectData();
-      DB.update('orders', orderId, patch);
-      closeModal();
-      printPartialSlip(orderId);
-      renderOrdersBody();
-    };
-  }});
-}
-
-function printPartialSlip(orderId) {
-  const o = DB.get('orders', orderId);
-  const c = getCustomerForOrder(o);
-  const s = DB.settings();
-  const invoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
-  
-  const deliveredItems = [];
-  const pendingItems = [];
-  const redryItems = [];
-
-  o.items.forEach(it => {
-    const dQty = it.deliveredQty || 0;
-    const rQty = it.rewashQty || 0;
-    const pQty = it.qty - dQty - rQty;
-    
-    if (dQty > 0) deliveredItems.push({ name: it.name, qty: dQty });
-    if (pQty > 0) pendingItems.push({ name: it.name, qty: pQty });
-    if (rQty > 0) redryItems.push({ name: it.name, qty: rQty });
-  });
-
-  const html = `
-    <div style="font-family:sans-serif;width:280px;padding:10px;color:#000;">
-      <h2 style="text-align:center;margin:0;font-size:20px;">${escapeHtml(s.shopName)}</h2>
-      <div style="text-align:center;font-size:12px;font-weight:bold;margin:4px 0 10px;border-bottom:2px dashed #000;padding-bottom:4px;">
-        PARTIAL DELIVERY SLIP
-      </div>
-      <div style="margin-bottom:12px; line-height:1.5;">
-        <div style="font-size:20px;font-weight:900;">INV: ${invoiceNo}</div>
-        <div style="font-size:18px;font-weight:bold;">${escapeHtml(c.name)}</div>
-        <div style="font-size:16px;font-weight:bold;color:#333;">${new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</div>
-      </div>
-      
-      ${deliveredItems.length ? `
-        <div style="border:1px solid #000;padding:4px;margin-bottom:8px;">
-          <b style="font-size:12px;">✅ GIVEN TO CUSTOMER:</b>
-          <div style="font-size:14px;margin-top:4px;font-weight:bold;">
-            ${deliveredItems.map(it => `• ${escapeHtml(it.name)} ×${it.qty}`).join('<br>')}
-          </div>
-        </div>
-      ` : ''}
-      
-      ${pendingItems.length ? `
-        <div style="border:1px dashed #000;padding:4px;margin-bottom:8px;">
-          <b style="font-size:12px;">⏳ PENDING (Still in shop):</b>
-          <div style="font-size:14px;margin-top:4px;">
-            ${pendingItems.map(it => `• ${escapeHtml(it.name)} ×${it.qty}`).join('<br>')}
-          </div>
-        </div>
-      ` : ''}
-
-      ${redryItems.length ? `
-        <div style="border:2px solid #000;padding:4px;margin-bottom:8px;">
-          <b style="font-size:12px;">🌀 RE-WASH (Free):</b>
-          <div style="font-size:14px;margin-top:4px;">
-            ${redryItems.map(it => `• ${escapeHtml(it.name)} ×${it.qty}`).join('<br>')}
-          </div>
-        </div>
-      ` : ''}
-
-      <div style="text-align:center;margin-top:10px;font-size:14px;font-weight:bold;border-top:1px dashed #000;padding-top:6px;">
-        Remaining Balance: ${fmtMoney(o.due)}
-      </div>
-    </div>
-  `;
-  
-  const wrap = document.createElement('div');
-  wrap.innerHTML = html;
-  if (typeof printElement === 'function') printElement(wrap, { title: 'Partial Delivery' });
-}

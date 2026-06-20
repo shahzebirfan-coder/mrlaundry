@@ -9,13 +9,6 @@ function renderSettings() {
     <h1 class="page-title">⚙️ Settings</h1>
     <p class="page-sub">Customize your shop info, loyalty defaults, and manage your data.</p>
 
-    <!-- IT ADMIN DEMO & SUBSCRIPTION SECTION - TOP VISIBILITY -->
-    <div class="card" style="margin-bottom:20px;background:#fef2f2;border:2px solid #ef4444;">
-      <div class="card-header"><h3 style="color:#b91c1c;">📅 Demo & Subscription (IT Admin)</h3></div>
-      <p style="color:#991b1b;font-size:12px;margin-bottom:14px;">Manage subscription validity. Requires IT ADMIN PASSWORD.</p>
-      <button class="btn btn-danger btn-block" id="openSubBtnTop">🔑 Manage Subscription</button>
-    </div>
-
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;align-items:start;">
       <div>
         <div class="card" style="margin-bottom:20px;">
@@ -138,8 +131,8 @@ function renderSettings() {
 
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header"><h3>🔄 Cloud Sync (Multi-Device)</h3></div>
-          <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Real-time sync via Firebase. Premium feature. Contact IT Department to enable.</p>
-          <button class="btn btn-primary btn-block" id="openCloudBtn">🔄 Configure Cloud Sync (IT Admin)</button>
+          <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Real-time sync via Firebase. Free tier supports small/medium shops.</p>
+          <button class="btn btn-primary btn-block" id="openCloudBtn">🔄 Configure Cloud Sync</button>
           <div id="cloudStatus" style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center;"></div>
         </div>
 
@@ -187,10 +180,9 @@ function renderSettings() {
           <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Your data lives in your browser. <b>Always keep a recent backup!</b></p>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <button class="btn btn-success btn-lg" id="exportBtn">📥 Download Backup</button>
-            <!-- Use label + hidden input for bulletproof cross-browser file picker -->
-            <label class="btn btn-secondary" style="cursor:pointer;text-align:center;position:relative;display:block;">
+            <label class="btn btn-secondary" style="cursor:pointer;text-align:center;">
               📤 Restore from Backup
-              <input type="file" id="importFile" accept=".json,.txt,application/json" style="display:none;"/>
+              <input type="file" id="importFile" accept="application/json" style="display:none;"/>
             </label>
             <hr style="margin:8px 0;border:none;border-top:1px solid var(--border);"/>
             <button class="btn btn-danger" id="resetBtn">⚠️ Reset All Data</button>
@@ -224,34 +216,27 @@ function renderSettings() {
   };
 
   $('#saveSetBtn').onclick = () => {
-    promptPasswordModal('Unlock Settings Save', (pwd) => {
-      let itPwd = window._IT_BRAND.pwd;
-      if (pwd !== itPwd) {
-        toast('Incorrect IT ADMIN Password!', 'error');
-        return;
-      }
-      const patch = {
-        shopName: $('#sName').value.trim(),
-        logo: $('#sLogo').value.trim() || '🧺',
-        tagline: $('#sTag').value.trim(),
-        phone: $('#sPhone').value.trim(),
-        currency: $('#sCurrency').value.trim() || 'Rs.',
-        address: $('#sAddr').value.trim(),
-        taxPercent: Math.max(0, +$('#sTax').value || 0),
-        baseUrl: $('#sBase').value.trim(),
-        invoiceFooter: $('#sFooter').value.trim(),
-        loyaltyPrefix: ($('#sLoyPrefix').value || 'MRL').toUpperCase(),
-        defaultLoyaltyDiscountPercent: Math.max(0, +$('#sLoyPct').value || 0),
-        defaultDeliveryDays: +$('#sDeliveryDays').value || 2,
-        autoBackupReminder: $('#sBackupReminder').value === 'true',
-        photoRetentionDays: Math.max(1, +($('#sPhotoDays')?.value || 30)),
-        photoAutoCleanup: ($('#sPhotoAuto')?.value || 'true') === 'true'
-      };
-      if (pendingLogoDataUrl !== null) patch.logoImage = pendingLogoDataUrl;
-      DB.saveSettings(patch);
-      toast('Settings saved','success');
-      renderSettings();
-    });
+    const patch = {
+      shopName: $('#sName').value.trim(),
+      logo: $('#sLogo').value.trim() || '🧺',
+      tagline: $('#sTag').value.trim(),
+      phone: $('#sPhone').value.trim(),
+      currency: $('#sCurrency').value.trim() || 'Rs.',
+      address: $('#sAddr').value.trim(),
+      taxPercent: Math.max(0, +$('#sTax').value || 0),
+      baseUrl: $('#sBase').value.trim(),
+      invoiceFooter: $('#sFooter').value.trim(),
+      loyaltyPrefix: ($('#sLoyPrefix').value || 'MRL').toUpperCase(),
+      defaultLoyaltyDiscountPercent: Math.max(0, +$('#sLoyPct').value || 0),
+      defaultDeliveryDays: +$('#sDeliveryDays').value || 2,
+      autoBackupReminder: $('#sBackupReminder').value === 'true',
+      photoRetentionDays: Math.max(1, +($('#sPhotoDays')?.value || 30)),
+      photoAutoCleanup: ($('#sPhotoAuto')?.value || 'true') === 'true'
+    };
+    if (pendingLogoDataUrl !== null) patch.logoImage = pendingLogoDataUrl;
+    DB.saveSettings(patch);
+    toast('Settings saved','success');
+    renderSettings();
   };
 
   $('#exportBtn').onclick = doBackup;
@@ -261,23 +246,9 @@ function renderSettings() {
   if ($('#openARBtn')) $('#openARBtn').onclick = () => openAutoReplyEditor();
   if ($('#checkStorageBtn')) $('#checkStorageBtn').onclick = () => showStorageStatus();
   if ($('#openWaTplBtn'))  $('#openWaTplBtn').onclick  = () => openWhatsAppTemplateEditor();
-  if ($('#openGDriveBtn')) $('#openGDriveBtn').onclick = () => {
-    promptPasswordModal('Access GDrive Settings', (pwd) => {
-      let itPwd = window._IT_BRAND.pwd;
-      if (pwd === itPwd) openGDriveManager();
-      else toast('Incorrect IT ADMIN Password!', 'error');
-    });
-  };
+  if ($('#openGDriveBtn')) $('#openGDriveBtn').onclick = () => openGDriveManager();
   if ($('#openMasterCodeBtn')) $('#openMasterCodeBtn').onclick = () => openMasterCodeSetup();
-  if ($('#openCloudBtn')) $('#openCloudBtn').onclick  = () => {
-    promptPasswordModal('Access Cloud Sync Settings', (pwd) => {
-      let itPwd = window._IT_BRAND.pwd;
-      if (pwd === itPwd) openCloudSyncManager();
-      else toast('Incorrect IT ADMIN Password!', 'error');
-    });
-  };
-  if ($('#openSubBtnTop')) $('#openSubBtnTop').onclick = () => openSubscriptionManager();
-
+  if ($('#openCloudBtn')) $('#openCloudBtn').onclick  = () => openCloudSyncManager();
   // Status indicators
   const gdEl = $('#gdriveStatus');
   if (gdEl) {
@@ -294,67 +265,17 @@ function renderSettings() {
     } else cEl.innerHTML = CLOUD.getConfig() ? '⏸️ Configured but paused' : '❌ Not set up';
   }
 
-  // Restore from Backup — bulletproof cross-browser handler
-  const importFileInput = $('#importFile');
-  if (importFileInput) {
-    importFileInput.onchange = (e) => {
-      const file = e.target.files[0];
-      console.log('[Restore] File selected:', file ? file.name : 'none');
-      if (!file) { toast('No file selected', 'error'); return; }
-
-      const name = file.name.toLowerCase();
-      if (!name.endsWith('.json') && !name.endsWith('.txt')) {
-        toast('Please select a .json or .txt backup file', 'error');
-        e.target.value = '';
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onerror = () => { toast('Failed to read file', 'error'); console.error('[Restore] FileReader error'); };
-      reader.onload = () => {
-        console.log('[Restore] File read, length:', reader.result.length);
-        confirmDialog('This will REPLACE all current data with the backup. Continue?', () => {
-          try {
-            console.log('[Restore] Calling DB.importJSON...');
-            const result = DB.importJSON(reader.result);
-            console.log('[Restore] importJSON result:', result);
-            
-            let msg = 'Restored! Saving to persistent storage...';
-            if (result && result.warning) {
-              msg = '✅ ' + result.warning;
-              console.log('[Restore] Warning:', result.warning);
-            }
-            toast(msg, 'success');
-
-            // CRITICAL: Prevent persistent.js from overwriting with old data
-            sessionStorage.setItem('mrLaundryRestoring', 'true');
-
-            // Save to IndexedDB immediately so persistent.js restores THIS data on next load
-            if (typeof Persistent !== 'undefined' && Persistent.backupAll) {
-              console.log('[Restore] Backing up to IndexedDB...');
-              Persistent.backupAll().then(() => {
-                console.log('[Restore] IndexedDB backed up. Reloading...');
-                location.reload();
-              }).catch(err => {
-                console.warn('[Restore] IndexedDB backup failed, reloading anyway:', err);
-                location.reload();
-              });
-            } else {
-              console.log('[Restore] Persistent not available, reloading...');
-              location.reload();
-            }
-          }
-          catch(err) {
-            console.error('[Restore] ERROR:', err);
-            alert('Restore failed: ' + err.message);
-            toast('Invalid backup file: ' + err.message, 'error');
-          }
-        });
-      };
-      reader.readAsText(file);
-      e.target.value = ''; // reset so same file can be selected again
+  $('#importFile').onchange = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      confirmDialog('This will REPLACE all current data with the backup. Continue?', () => {
+        try { DB.importJSON(reader.result); toast('Restored! Reloading...','success'); setTimeout(()=>location.reload(), 800); }
+        catch(err){ toast('Invalid backup file','error'); }
+      });
     };
-  }
+    reader.readAsText(file);
+  };
 
   $('#resetBtn').onclick = () => {
     confirmDialog('⚠️ This will DELETE ALL DATA and restore defaults. Continue?', () => {
@@ -368,93 +289,4 @@ function doBackup() {
   downloadFile(`mr-laundry-backup-${isoDay()}.json`, DB.exportJSON());
   localStorage.setItem('mrLaundryLastBackup', new Date().toISOString());
   toast('Backup downloaded','success');
-}
-
-function openSubscriptionManager() {
-  promptPasswordModal('Access Subscription Settings', (pwd) => {
-    let itPwd = window._IT_BRAND.pwd;
-    if (pwd !== itPwd) {
-      toast('Incorrect IT ADMIN Password!', 'error');
-      return;
-    }
-    
-    const s = DB.settings();
-    const expiry = s.subscriptionExpiry || 0;
-    let expiryStr = expiry > 0 ? new Date(expiry).toLocaleString() : 'Not Set';
-    if (s.lifetimeLicense) expiryStr = '<span style="color:green;">🌟 Lifetime Active</span>';
-    const daysLeft = s.lifetimeLicense ? 'Unlimited' : (expiry > 0 ? Math.ceil((expiry - Date.now())/(1000*60*60*24)) : 0);
-    
-    openModal(`
-      <h3>📅 Subscription Management</h3>
-      <div style="background:#f1f5f9;padding:10px;border-radius:8px;margin-bottom:15px;">
-        <b>Current Expiry:</b> ${expiryStr}<br>
-        <b>Days Remaining:</b> <span style="color:${daysLeft === 'Unlimited' || daysLeft > 7 ? 'green' : 'red'}">${daysLeft}</span>
-      </div>
-      
-      <p style="font-size:13px;margin-bottom:10px;">Select validity to extend from today:</p>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
-        <button class="btn btn-secondary ext-btn" data-days="15">15 Days</button>
-        <button class="btn btn-secondary ext-btn" data-days="30">1 Month</button>
-        <button class="btn btn-secondary ext-btn" data-days="60">2 Months</button>
-        <button class="btn btn-secondary ext-btn" data-days="180">6 Months</button>
-        <button class="btn btn-secondary ext-btn" data-days="365">1 Year</button>
-      </div>
-      
-      <div style="margin-bottom:20px; border-top:1px solid #ddd; padding-top:15px;">
-        <button class="btn btn-warning ext-btn" data-days="lifetime" style="background:#f59e0b;color:#fff;border:none;width:100%;font-weight:bold;">🌟 Grant Lifetime License</button>
-      </div>
-      
-      <p style="font-size:13px;margin-bottom:10px;">Or upload a License File:</p>
-      <label class="btn btn-primary" style="display:inline-block;cursor:pointer;">
-        📄 Upload License File
-        <input type="file" id="licenseFile" accept=".lic,.json" style="display:none;"/>
-      </label>
-      
-      <div class="modal-footer" style="margin-top:20px;">
-        <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-      </div>
-    `, {
-      onOpen(m) {
-        m.querySelectorAll('.ext-btn').forEach(b => {
-          b.onclick = () => {
-            const d = b.getAttribute('data-days');
-            const s = DB.settings();
-            if (d === 'lifetime') {
-                s.lifetimeLicense = true;
-                s.subscriptionExpiry = null;
-                toast('Lifetime License Applied!', 'success');
-            } else {
-                s.lifetimeLicense = false;
-                s.subscriptionExpiry = Date.now() + (parseInt(d) * 24 * 60 * 60 * 1000);
-                toast(`Validity extended by ${d} days!`, 'success');
-            }
-            DB.saveSettings(s);
-            setTimeout(() => { closeModal(); location.reload(); }, 1000);
-          };
-        });
-        
-        m.querySelector('#licenseFile').onchange = (e) => {
-          const file = e.target.files[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const data = JSON.parse(reader.result);
-              if (data && data.extensionDays) {
-                s.lifetimeLicense = false;
-                const s = DB.settings();
-                s.subscriptionExpiry = Date.now() + (parseInt(data.extensionDays) * 24 * 60 * 60 * 1000);
-                DB.saveSettings(s);
-                toast(`License Applied: Extended by ${data.extensionDays} days!`, 'success');
-                setTimeout(() => { closeModal(); }, 1000);
-              } else {
-                toast('Invalid license format', 'error');
-              }
-            } catch(e) { toast('Error reading license file', 'error'); }
-          };
-          reader.readAsText(file);
-        };
-      }
-    });
-  });
 }

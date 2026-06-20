@@ -4,7 +4,6 @@
 const app = {
   current: 'login',
   go(page) {
-    console.log('Router: app.go called with page =', page);
     const user = DB.currentUser();
     if (page !== 'login' && !user) { this.current = 'login'; renderLogin(); return; }
 
@@ -17,7 +16,7 @@ const app = {
     }
 
     // Admin-only pages (no override possible)
-    const adminOnly = ['users','settings','inbox','promoAdmin','marketing','delivery','reportBuilder','refundLog'];
+    const adminOnly = ['users','settings','inbox','promoAdmin','delivery','reportBuilder','refundLog'];
 
     if (page !== 'login' && user.role !== 'admin') {
       if (adminOnly.includes(page)) {
@@ -32,57 +31,35 @@ const app = {
       }
     }
 
-    
-    if (typeof isAppExpired === 'function' && isAppExpired()) {
-      const blocked = ['pos'];
-      if (blocked.includes(page)) {
-        toast('Subscription Expired. Read-only mode active.', 'error');
-        if (!this.current || this.current === 'login') page = 'dashboard';
-        else return;
-      }
-    }
-    
     this.current = page;
-        try {
-      switch(page) {
-        case 'login':           return renderLogin();
-        case 'dashboard':       return renderDashboard();
-        case 'taskboard':       return renderTaskBoard();
-        case 'pos':             return renderPOS();
-        case 'orders':          return renderOrders();
-        case 'customers':       return renderCustomers();
-        case 'products':        return renderProducts();
-        case 'expenses':        return renderExpenses();
-        case 'reports':         return renderReports();
-        case 'users':           return renderUsers();
-        case 'settings':        return renderSettings();
-        case 'vendors':         return renderVendors();
-        case 'purchaseOrders':  return renderPurchaseOrders(param?.vendor);
-        case 'ledger':          return renderLedger();
-        case 'inventory':       return renderInventory();
-        case 'cashbook':        return renderCashbook();
-        case 'auditLog':        return renderAuditLog();
-        case 'branches':        return renderBranches();
-        case 'inbox':           return renderInbox();
-        case 'promoAdmin':      return renderPromoAdmin();
-        case 'marketing':       return renderMarketing();
-        case 'claims':          return renderClaims();
-        case 'delivery':        return renderDelivery();
-        case 'drawings':        return renderDrawings();
-        case 'reportBuilder':   return renderReportBuilder();
-        default:                return renderDashboard();
-      }
-    } catch(err) {
-      console.error('Routing error:', err);
-      alert('Error loading page: ' + err.message);
+    switch(page) {
+      case 'login':           return renderLogin();
+      case 'dashboard':       return renderDashboard();
+      case 'pos':             return renderPOS();
+      case 'orders':          return renderOrders();
+      case 'customers':       return renderCustomers();
+      case 'products':        return renderProducts();
+      case 'expenses':        return renderExpenses();
+      case 'reports':         return renderReports();
+      case 'users':           return renderUsers();
+      case 'settings':        return renderSettings();
+      case 'vendors':         return renderVendors();
+      case 'purchaseOrders':  return renderPurchaseOrders(param?.vendor);
+      case 'ledger':          return renderLedger();
+      case 'inventory':       return renderInventory();
+      case 'cashbook':        return renderCashbook();
+      case 'auditLog':        return renderAuditLog();
+      case 'branches':        return renderBranches();
+      case 'inbox':           return renderInbox();
+      case 'promoAdmin':      return renderPromoAdmin();
+      case 'claims':          return renderClaims();
+      case 'delivery':        return renderDelivery();
+      case 'drawings':        return renderDrawings();
+      case 'reportBuilder':   return renderReportBuilder();
+      default:                return renderDashboard();
     }
-
   }
 };
-
-// Boot
-
-
 
 // Boot
 window.addEventListener('DOMContentLoaded', () => {
@@ -107,61 +84,17 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-/* TRIAL & SUBSCRIPTION MANAGEMENT */
-const IT_ADMIN_PASSWORD = window._IT_BRAND.pwd;
-
-function initTrialCheck() {
-  let s = DB.settings();
-  if (!s.trialStartDate) {
-    s.trialStartDate = Date.now();
-    // Default 15 days
-    let tDays = typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.trialDays : 15;
-    s.subscriptionExpiry = s.trialStartDate + (tDays * 24 * 60 * 60 * 1000);
-    DB.saveSettings(s);
-  }
-  
-  checkExpiry(true);
-  
-  // Periodically check expiry every hour
-  setInterval(() => checkExpiry(false), 60 * 60 * 1000);
-}
-
-
-function checkExpiry(onLoad) {
-  let s = DB.settings();
-  if (s.lifetimeLicense) return;
-  if (!s.subscriptionExpiry) return;
-  
-  let now = Date.now();
-  let timeDiff = s.subscriptionExpiry - now;
-  let daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-  
-  if (timeDiff <= 0) {
-    if (app.current === 'pos') app.go('dashboard');
-  } else if (daysLeft <= 7 && onLoad) {
-    setTimeout(() => {
-      openModal(`
-        <h3 style="color:#b91c1c;">⚠️ Subscription Expiring Soon</h3>
-        <p>Your POS subscription will expire in <b>${daysLeft} days</b>.</p>
-        <p>Please contact <b>${window._IT_BRAND.n}</b> and pay your maintenance fees to continue using the software uninterrupted.</p>
-        <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Dismiss</button></div>
-      `);
-    }, 2000);
-  }
-}
-
-function openExtensionModal() {
-  app.go('settings');
+// === Safety check: detect missing page modules ===
+window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    if(document.getElementById('openSubBtnTop')) document.getElementById('openSubBtnTop').click();
-  }, 300);
-}
-
-initTrialCheck();
-
-window.addEventListener('hashchange', () => {
-  const hash = window.location.hash.slice(1);
-  if (hash && hash !== app.current) {
-    app.go(hash);
-  }
+    const required = ['renderDashboard','renderPOS','renderOrders','renderCustomers','renderProducts',
+                       'renderExpenses','renderReports','renderUsers','renderSettings','renderVendors',
+                       'renderPurchaseOrders','renderLedger','renderInventory','renderCashbook',
+                       'renderAuditLog','renderBranches','renderInbox','renderPromoAdmin','renderClaims'];
+    const missing = required.filter(fn => typeof window[fn] !== 'function');
+    if (missing.length > 0 && typeof console !== 'undefined') {
+      console.warn('[Mr Laundry] Missing page modules:', missing.join(', '));
+      console.warn('[Mr Laundry] These pages will not work. Check that all <script> tags in index.html are loaded correctly.');
+    }
+  }, 1500);
 });
