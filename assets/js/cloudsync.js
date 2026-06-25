@@ -32,6 +32,62 @@ function applyLockedCloudDefaults() {
   } catch(e) { console.warn('[CloudSync] Could not apply locked defaults:', e); }
 }
 
+
+function buildLiveDashboardData(data) {
+  // Compact copy for live.html. It avoids loading photos, products, inventory,
+  // full audit logs, etc. so the live dashboard opens very fast.
+  const cleanPayments = (arr) => Array.isArray(arr) ? arr.map(p => ({
+    id: p.id,
+    amount: +p.amount || 0,
+    method: p.method || 'cash',
+    note: p.note || '',
+    at: p.at || p.createdAt || '',
+    by: p.by || '',
+    byName: p.byName || ''
+  })) : [];
+
+  return {
+    _liveCompact: true,
+    generatedAt: new Date().toISOString(),
+    settings: {
+      shopName: data?.settings?.shopName || 'Mr Laundry',
+      address: data?.settings?.address || '',
+      phone: data?.settings?.phone || '',
+      currency: data?.settings?.currency || 'Rs.'
+    },
+    customers: (data.customers || []).filter(c => !c._deleted).map(c => ({
+      id: c.id,
+      name: c.name || 'Walk-in',
+      phone: c.phone || ''
+    })),
+    orders: (data.orders || []).filter(o => !o._deleted).map(o => ({
+      id: o.id,
+      invoiceNo: o.invoiceNo,
+      customerId: o.customerId,
+      total: +o.total || 0,
+      paid: +o.paid || 0,
+      due: +o.due || 0,
+      status: o.status || 'pending',
+      createdAt: o.createdAt || '',
+      bookingDate: o.bookingDate || '',
+      paymentMethod: o.paymentMethod || 'cash',
+      cashierUsername: o.cashierUsername || o.createdBy || '',
+      cashierName: o.cashierName || '',
+      paymentsLog: cleanPayments(o.paymentsLog)
+    })),
+    expenses: (data.expenses || []).filter(e => !e._deleted).map(e => ({
+      id: e.id,
+      amount: +e.amount || 0,
+      date: e.date || '',
+      createdAt: e.createdAt || '',
+      category: e.category || e.type || 'Expense',
+      type: e.type || '',
+      note: e.note || e.description || '',
+      description: e.description || ''
+    }))
+  };
+}
+
 function parseFirebaseConfig(text) {
   if (!text) throw new Error('Empty config');
   let s = text.trim();
@@ -208,6 +264,19 @@ const CLOUD = {
           }
         }
       }
+
+      // Write compact live dashboard doc for live.html. This makes the public
+      // live dashboard load one tiny document instead of the full POS database.
+      try {
+        const liveData = JSON.stringify(buildLiveDashboardData(data));
+        await tablesRef.doc('_liveDashboard').set({
+          data: liveData,
+          version,
+          deviceId: myDeviceId,
+          updatedAt: serverTs,
+          _format: 'live-dashboard-v1'
+        });
+      } catch (e) { console.warn('[CloudSync] Live dashboard compact write failed:', e); }
 
       // Write main meta doc — triggers listen() on other devices
       await db.collection('shops').doc(shopId).set({
@@ -471,7 +540,7 @@ async function reconnectCloudSync() {
   DB.save = function() {
     if (DB._data.settings) DB._data.settings._settingsUpdatedAt = new Date().toISOString();
     origSave();
-    localStorage.setItem('mrLaundryLocalVersion', Date.now());
+    try { localStorage.setItem('mrLaundryLocalVersion', Date.now()); } catch(e) {}
     try { if (typeof Persistent !== 'undefined') Persistent.backupAll(); } catch(e) {}
     if (CLOUD._suppressPush) return;
     if (!CLOUD.isEnabled() || !CLOUD.isReady()) return;
