@@ -1,6 +1,0 @@
-id,name,mobile,role,salary,orders_processed,productivity_score,active
-emp-001,Ahmed Khan,0300-1111111,admin,80000,0,95,true
-emp-002,Sara Malik,0300-2222222,manager,60000,245,92,true
-emp-003,Imran Ali,0300-3333333,cashier,35000,412,88,true
-emp-004,Yousuf Raza,0300-4444444,washer,30000,567,91,true
-emp-005,Tariq Mehmood,0300-5555555,iron_man,30000,489,89,true

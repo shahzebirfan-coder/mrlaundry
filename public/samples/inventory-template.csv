@@ -1,7 +1,0 @@
-id,name,category,quantity,unit,min_stock,cost_per_unit,supplier
-inv-001,Premium Detergent,detergent,45,liters,20,350,CleanCo
-inv-002,Softener,chemical,12,liters,15,280,CleanCo
-inv-003,Stain Remover,chemical,28,bottles,10,450,ProClean
-inv-004,Plastic Hangers,hanger,850,pieces,200,12,Local Supplier
-inv-005,Poly Bags (Large),packing,320,pieces,100,18,PackMart
-inv-006,Garment Tags,tag,78,pieces,200,5,PrintWell

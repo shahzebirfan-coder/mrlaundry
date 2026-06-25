@@ -1,5 +1,0 @@
-id,name,mobile,whatsapp,address,membership_tier,total_spent,loyalty_points,outstanding_balance,birthday,created_at
-cust-001,Bilal Ahmed,0321-1234567,0321-1234567,House 123 Gulshan,platinum,45600,456,0,1990-05-15,2025-01-01
-cust-002,Fatima Khan,0333-9876543,0333-9876543,Flat 502 Clifton,gold,28400,284,0,1988-08-22,2025-02-15
-cust-003,Hamza Sheikh,0301-5555555,,House 88 DHA,silver,12300,123,0,,2025-03-20
-cust-004,Ayesha Siddiqui,0345-7777777,0345-7777777,Apt 304 Nazimabad,gold,38900,389,0,1992-12-03,2025-02-28
