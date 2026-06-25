@@ -72,37 +72,48 @@
     function expenseDay(e){ return e.date || rowDate(e.createdAt); }
     function customerName(data, id){ const c=(data.customers||[]).find(x=>x.id===id); return c?.name || 'Walk-in'; }
 
+    async function loadLiveDashboardData(){
+      const doc = await db.collection('shops').doc(SHOP_ID).collection('tables').doc('_liveDashboard').get();
+      if (!doc.exists) return null;
+      const raw = doc.data().data;
+      if (!raw) return null;
+      lastUpdated = doc.data().updatedAt?.toDate ? doc.data().updatedAt.toDate() : new Date();
+      return JSON.parse(raw);
+    }
+
     async function loadCloudData(){
+      // Fast fallback: only load tables needed by this dashboard.
+      // Old version loaded every POS table (products, inventory, photos, claims, etc.)
+      // which made live.html slow. These 4 are enough for live dashboard metrics.
+      const REQUIRED_TABLES = ['settings', 'orders', 'customers', 'expenses'];
       const mainRef = db.collection('shops').doc(SHOP_ID);
       const mainDoc = await mainRef.get();
       if (!mainDoc.exists) throw new Error('No cloud data found for this Shop ID: '+SHOP_ID);
       const meta = mainDoc.data();
       let result = {};
+
       if (meta._format === 'chunked-v1' && meta.tables) {
         const tablesRef = mainRef.collection('tables');
-        for (const tbl of Object.keys(meta.tables)) {
+        const loadTable = async (tbl) => {
           const info = meta.tables[tbl];
+          if (!info) return;
           if ((info.chunks || 1) === 1) {
             const doc = await tablesRef.doc(tbl).get();
-            if (doc.exists) {
-              try { result[tbl] = JSON.parse(doc.data().data); } catch(e) { console.warn('parse failed', tbl, e); }
-            }
+            if (doc.exists) result[tbl] = JSON.parse(doc.data().data);
           } else {
-            const chunks = [];
-            for (let i=0;i<info.chunks;i++) {
-              const doc = await tablesRef.doc(`${tbl}__c${i}`).get();
-              if (doc.exists) chunks[i] = doc.data().data;
-            }
-            if (chunks.length === info.chunks && chunks.every(x => x != null)) {
-              try { result[tbl] = JSON.parse(chunks.join('')); } catch(e) { console.warn('parse chunk failed', tbl, e); }
-            }
+            const docs = await Promise.all(Array.from({length: info.chunks}, (_, i) => tablesRef.doc(`${tbl}__c${i}`).get()));
+            const chunks = docs.map(d => d.exists ? d.data().data : null);
+            if (chunks.every(x => x != null)) result[tbl] = JSON.parse(chunks.join(''));
           }
-        }
+        };
+        await Promise.all(REQUIRED_TABLES.map(loadTable));
       } else if (meta.data) {
-        result = JSON.parse(meta.data);
+        const all = JSON.parse(meta.data);
+        for (const t of REQUIRED_TABLES) result[t] = all[t];
       } else {
         throw new Error('Cloud data format not recognized');
       }
+
       lastUpdated = meta.updatedAt?.toDate ? meta.updatedAt.toDate() : new Date();
       return result;
     }
@@ -241,11 +252,23 @@
       if (!window.firebase) throw new Error('Firebase SDK could not load. Check internet connection.');
       firebase.initializeApp(firebaseConfig);
       db = firebase.firestore();
-      const ref = db.collection('shops').doc(SHOP_ID);
-      unsub = ref.onSnapshot(async snap => {
-        if (!snap.exists) return renderError(new Error('No cloud data found for this Shop ID'));
-        try { render(await loadCloudData()); } catch(e) { renderError(e); }
+
+      // Super-fast path: POS writes a compact live dashboard doc on every sync.
+      // live.html listens to that one tiny document instead of downloading the
+      // full POS database. If it doesn't exist yet, we fall back once.
+      const liveRef = db.collection('shops').doc(SHOP_ID).collection('tables').doc('_liveDashboard');
+      unsub = liveRef.onSnapshot(async snap => {
+        try {
+          if (snap.exists && snap.data().data) {
+            lastUpdated = snap.data().updatedAt?.toDate ? snap.data().updatedAt.toDate() : new Date();
+            return render(JSON.parse(snap.data().data));
+          }
+          render(await loadCloudData());
+        } catch(e) { renderError(e); }
       }, renderError);
+
+      // Show something immediately while realtime snapshot connects.
+      loadLiveDashboardData().then(d => { if (d) render(d); }).catch(()=>{});
       setInterval(() => { if (lastData) render(lastData); }, 30000);
     }
     window.addEventListener('online', () => manualRefresh());
