@@ -185,27 +185,51 @@ const DB = {
         this._saveSilent();
       }
     } else {
-      // Try to restore from IndexedDB backup
-      IDB.get(DB_KEY).then(backup => {
-        if (backup) {
-          try {
-            this._data = JSON.parse(backup);
-            localStorage.setItem(DB_KEY, backup); // restore to localStorage
-            console.log('[DB] restored from IndexedDB backup');
-            if (typeof app !== 'undefined' && app.current) app.go(app.current);
-          } catch (_) {}
-        } else {
-          this._data = seedData();
-          this._saveSilent();
-        }
-      });
-      // Use fresh seed if no backup found
-      if (!this._data) this._data = seedData();
+      // localStorage is empty → start fresh with seed
+      // (DO NOT auto-restore from IndexedDB — it can have stale data
+      //  from previous versions that overrides the seed credentials)
+      this._data = seedData();
+      this._saveSilent();
+      console.log('[DB] localStorage empty — fresh seed loaded (admin/admin123)');
     }
 
     // Run migrations
     this._migrate();
+
+    // Verify default users exist (safety check)
+    if (!this._data.users.find(u => u.username === 'admin')) {
+      const seed = seedData();
+      this._data.users.push(seed.users[0]); // ensure admin exists
+    }
+    if (!this._data.users.find(u => u.username === 'cashier')) {
+      const seed = seedData();
+      this._data.users.push(seed.users[1]);
+    }
+
     return this._data;
+  },
+
+  /* Manually restore from IndexedDB backup (version-aware) */
+  async restoreFromBackup() {
+    try {
+      const raw = await IDB.get(DB_KEY);
+      if (!raw) return { ok: false, reason: 'No backup found' };
+      const wrapper = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (wrapper.version && wrapper.version !== DB_VERSION) {
+        return { ok: false, reason: `Backup version ${wrapper.version} ≠ current ${DB_VERSION}` };
+      }
+      this._data = wrapper.data || wrapper;
+      this._migrate();
+      this._saveSilent();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e.message };
+    }
+  },
+
+  /* Wipe IndexedDB backup completely */
+  async clearBackup() {
+    try { await IDB.set(DB_KEY, null); return true; } catch (_) { return false; }
   },
 
   _migrate() {
