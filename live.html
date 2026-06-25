@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mr Laundry — Live Dashboard</title>
+  <meta name="theme-color" content="#4f7cff" />
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f7fb;color:#0f172a;min-height:100vh}
+    .wrap{max-width:1280px;margin:0 auto;padding:22px}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+    .brand{display:flex;align-items:center;gap:14px}
+    .logo{width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#4f7cff,#6a5cff);display:flex;align-items:center;justify-content:center;font-size:30px;box-shadow:0 12px 28px rgba(79,124,255,.28)}
+    h1{font-size:clamp(24px,4vw,38px);letter-spacing:-.04em;line-height:1.05}
+    .sub{color:#64748b;margin-top:5px;font-size:14px}
+    .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid #dbeafe;background:#eff6ff;color:#1d4ed8;padding:10px 13px;border-radius:999px;font-weight:800;font-size:13px}
+    .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 6px rgba(34,197,94,.15)}
+    .dot.err{background:#ef4444;box-shadow:0 0 0 6px rgba(239,68,68,.14)}
+    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{border:0;border-radius:12px;padding:11px 14px;font-weight:900;cursor:pointer;background:#4f7cff;color:#fff;box-shadow:0 10px 20px rgba(79,124,255,.22)}
+    button.secondary{background:#fff;color:#334155;border:1px solid #e2e8f0;box-shadow:none}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
+    .card{background:#fff;border:1px solid #e5eaf2;border-radius:22px;padding:18px;box-shadow:0 16px 45px rgba(15,23,42,.06)}
+    .stat{position:relative;overflow:hidden;min-height:144px;display:flex;flex-direction:column;justify-content:space-between}
+    .stat:after{content:"";position:absolute;right:-35px;top:-35px;width:130px;height:130px;border-radius:50%;background:var(--soft,#eff6ff)}
+    .stat .ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;background:var(--main,#4f7cff);color:#fff;position:relative;z-index:1}
+    .lbl{color:#64748b;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-top:12px}
+    .val{font-size:clamp(26px,3vw,38px);font-weight:950;letter-spacing:-.04em;margin-top:2px;color:var(--main,#4f7cff);position:relative;z-index:1}
+    .hint{font-size:12px;color:#94a3b8;margin-top:4px;position:relative;z-index:1}
+    .blue{--main:#4f7cff;--soft:#dbeafe}.green{--main:#16a34a;--soft:#dcfce7}.orange{--main:#d97706;--soft:#fef3c7}.red{--main:#dc2626;--soft:#fee2e2}.purple{--main:#7c3aed;--soft:#ede9fe}.slate{--main:#334155;--soft:#f1f5f9}
+    .layout{display:grid;grid-template-columns:1.4fr .9fr;gap:16px;margin-bottom:18px}
+    .section-title{font-weight:950;font-size:18px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .mini{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:14px}
+    .mini .k{font-size:12px;color:#64748b;font-weight:800;text-transform:uppercase}.mini .v{font-size:23px;font-weight:950;margin-top:4px}
+    table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:.05em;background:#f8fafc}th,td{padding:12px;border-bottom:1px solid #eef2f7}td b{font-weight:950}.right{text-align:right}.badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:900;text-transform:capitalize}.pending{background:#fef3c7;color:#92400e}.washing{background:#dbeafe;color:#1d4ed8}.ready{background:#dcfce7;color:#166534}.delivered{background:#ede9fe;color:#6d28d9}.cancelled{background:#fee2e2;color:#991b1b}.paid{background:#dcfce7;color:#166534}
+    .bars{height:230px;display:flex;align-items:flex-end;gap:10px;padding-top:18px}.bar-wrap{flex:1;text-align:center;min-width:0}.bar{height:165px;display:flex;align-items:flex-end;background:#f8fafc;border-radius:12px 12px 6px 6px;overflow:hidden;border:1px solid #edf2f7}.bar span{display:block;width:100%;min-height:4px;background:linear-gradient(180deg,#4f7cff,#6a5cff);border-radius:12px 12px 0 0}.bar-label{font-size:12px;font-weight:900;margin-top:7px}.bar-val{font-size:11px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .empty{padding:30px;text-align:center;color:#64748b}.loader{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:14px}.spin{width:48px;height:48px;border-radius:50%;border:5px solid #dbeafe;border-top-color:#4f7cff;animation:spin .85s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+    .error{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;padding:14px;border-radius:16px;margin-bottom:14px;line-height:1.5}
+    @media(max-width:1050px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.mini-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:640px){.wrap{padding:14px}.grid,.mini-grid{grid-template-columns:1fr}.card{border-radius:18px;padding:14px}.top{align-items:flex-start}.actions{width:100%}.actions button,.actions .pill{flex:1;justify-content:center}.table-scroll{overflow-x:auto}table{min-width:680px}.bars{gap:5px}.bar-val{display:none}}
+  </style>
+</head>
+<body>
+  <div id="root"><div class="loader"><div class="spin"></div><h2>Loading Live Dashboard...</h2><p class="sub">Connecting to Firebase sync data</p></div></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: 'AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY',
+      authDomain: 'mr-laundry-pos-a6740.firebaseapp.com',
+      projectId: 'mr-laundry-pos-a6740',
+      storageBucket: 'mr-laundry-pos-a6740.firebasestorage.app',
+      messagingSenderId: '927434668958',
+      appId: '1:927434668958:web:2516175f4046edcfbcf48f'
+    };
+    const SHOP_ID = 'shahzeb-laundry-private-pos';
+    const MAX_DOC_SIZE = 800000;
+    let db, unsub, lastData = null, lastUpdated = null;
+
+    function esc(v){return String(v ?? '').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
+    function money(n){return 'Rs. ' + Math.round(Number(n||0)).toLocaleString('en-PK');}
+    function dayKey(d=new Date()){
+      const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+    function safeDate(v){ const d = new Date(v || Date.now()); return isNaN(d) ? new Date() : d; }
+    function rowDate(v){ return (v || '').slice(0,10); }
+    function orderDay(o){ return o.bookingDate || rowDate(o.createdAt); }
+    function expenseDay(e){ return e.date || rowDate(e.createdAt); }
+    function customerName(data, id){ const c=(data.customers||[]).find(x=>x.id===id); return c?.name || 'Walk-in'; }
+
+    async function loadCloudData(){
+      const mainRef = db.collection('shops').doc(SHOP_ID);
+      const mainDoc = await mainRef.get();
+      if (!mainDoc.exists) throw new Error('No cloud data found for this Shop ID: '+SHOP_ID);
+      const meta = mainDoc.data();
+      let result = {};
+      if (meta._format === 'chunked-v1' && meta.tables) {
+        const tablesRef = mainRef.collection('tables');
+        for (const tbl of Object.keys(meta.tables)) {
+          const info = meta.tables[tbl];
+          if ((info.chunks || 1) === 1) {
+            const doc = await tablesRef.doc(tbl).get();
+            if (doc.exists) {
+              try { result[tbl] = JSON.parse(doc.data().data); } catch(e) { console.warn('parse failed', tbl, e); }
+            }
+          } else {
+            const chunks = [];
+            for (let i=0;i<info.chunks;i++) {
+              const doc = await tablesRef.doc(`${tbl}__c${i}`).get();
+              if (doc.exists) chunks[i] = doc.data().data;
+            }
+            if (chunks.length === info.chunks && chunks.every(x => x != null)) {
+              try { result[tbl] = JSON.parse(chunks.join('')); } catch(e) { console.warn('parse chunk failed', tbl, e); }
+            }
+          }
+        }
+      } else if (meta.data) {
+        result = JSON.parse(meta.data);
+      } else {
+        throw new Error('Cloud data format not recognized');
+      }
+      lastUpdated = meta.updatedAt?.toDate ? meta.updatedAt.toDate() : new Date();
+      return result;
+    }
+
+    function buildStats(data){
+      const orders = (data.orders || []).filter(o=>!o._deleted);
+      const expenses = (data.expenses || []).filter(e=>!e._deleted);
+      const today = dayKey();
+      const month = today.slice(0,7);
+      const todayOrders = orders.filter(o => orderDay(o) === today || rowDate(o.createdAt) === today);
+      const todaySale = todayOrders.reduce((s,o)=>s+(+o.total||0),0);
+      const todayDue = todayOrders.reduce((s,o)=>s+(+o.due||0),0);
+
+      const todayPayments = [];
+      for (const o of orders) {
+        if (Array.isArray(o.paymentsLog)) {
+          for (const p of o.paymentsLog) {
+            if (rowDate(p.at) === today) todayPayments.push({...p, orderId:o.id, invoiceNo:o.invoiceNo, customerId:o.customerId, orderTotal:o.total});
+          }
+        }
+      }
+      for (const o of todayOrders) {
+        const logged = Array.isArray(o.paymentsLog) ? o.paymentsLog.reduce((s,p)=>s+(+p.amount||0),0) : 0;
+        const firstPay = (+o.paid||0) - logged;
+        if (firstPay > 0) todayPayments.push({id:'init_'+o.id, amount:firstPay, method:o.paymentMethod||'cash', note:'Initial payment at booking', at:o.createdAt, by:o.cashierUsername||o.createdBy||'', byName:o.cashierName||'', orderId:o.id, invoiceNo:o.invoiceNo, customerId:o.customerId, orderTotal:o.total});
+      }
+      todayPayments.sort((a,b)=>(b.at||'').localeCompare(a.at||''));
+      const todayRecovery = todayPayments.reduce((s,p)=>s+(+p.amount||0),0);
+      const todayExpenses = expenses.filter(e=>expenseDay(e)===today).reduce((s,e)=>s+(+e.amount||0),0);
+      const net = todayRecovery - todayExpenses;
+      const pending = orders.filter(o=>['pending','washing','ready'].includes(o.status)).length;
+      const totalOutstanding = orders.reduce((s,o)=>s+(+o.due||0),0);
+      const monthOrders = orders.filter(o=>(orderDay(o)||rowDate(o.createdAt)).slice(0,7)===month || rowDate(o.createdAt).slice(0,7)===month);
+      const monthSale = monthOrders.reduce((s,o)=>s+(+o.total||0),0);
+      const monthReceived = monthOrders.reduce((s,o)=>s+(+o.paid||0),0);
+      const monthExpenses = expenses.filter(e=>(expenseDay(e)||'').slice(0,7)===month).reduce((s,e)=>s+(+e.amount||0),0);
+
+      const last7=[];
+      for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const k=dayKey(d); const sum=orders.filter(o=>orderDay(o)===k || rowDate(o.createdAt)===k).reduce((s,o)=>s+(+o.total||0),0); last7.push({key:k,label:d.toLocaleDateString('en',{weekday:'short'}),value:sum}); }
+      const recentOrders=[...orders].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,10);
+      const recentExpenses=[...expenses].filter(e=>expenseDay(e)===today).sort((a,b)=>(b.createdAt||b.date||'').localeCompare(a.createdAt||a.date||'')).slice(0,8);
+      return {orders,expenses,today,todayOrders,todaySale,todayDue,todayPayments,todayRecovery,todayExpenses,net,pending,totalOutstanding,monthOrders,monthSale,monthReceived,monthExpenses,last7,recentOrders,recentExpenses};
+    }
+
+    function render(data){
+      lastData = data;
+      const s = data.settings || {};
+      const st = buildStats(data);
+      const maxBar = Math.max(1, ...st.last7.map(x=>x.value));
+      const now = new Date();
+      document.getElementById('root').innerHTML = `
+        <div class="wrap">
+          <div class="top">
+            <div class="brand">
+              <div class="logo">🧺</div>
+              <div>
+                <h1>${esc(s.shopName || 'Mr Laundry')} Live Dashboard</h1>
+                <p class="sub">${esc(s.address || 'Shop 04, Gulistan E Zafar, Karachi')} • ${esc(s.phone || '+923343691210')}</p>
+              </div>
+            </div>
+            <div class="actions">
+              <div class="pill"><span class="dot"></span> Synced Live</div>
+              <div class="pill">🕒 ${now.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>
+              <button onclick="manualRefresh()">Refresh</button>
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="card stat blue"><div class="ic">🛒</div><div><div class="lbl">Aaj Orders</div><div class="val">${st.todayOrders.length}</div><div class="hint">Total bookings today</div></div></div>
+            <div class="card stat green"><div class="ic">💰</div><div><div class="lbl">Total Sale Today</div><div class="val">${money(st.todaySale)}</div><div class="hint">Aaj ki total billed sale</div></div></div>
+            <div class="card stat orange"><div class="ic">✅</div><div><div class="lbl">Recovery Today</div><div class="val">${money(st.todayRecovery)}</div><div class="hint">Cash/payment actually received</div></div></div>
+            <div class="card stat red"><div class="ic">💸</div><div><div class="lbl">Expenses Today</div><div class="val">${money(st.todayExpenses)}</div><div class="hint">Aaj ke kharchay</div></div></div>
+          </div>
+
+          <div class="grid">
+            <div class="card stat ${st.net>=0?'green':'red'}"><div class="ic">📈</div><div><div class="lbl">Net Cash Today</div><div class="val">${money(st.net)}</div><div class="hint">Recovery minus expenses</div></div></div>
+            <div class="card stat purple"><div class="ic">⏳</div><div><div class="lbl">Pending / In Progress</div><div class="val">${st.pending}</div><div class="hint">Pending, washing, ready</div></div></div>
+            <div class="card stat orange"><div class="ic">📋</div><div><div class="lbl">Today Due</div><div class="val">${money(st.todayDue)}</div><div class="hint">Aaj ke orders ka balance</div></div></div>
+            <div class="card stat slate"><div class="ic">🏦</div><div><div class="lbl">Total Outstanding</div><div class="val">${money(st.totalOutstanding)}</div><div class="hint">All unpaid invoices</div></div></div>
+          </div>
+
+          <div class="layout">
+            <div class="card">
+              <div class="section-title"><span>📈 Last 7 Days Sale</span><small class="sub">Live from Firebase</small></div>
+              <div class="bars">${st.last7.map(d=>`<div class="bar-wrap"><div class="bar" title="${money(d.value)}"><span style="height:${Math.max(3,(d.value/maxBar)*100)}%"></span></div><div class="bar-label">${d.label}</div><div class="bar-val">${d.value?money(d.value):'—'}</div></div>`).join('')}</div>
+            </div>
+            <div class="card">
+              <div class="section-title">🗓️ This Month</div>
+              <div class="mini-grid">
+                <div class="mini"><div class="k">Orders</div><div class="v">${st.monthOrders.length}</div></div>
+                <div class="mini"><div class="k">Sale</div><div class="v">${money(st.monthSale)}</div></div>
+                <div class="mini"><div class="k">Received</div><div class="v">${money(st.monthReceived)}</div></div>
+                <div class="mini"><div class="k">Expenses</div><div class="v">${money(st.monthExpenses)}</div></div>
+                <div class="mini"><div class="k">Customers</div><div class="v">${(data.customers||[]).length}</div></div>
+                <div class="mini"><div class="k">Total Orders</div><div class="v">${st.orders.length}</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="layout">
+            <div class="card">
+              <div class="section-title">🕒 Recent Orders</div>
+              <div class="table-scroll"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th class="right">Total</th><th class="right">Paid</th><th>Time</th></tr></thead><tbody>
+                ${st.recentOrders.length ? st.recentOrders.map(o=>`<tr><td><b>${o.invoiceNo?'INV-'+esc(o.invoiceNo):'#'+esc(String(o.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(customerName(data,o.customerId))}</td><td><span class="badge ${esc(o.status||'pending')}">${esc(o.status||'pending')}</span></td><td class="right"><b>${money(o.total)}</b></td><td class="right">${money(o.paid)}</td><td>${safeDate(o.createdAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">No orders yet</td></tr>'}
+              </tbody></table></div>
+            </div>
+            <div class="card">
+              <div class="section-title">💰 Payments Today <small>${st.todayPayments.length}</small></div>
+              <div class="table-scroll"><table><thead><tr><th>Invoice</th><th>Method</th><th class="right">Amount</th></tr></thead><tbody>
+                ${st.todayPayments.length ? st.todayPayments.slice(0,10).map(p=>`<tr><td><b>${p.invoiceNo?'INV-'+esc(p.invoiceNo):'#'+esc(String(p.orderId||'').slice(-6).toUpperCase())}</b><br><small class="sub">${safeDate(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</small></td><td>${esc(p.method||'cash')}</td><td class="right"><b>${money(p.amount)}</b></td></tr>`).join('') : '<tr><td colspan="3" class="empty">No recovery yet today</td></tr>'}
+              </tbody></table></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-title">💸 Expenses Today <small>${money(st.todayExpenses)}</small></div>
+            <div class="table-scroll"><table><thead><tr><th>Category</th><th>Note</th><th class="right">Amount</th></tr></thead><tbody>
+              ${st.recentExpenses.length ? st.recentExpenses.map(e=>`<tr><td>${esc(e.category||e.type||'Expense')}</td><td>${esc(e.note||e.description||'-')}</td><td class="right"><b>${money(e.amount)}</b></td></tr>`).join('') : '<tr><td colspan="3" class="empty">No expenses today</td></tr>'}
+            </tbody></table></div>
+          </div>
+
+          <p class="sub" style="text-align:center;margin:18px 0 8px;">Last cloud update: ${lastUpdated ? lastUpdated.toLocaleString() : '—'} • Auto-refresh/realtime enabled • Shop ID: ${SHOP_ID}</p>
+        </div>`;
+    }
+
+    function renderError(err){
+      document.getElementById('root').innerHTML = `<div class="wrap"><div class="error"><b>Live dashboard error:</b><br>${esc(err.message || err)}</div><button onclick="location.reload()">Reload</button></div>`;
+    }
+
+    async function manualRefresh(){
+      try { render(await loadCloudData()); } catch(e) { renderError(e); }
+    }
+
+    async function init(){
+      if (!navigator.onLine) throw new Error('Internet required. Live dashboard is online-only.');
+      if (!window.firebase) throw new Error('Firebase SDK could not load. Check internet connection.');
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      const ref = db.collection('shops').doc(SHOP_ID);
+      unsub = ref.onSnapshot(async snap => {
+        if (!snap.exists) return renderError(new Error('No cloud data found for this Shop ID'));
+        try { render(await loadCloudData()); } catch(e) { renderError(e); }
+      }, renderError);
+      setInterval(() => { if (lastData) render(lastData); }, 30000);
+    }
+    window.addEventListener('online', () => manualRefresh());
+    window.addEventListener('offline', () => renderError(new Error('Internet disconnected. Live dashboard is online-only.')));
+    init().catch(renderError);
+  </script>
+</body>
+</html>
