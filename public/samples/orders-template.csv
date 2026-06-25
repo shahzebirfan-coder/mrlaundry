@@ -1,0 +1,5 @@
+id,customer_name,customer_mobile,status,total,paid,balance,payment_method,is_express,delivery_preference,created_at,expected_at
+ORD-2401,Bilal Ahmed,0321-1234567,delivered,1080,1080,0,cash,false,fold,2026-05-01,2026-05-04
+ORD-2402,Fatima Khan,0333-9876543,ready,1500,1500,0,card,false,hanger,2026-05-02,2026-05-05
+ORD-2403,Hamza Sheikh,0301-5555555,delivered,480,480,0,cash,false,fold,2026-05-03,2026-05-06
+ORD-2404,Ayesha Siddiqui,0345-7777777,out_for_delivery,324,324,0,online,true,fold,2026-05-04,2026-05-05

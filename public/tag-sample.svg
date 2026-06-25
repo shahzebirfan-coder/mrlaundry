@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="340" viewBox="0 0 240 340">
+  <!-- Background -->
+  <rect width="240" height="340" fill="white"/>
+
+  <!-- Cyan Border -->
+  <rect x="3" y="3" width="234" height="334" fill="none" stroke="#0891b2" stroke-width="2" rx="4"/>
+
+  <!-- Top Hanging Hole -->
+  <circle cx="120" cy="14" r="5" fill="white" stroke="#000" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- ============ HEADER ============ -->
+  <!-- Logo placeholder (B&W silhouette of hanger) -->
+  <g transform="translate(85, 25)">
+    <!-- Hanger shape -->
+    <path d="M 35 5 Q 35 0, 38 0 Q 41 0, 41 5 L 41 8" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    <path d="M 5 25 L 75 25 L 70 35 L 10 35 Z" fill="#000"/>
+    <!-- Bubbles -->
+    <circle cx="20" cy="10" r="2" fill="#000"/>
+    <circle cx="35" cy="6" r="2.5" fill="#000"/>
+    <circle cx="50" cy="9" r="2" fill="#000"/>
+    <circle cx="60" cy="13" r="1.5" fill="#000"/>
+  </g>
+
+  <!-- Shop Name -->
+  <text x="120" y="78" text-anchor="middle" font-family="Arial Black, sans-serif" font-size="14" font-weight="900" fill="#000">MR LAUNDRY</text>
+  <text x="120" y="92" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" font-style="italic" fill="#000">Quality Dry Cleaner Service</text>
+
+  <!-- Separator -->
+  <line x1="15" y1="103" x2="225" y2="103" stroke="#000" stroke-width="0.5" stroke-dasharray="3,2"/>
+
+  <!-- Serial No -->
+  <text x="15" y="118" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#000">Serial No:</text>
+  <text x="65" y="118" font-family="Arial Black, sans-serif" font-size="11" font-weight="900" fill="#000">ORD-1024</text>
+
+  <!-- Separator -->
+  <line x1="15" y1="128" x2="225" y2="128" stroke="#000" stroke-width="0.5" stroke-dasharray="3,2"/>
+
+  <!-- Customer Name -->
+  <text x="15" y="143" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#000">Customer Name:</text>
+  <line x1="15" y1="155" x2="225" y2="155" stroke="#000" stroke-width="0.8"/>
+  <text x="20" y="152" font-family="Arial, sans-serif" font-size="10" fill="#000">Bilal Ahmed</text>
+
+  <!-- Contact No -->
+  <text x="15" y="170" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#000">Contact No:</text>
+  <line x1="15" y1="182" x2="225" y2="182" stroke="#000" stroke-width="0.8"/>
+  <text x="20" y="179" font-family="Arial, sans-serif" font-size="10" fill="#000">0321-1234567</text>
+
+  <!-- Separator -->
+  <line x1="15" y1="192" x2="225" y2="192" stroke="#000" stroke-width="0.5" stroke-dasharray="3,2"/>
+
+  <!-- Service Type -->
+  <text x="15" y="207" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#000">Service Type:</text>
+
+  <!-- Wash & Fold (checked) -->
+  <rect x="15" y="212" width="9" height="9" fill="white" stroke="#000" stroke-width="1"/>
+  <text x="19" y="220" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="900" fill="#000">✓</text>
+  <text x="28" y="221" font-family="Arial, sans-serif" font-size="8" fill="#000">Wash &amp; Fold</text>
+
+  <!-- Dry Clean (checked) -->
+  <rect x="125" y="212" width="9" height="9" fill="white" stroke="#000" stroke-width="1"/>
+  <text x="129" y="220" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="900" fill="#000">✓</text>
+  <text x="138" y="221" font-family="Arial, sans-serif" font-size="8" fill="#000">Dry Clean</text>
+
+  <!-- Iron (checked) -->
+  <rect x="15" y="227" width="9" height="9" fill="white" stroke="#000" stroke-width="1"/>
+  <text x="19" y="235" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="900" fill="#000">✓</text>
+  <text x="28" y="236" font-family="Arial, sans-serif" font-size="8" fill="#000">Iron</text>
+
+  <!-- Curtains (unchecked) -->
+  <rect x="125" y="227" width="9" height="9" fill="white" stroke="#000" stroke-width="1"/>
+  <text x="138" y="236" font-family="Arial, sans-serif" font-size="8" fill="#000">Curtains</text>
+
+  <!-- Carpet (unchecked) -->
+  <rect x="15" y="242" width="9" height="9" fill="white" stroke="#000" stroke-width="1"/>
+  <text x="28" y="251" font-family="Arial, sans-serif" font-size="8" fill="#000">Carpet</text>
+
+  <!-- Comforter (unchecked) -->
+  <rect x="125" y="242" width="9" height="9" fill="white" stroke="#000" stroke-width="1"/>
+  <text x="138" y="251" font-family="Arial, sans-serif" font-size="8" fill="#000">Comforter</text>
+
+  <!-- Separator -->
+  <line x1="15" y1="262" x2="225" y2="262" stroke="#000" stroke-width="0.5" stroke-dasharray="3,2"/>
+
+  <!-- Shop Address -->
+  <text x="15" y="276" font-family="Arial, sans-serif" font-size="8" fill="#000">📍</text>
+  <text x="25" y="276" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="#000">Shop Address:</text>
+  <text x="30" y="287" font-family="Arial, sans-serif" font-size="7.5" fill="#000">Shop 4, Gulistan-e-Zafar,</text>
+  <text x="30" y="297" font-family="Arial, sans-serif" font-size="7.5" fill="#000">S.M.C.H.S. Block B, Karachi</text>
+
+  <text x="15" y="310" font-family="Arial, sans-serif" font-size="8" fill="#000">📞</text>
+  <text x="25" y="310" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="#000">0334-3691210</text>
+
+  <!-- Separator -->
+  <line x1="15" y1="318" x2="225" y2="318" stroke="#000" stroke-width="0.5" stroke-dasharray="3,2"/>
+
+  <!-- Footer -->
+  <text x="120" y="328" text-anchor="middle" font-family="Arial, sans-serif" font-size="7.5" font-style="italic" fill="#000">Thank you for choosing Mr Laundry!</text>
+
+  <!-- Bottom Hole -->
+  <circle cx="120" cy="328" r="0" fill="none"/>
+</svg>

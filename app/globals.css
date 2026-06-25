@@ -1,0 +1,220 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 250 255;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --border: 226 232 240;
+    --ring: 52 120 246;
+  }
+
+  .dark {
+    --background: 8 12 28;
+    --foreground: 240 250 255;
+    --card: 17 24 39;
+    --card-foreground: 240 250 255;
+    --border: 30 41 59;
+    --ring: 52 120 246;
+  }
+
+  * {
+    @apply border-slate-200 dark:border-slate-700;
+  }
+
+  html, body {
+    @apply antialiased;
+    height: 100%;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 dark:bg-[#0a0f1f] dark:text-slate-100;
+    font-family: 'Inter', system-ui, sans-serif;
+    background-image:
+      radial-gradient(at 0% 0%, rgba(52, 120, 246, 0.08) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.06) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(52, 120, 246, 0.05) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(at 0% 0%, rgba(52, 120, 246, 0.12) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(52, 120, 246, 0.08) 0px, transparent 50%);
+  }
+}
+
+@layer components {
+  /* Glassmorphism Card */
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/40 shadow-glass
+           dark:bg-slate-900/40 dark:border-slate-700/40;
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl p-6 transition-all hover:shadow-glass-lg;
+  }
+
+  /* Skeleton */
+  .skeleton {
+    @apply animate-pulse bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200
+           dark:from-slate-800 dark:via-slate-700 dark:to-slate-800
+           bg-[length:1000px_100%];
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 dark:bg-slate-600 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400 dark:bg-slate-500;
+  }
+
+  /* Button styles */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl
+           bg-gradient-to-br from-primary-500 to-primary-700
+           text-white font-medium px-4 py-2.5
+           shadow-lg shadow-primary-500/30 hover:shadow-xl hover:shadow-primary-500/40
+           transition-all active:scale-95 disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl
+           bg-white/80 backdrop-blur border border-slate-200
+           dark:bg-slate-800/60 dark:border-slate-700
+           text-slate-700 dark:text-slate-200 font-medium px-4 py-2.5
+           shadow-sm hover:shadow-md transition-all active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl
+           text-slate-600 dark:text-slate-300 font-medium px-4 py-2
+           hover:bg-slate-100 dark:hover:bg-slate-800 transition-all;
+  }
+
+  /* Input */
+  .input {
+    @apply w-full rounded-xl border border-slate-200 dark:border-slate-700
+           bg-white/80 dark:bg-slate-800/60 backdrop-blur
+           px-4 py-2.5 text-slate-900 dark:text-slate-100
+           placeholder:text-slate-400 dark:placeholder:text-slate-500
+           focus:outline-none focus:ring-2 focus:ring-primary-500/40
+           transition-all;
+  }
+
+  .input-lg {
+    @apply input py-3 text-base;
+  }
+
+  /* Status badges */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1
+           text-xs font-medium;
+  }
+  .badge-success { @apply badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300; }
+  .badge-warning { @apply badge bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300; }
+  .badge-danger  { @apply badge bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300; }
+  .badge-info    { @apply badge bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300; }
+  .badge-neutral { @apply badge bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300; }
+}
+
+/* Print styles - Optimized for 80mm Thermal Printer (Black Copper) */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  html, body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 80mm !important;
+  }
+
+  body * {
+    visibility: hidden;
+    color: black !important;
+  }
+
+  .no-print { display: none !important; }
+
+  /* Show only the receipt */
+  body > div, body > div > div {
+    background: transparent !important;
+    backdrop-filter: none !important;
+  }
+
+  aside, header, nav, .no-print {
+    display: none !important;
+  }
+
+  main, main > * {
+    visibility: visible;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+  }
+
+  /* Force the receipt to be visible */
+  .bg-white.text-black {
+    visibility: visible !important;
+    position: relative !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 auto !important;
+    padding: 4mm 2mm !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+    page-break-inside: avoid;
+  }
+
+  .bg-white.text-black * {
+    visibility: visible !important;
+    color: black !important;
+  }
+
+  /* Make sure borders are visible */
+  .border-black, .border-2 {
+    border-color: black !important;
+    border-style: solid !important;
+  }
+
+  /* Remove all backgrounds */
+  * {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  /* Force text to be black */
+  p, span, h1, h2, h3, h4, h5, h6, td, th, div {
+    color: black !important;
+  }
+
+  /* Glass effects disabled */
+  .glass, .glass-card {
+    background: white !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Buttons hide */
+  button { display: none !important; }
+}
