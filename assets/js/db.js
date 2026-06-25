@@ -6,6 +6,16 @@
 const DB_KEY = 'mrLaundryDB';
 const SESSION_KEY = 'mrLaundrySession';
 
+// Locked shop profile for this installation. Keep these values as the
+// permanent defaults so a new browser/device shows correct shop details
+// immediately and accidental edits cannot overwrite them.
+const LOCKED_SHOP_PROFILE = {
+  shopName: 'Mr Laundry',
+  phone: '+923343691210',
+  address: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan',
+  shopLocation: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan'
+};
+
 const DB = {
   _data: null,
 
@@ -26,7 +36,7 @@ const DB = {
         inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() });
       }
       ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
-      this._data.settings = Object.assign({}, seed.settings, this._data.settings);
+      this._data.settings = Object.assign({}, seed.settings, this._data.settings, LOCKED_SHOP_PROFILE);
       // Smart fill: if payment fields are empty/missing, copy defaults from seed
       ['jazzcashName','jazzcashNumber','easypaisaName','easypaisaNumber','portalTerms'].forEach(k => {
         if (!this._data.settings[k] || this._data.settings[k] === '') {
@@ -42,11 +52,35 @@ const DB = {
       this._data = this._seed();
       this.save();
     }
+    if (this._data && this._data.settings) {
+      this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
+    }
     return this._data;
   },
 
   save() {
-    localStorage.setItem(DB_KEY, JSON.stringify(this._data));
+    const write = () => localStorage.setItem(DB_KEY, JSON.stringify(this._data));
+    try { write(); return true; }
+    catch (e) {
+      // If browser localStorage quota is full, new invoices can appear on-screen
+      // but disappear after refresh. Free space by removing old/heavy photos,
+      // then retry the data save. Order/customer/payment records are preserved.
+      console.warn('[DB] localStorage save failed, trying emergency photo cleanup:', e);
+      try {
+        let removed = 0;
+        (this._data.orders || []).forEach(o => {
+          if (o.photos && o.photos.length) { removed += o.photos.length; o.photos = []; o.photoCleanupAt = new Date().toISOString(); }
+        });
+        if (removed > 0) console.warn(`[DB] Emergency cleanup removed ${removed} saved photos to protect POS records`);
+        write();
+        try { if (typeof toast === 'function') toast('Storage was full — old photos cleaned, invoice data saved', 'success'); } catch(_){}
+        return true;
+      } catch (e2) {
+        console.error('[DB] CRITICAL: could not save POS data:', e2);
+        try { alert('CRITICAL STORAGE ERROR: POS data could not be saved. Please download backup / clear browser storage photos.'); } catch(_){}
+        return false;
+      }
+    }
   },
 
   reset() {
@@ -106,10 +140,10 @@ const DB = {
       ],
       reportTemplates: [],
       settings: {
-        shopName: 'Mr Laundry',
+        shopName: LOCKED_SHOP_PROFILE.shopName,
         tagline: 'Quality Dry Cleaner Service',
-        address: 'Your Shop Address Here',
-        phone: '+92 300 0000000',
+        address: LOCKED_SHOP_PROFILE.address,
+        phone: LOCKED_SHOP_PROFILE.phone,
         currency: 'Rs.',
         taxPercent: 0,
         logo: '🧺',
@@ -148,7 +182,7 @@ const DB = {
         photoAutoCleanup: true,
         // === Portal-specific settings ===
         shopHours: 'Mon-Sat: 9:00 AM - 9:00 PM\nSunday: Closed',
-        shopLocation: '',
+        shopLocation: LOCKED_SHOP_PROFILE.shopLocation,
         shopMapUrl: '',
         portalLang: 'en',
         // === Payment settings ===
@@ -250,7 +284,11 @@ const DB = {
   },
 
   settings() { return this._data.settings; },
-  saveSettings(patch) { this._data.settings = { ...this._data.settings, ...patch }; this.save(); },
+  saveSettings(patch) {
+    // Shop name/contact/location are locked for this private POS build.
+    this._data.settings = { ...this._data.settings, ...patch, ...LOCKED_SHOP_PROFILE };
+    this.save();
+  },
 
   login(username, password) {
     const u = this._data.users.find(x => x.username === username && x.password === password);

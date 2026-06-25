@@ -9,6 +9,29 @@
 
 const MAX_DOC_SIZE = 800000; // 800KB — safe margin under Firestore 1MB limit
 
+// Private Firebase sync settings for Shahzeb Laundry POS.
+// Firebase web config is not a password, but Firestore rules should still be
+// restricted in Firebase Console for production use.
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY',
+  authDomain: 'mr-laundry-pos-a6740.firebaseapp.com',
+  projectId: 'mr-laundry-pos-a6740',
+  storageBucket: 'mr-laundry-pos-a6740.firebasestorage.app',
+  messagingSenderId: '927434668958',
+  appId: '1:927434668958:web:2516175f4046edcfbcf48f'
+};
+const DEFAULT_SHOP_ID = 'shahzeb-laundry-private-pos';
+const CLOUD_SYNC_LOCKED = true;
+
+function applyLockedCloudDefaults() {
+  if (!CLOUD_SYNC_LOCKED) return;
+  try {
+    localStorage.setItem('mrLaundryFirebaseCfg', JSON.stringify(DEFAULT_FIREBASE_CONFIG));
+    localStorage.setItem('mrLaundryShopId', DEFAULT_SHOP_ID);
+    localStorage.setItem('mrLaundryCloudEnabled', 'true');
+  } catch(e) { console.warn('[CloudSync] Could not apply locked defaults:', e); }
+}
+
 function parseFirebaseConfig(text) {
   if (!text) throw new Error('Empty config');
   let s = text.trim();
@@ -62,11 +85,11 @@ const CLOUD = {
     if (!raw) return null;
     try { return JSON.parse(raw); } catch(e) { return null; }
   },
-  setConfig(cfg) { localStorage.setItem(this.CFG_KEY, JSON.stringify(cfg)); },
-  getShopId() { return localStorage.getItem(this.SHOP_KEY) || ''; },
-  setShopId(id) { localStorage.setItem(this.SHOP_KEY, id); },
-  isEnabled() { return localStorage.getItem(this.ENABLED_KEY) === 'true'; },
-  setEnabled(v) { localStorage.setItem(this.ENABLED_KEY, v?'true':'false'); },
+  setConfig(cfg) { localStorage.setItem(this.CFG_KEY, JSON.stringify(CLOUD_SYNC_LOCKED ? DEFAULT_FIREBASE_CONFIG : cfg)); },
+  getShopId() { return localStorage.getItem(this.SHOP_KEY) || (CLOUD_SYNC_LOCKED ? DEFAULT_SHOP_ID : ''); },
+  setShopId(id) { localStorage.setItem(this.SHOP_KEY, CLOUD_SYNC_LOCKED ? DEFAULT_SHOP_ID : id); },
+  isEnabled() { return CLOUD_SYNC_LOCKED || localStorage.getItem(this.ENABLED_KEY) === 'true'; },
+  setEnabled(v) { localStorage.setItem(this.ENABLED_KEY, (CLOUD_SYNC_LOCKED || v)?'true':'false'); },
   isReady() { return !!(this.getConfig() && this.getShopId()); },
 
   async loadSDK() {
@@ -86,6 +109,7 @@ const CLOUD = {
 
   async init() {
     if (this._db) return this._db;
+    if (CLOUD_SYNC_LOCKED) applyLockedCloudDefaults();
     const cfg = this.getConfig();
     if (!cfg) throw new Error('Firebase not configured');
     await this.loadSDK();
@@ -330,6 +354,7 @@ const CLOUD = {
 
 /* ============== AUTO-INIT ============== */
 (function cloudAutoInit() {
+  applyLockedCloudDefaults();
   if (typeof DB === 'undefined') return;
   setTimeout(async () => {
     if (CLOUD.isEnabled() && CLOUD.isReady()) {
@@ -447,13 +472,27 @@ async function reconnectCloudSync() {
     if (DB._data.settings) DB._data.settings._settingsUpdatedAt = new Date().toISOString();
     origSave();
     localStorage.setItem('mrLaundryLocalVersion', Date.now());
+    try { if (typeof Persistent !== 'undefined') Persistent.backupAll(); } catch(e) {}
     if (CLOUD._suppressPush) return;
     if (!CLOUD.isEnabled() || !CLOUD.isReady()) return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
       CLOUD.push().catch(e => console.warn('Push failed:', e));
-    }, 1500);
+    }, 300);
   };
+})();
+
+// Try to flush recent invoice/payment changes before refresh/close. This is
+// especially important when cashier presses Ctrl+Shift+R immediately after
+// receiving cash. The local save is already complete; this best-effort push
+// reduces the cloud sync window too.
+(function flushCloudBeforeUnload(){
+  if (typeof window === 'undefined') return;
+  const flush = () => {
+    try { if (CLOUD.isEnabled() && CLOUD.isReady() && DB?._data) CLOUD.push().catch(()=>{}); } catch(e) {}
+  };
+  window.addEventListener('beforeunload', flush);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
 })();
 
 /* ============== UI ============== */
@@ -478,13 +517,13 @@ function openCloudSyncManager() {
 
     <div class="field">
       <label>Firebase Config JSON</label>
-      <textarea id="fbCfg" rows="8" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;">${cfg ? escapeHtml(JSON.stringify(cfg, null, 2)) : ''}</textarea>
+      <textarea id="fbCfg" rows="8" ${CLOUD_SYNC_LOCKED ? 'readonly' : ''} style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;">${cfg ? escapeHtml(JSON.stringify(cfg, null, 2)) : ''}</textarea>
     </div>
 
     <div class="form-row">
       <div class="field">
         <label>Shop ID (unique to your business)</label>
-        <input id="shopId" value="${escapeHtml(shopId)}" placeholder="mr-laundry-main-branch"/>
+        <input id="shopId" value="${escapeHtml(shopId)}" placeholder="mr-laundry-main-branch" ${CLOUD_SYNC_LOCKED ? 'readonly' : ''}/>
         <small style="color:var(--text-soft);">⚠️ All devices MUST use the SAME Shop ID</small>
       </div>
       <div class="field">
@@ -507,7 +546,7 @@ function openCloudSyncManager() {
         <button class="btn btn-success" id="mergeNowBtn">🔄 Merge Now (Pull + Push)</button>
         <button class="btn btn-primary" id="pushNowBtn">⬆️ Force Push This Device → Cloud</button>
         <button class="btn btn-warning" id="pullNowBtn">⬇️ Force Pull Cloud → This Device (OVERWRITE)</button>
-        <button class="btn btn-danger" id="disableBtn">⏸️ Pause Cloud Sync</button>
+        ${CLOUD_SYNC_LOCKED ? '<div style="padding:10px;background:#d1fae5;border-radius:8px;text-align:center;font-weight:700;color:#065f46;">🔒 Cloud Sync locked ON for this shop</div>' : '<button class="btn btn-danger" id="disableBtn">⏸️ Pause Cloud Sync</button>'}
       `}
     </div>
 
@@ -537,9 +576,9 @@ function openCloudSyncManager() {
         await CLOUD.init();
         log('Pulling + merging existing cloud data...');
         await CLOUD.pullAndMerge();
+        CLOUD.setEnabled(true);
         log('Pushing merged data (chunked)...');
         await CLOUD.push();
-        CLOUD.setEnabled(true);
         await CLOUD.listen();
         log('✅ Connected! Real-time sync active.', 'success');
         if (typeof logAction === 'function') logAction('cloud.enable', shop);
@@ -576,6 +615,7 @@ function openCloudSyncManager() {
     });
 
     $('#disableBtn', m)?.addEventListener('click', () => {
+      if (CLOUD_SYNC_LOCKED) { toast('Cloud sync is locked ON for this POS','error'); return; }
       CLOUD.setEnabled(false); CLOUD.stop();
       toast('Cloud sync paused','success');
       closeModal(); openCloudSyncManager();

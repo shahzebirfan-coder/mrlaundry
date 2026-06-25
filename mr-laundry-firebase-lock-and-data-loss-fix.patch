@@ -1,0 +1,427 @@
+diff --git a/assets/js/cloudsync.js b/assets/js/cloudsync.js
+index 410a69c..2d7e60a 100644
+--- a/assets/js/cloudsync.js
++++ b/assets/js/cloudsync.js
+@@ -9,6 +9,29 @@
+ 
+ const MAX_DOC_SIZE = 800000; // 800KB — safe margin under Firestore 1MB limit
+ 
++// Private Firebase sync settings for Shahzeb Laundry POS.
++// Firebase web config is not a password, but Firestore rules should still be
++// restricted in Firebase Console for production use.
++const DEFAULT_FIREBASE_CONFIG = {
++  apiKey: 'AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY',
++  authDomain: 'mr-laundry-pos-a6740.firebaseapp.com',
++  projectId: 'mr-laundry-pos-a6740',
++  storageBucket: 'mr-laundry-pos-a6740.firebasestorage.app',
++  messagingSenderId: '927434668958',
++  appId: '1:927434668958:web:2516175f4046edcfbcf48f'
++};
++const DEFAULT_SHOP_ID = 'shahzeb-laundry-private-pos';
++const CLOUD_SYNC_LOCKED = true;
++
++function applyLockedCloudDefaults() {
++  if (!CLOUD_SYNC_LOCKED) return;
++  try {
++    localStorage.setItem('mrLaundryFirebaseCfg', JSON.stringify(DEFAULT_FIREBASE_CONFIG));
++    localStorage.setItem('mrLaundryShopId', DEFAULT_SHOP_ID);
++    localStorage.setItem('mrLaundryCloudEnabled', 'true');
++  } catch(e) { console.warn('[CloudSync] Could not apply locked defaults:', e); }
++}
++
+ function parseFirebaseConfig(text) {
+   if (!text) throw new Error('Empty config');
+   let s = text.trim();
+@@ -62,11 +85,11 @@ const CLOUD = {
+     if (!raw) return null;
+     try { return JSON.parse(raw); } catch(e) { return null; }
+   },
+-  setConfig(cfg) { localStorage.setItem(this.CFG_KEY, JSON.stringify(cfg)); },
+-  getShopId() { return localStorage.getItem(this.SHOP_KEY) || ''; },
+-  setShopId(id) { localStorage.setItem(this.SHOP_KEY, id); },
+-  isEnabled() { return localStorage.getItem(this.ENABLED_KEY) === 'true'; },
+-  setEnabled(v) { localStorage.setItem(this.ENABLED_KEY, v?'true':'false'); },
++  setConfig(cfg) { localStorage.setItem(this.CFG_KEY, JSON.stringify(CLOUD_SYNC_LOCKED ? DEFAULT_FIREBASE_CONFIG : cfg)); },
++  getShopId() { return localStorage.getItem(this.SHOP_KEY) || (CLOUD_SYNC_LOCKED ? DEFAULT_SHOP_ID : ''); },
++  setShopId(id) { localStorage.setItem(this.SHOP_KEY, CLOUD_SYNC_LOCKED ? DEFAULT_SHOP_ID : id); },
++  isEnabled() { return CLOUD_SYNC_LOCKED || localStorage.getItem(this.ENABLED_KEY) === 'true'; },
++  setEnabled(v) { localStorage.setItem(this.ENABLED_KEY, (CLOUD_SYNC_LOCKED || v)?'true':'false'); },
+   isReady() { return !!(this.getConfig() && this.getShopId()); },
+ 
+   async loadSDK() {
+@@ -86,6 +109,7 @@ const CLOUD = {
+ 
+   async init() {
+     if (this._db) return this._db;
++    if (CLOUD_SYNC_LOCKED) applyLockedCloudDefaults();
+     const cfg = this.getConfig();
+     if (!cfg) throw new Error('Firebase not configured');
+     await this.loadSDK();
+@@ -330,6 +354,7 @@ const CLOUD = {
+ 
+ /* ============== AUTO-INIT ============== */
+ (function cloudAutoInit() {
++  applyLockedCloudDefaults();
+   if (typeof DB === 'undefined') return;
+   setTimeout(async () => {
+     if (CLOUD.isEnabled() && CLOUD.isReady()) {
+@@ -447,15 +472,29 @@ async function reconnectCloudSync() {
+     if (DB._data.settings) DB._data.settings._settingsUpdatedAt = new Date().toISOString();
+     origSave();
+     localStorage.setItem('mrLaundryLocalVersion', Date.now());
++    try { if (typeof Persistent !== 'undefined') Persistent.backupAll(); } catch(e) {}
+     if (CLOUD._suppressPush) return;
+     if (!CLOUD.isEnabled() || !CLOUD.isReady()) return;
+     clearTimeout(pushTimer);
+     pushTimer = setTimeout(() => {
+       CLOUD.push().catch(e => console.warn('Push failed:', e));
+-    }, 1500);
++    }, 300);
+   };
+ })();
+ 
++// Try to flush recent invoice/payment changes before refresh/close. This is
++// especially important when cashier presses Ctrl+Shift+R immediately after
++// receiving cash. The local save is already complete; this best-effort push
++// reduces the cloud sync window too.
++(function flushCloudBeforeUnload(){
++  if (typeof window === 'undefined') return;
++  const flush = () => {
++    try { if (CLOUD.isEnabled() && CLOUD.isReady() && DB?._data) CLOUD.push().catch(()=>{}); } catch(e) {}
++  };
++  window.addEventListener('beforeunload', flush);
++  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
++})();
++
+ /* ============== UI ============== */
+ function openCloudSyncManager() {
+   const cfg = CLOUD.getConfig();
+@@ -478,13 +517,13 @@ function openCloudSyncManager() {
+ 
+     <div class="field">
+       <label>Firebase Config JSON</label>
+-      <textarea id="fbCfg" rows="8" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;">${cfg ? escapeHtml(JSON.stringify(cfg, null, 2)) : ''}</textarea>
++      <textarea id="fbCfg" rows="8" ${CLOUD_SYNC_LOCKED ? 'readonly' : ''} style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:11px;">${cfg ? escapeHtml(JSON.stringify(cfg, null, 2)) : ''}</textarea>
+     </div>
+ 
+     <div class="form-row">
+       <div class="field">
+         <label>Shop ID (unique to your business)</label>
+-        <input id="shopId" value="${escapeHtml(shopId)}" placeholder="mr-laundry-main-branch"/>
++        <input id="shopId" value="${escapeHtml(shopId)}" placeholder="mr-laundry-main-branch" ${CLOUD_SYNC_LOCKED ? 'readonly' : ''}/>
+         <small style="color:var(--text-soft);">⚠️ All devices MUST use the SAME Shop ID</small>
+       </div>
+       <div class="field">
+@@ -507,7 +546,7 @@ function openCloudSyncManager() {
+         <button class="btn btn-success" id="mergeNowBtn">🔄 Merge Now (Pull + Push)</button>
+         <button class="btn btn-primary" id="pushNowBtn">⬆️ Force Push This Device → Cloud</button>
+         <button class="btn btn-warning" id="pullNowBtn">⬇️ Force Pull Cloud → This Device (OVERWRITE)</button>
+-        <button class="btn btn-danger" id="disableBtn">⏸️ Pause Cloud Sync</button>
++        ${CLOUD_SYNC_LOCKED ? '<div style="padding:10px;background:#d1fae5;border-radius:8px;text-align:center;font-weight:700;color:#065f46;">🔒 Cloud Sync locked ON for this shop</div>' : '<button class="btn btn-danger" id="disableBtn">⏸️ Pause Cloud Sync</button>'}
+       `}
+     </div>
+ 
+@@ -537,9 +576,9 @@ function openCloudSyncManager() {
+         await CLOUD.init();
+         log('Pulling + merging existing cloud data...');
+         await CLOUD.pullAndMerge();
++        CLOUD.setEnabled(true);
+         log('Pushing merged data (chunked)...');
+         await CLOUD.push();
+-        CLOUD.setEnabled(true);
+         await CLOUD.listen();
+         log('✅ Connected! Real-time sync active.', 'success');
+         if (typeof logAction === 'function') logAction('cloud.enable', shop);
+@@ -576,6 +615,7 @@ function openCloudSyncManager() {
+     });
+ 
+     $('#disableBtn', m)?.addEventListener('click', () => {
++      if (CLOUD_SYNC_LOCKED) { toast('Cloud sync is locked ON for this POS','error'); return; }
+       CLOUD.setEnabled(false); CLOUD.stop();
+       toast('Cloud sync paused','success');
+       closeModal(); openCloudSyncManager();
+diff --git a/assets/js/db.js b/assets/js/db.js
+index 90ac762..f6d1a43 100644
+--- a/assets/js/db.js
++++ b/assets/js/db.js
+@@ -6,6 +6,16 @@
+ const DB_KEY = 'mrLaundryDB';
+ const SESSION_KEY = 'mrLaundrySession';
+ 
++// Locked shop profile for this installation. Keep these values as the
++// permanent defaults so a new browser/device shows correct shop details
++// immediately and accidental edits cannot overwrite them.
++const LOCKED_SHOP_PROFILE = {
++  shopName: 'Mr Laundry',
++  phone: '+923343691210',
++  address: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan',
++  shopLocation: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan'
++};
++
+ const DB = {
+   _data: null,
+ 
+@@ -26,7 +36,7 @@ const DB = {
+         inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() });
+       }
+       ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+-      this._data.settings = Object.assign({}, seed.settings, this._data.settings);
++      this._data.settings = Object.assign({}, seed.settings, this._data.settings, LOCKED_SHOP_PROFILE);
+       // Smart fill: if payment fields are empty/missing, copy defaults from seed
+       ['jazzcashName','jazzcashNumber','easypaisaName','easypaisaNumber','portalTerms'].forEach(k => {
+         if (!this._data.settings[k] || this._data.settings[k] === '') {
+@@ -42,11 +52,35 @@ const DB = {
+       this._data = this._seed();
+       this.save();
+     }
++    if (this._data && this._data.settings) {
++      this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
++    }
+     return this._data;
+   },
+ 
+   save() {
+-    localStorage.setItem(DB_KEY, JSON.stringify(this._data));
++    const write = () => localStorage.setItem(DB_KEY, JSON.stringify(this._data));
++    try { write(); return true; }
++    catch (e) {
++      // If browser localStorage quota is full, new invoices can appear on-screen
++      // but disappear after refresh. Free space by removing old/heavy photos,
++      // then retry the data save. Order/customer/payment records are preserved.
++      console.warn('[DB] localStorage save failed, trying emergency photo cleanup:', e);
++      try {
++        let removed = 0;
++        (this._data.orders || []).forEach(o => {
++          if (o.photos && o.photos.length) { removed += o.photos.length; o.photos = []; o.photoCleanupAt = new Date().toISOString(); }
++        });
++        if (removed > 0) console.warn(`[DB] Emergency cleanup removed ${removed} saved photos to protect POS records`);
++        write();
++        try { if (typeof toast === 'function') toast('Storage was full — old photos cleaned, invoice data saved', 'success'); } catch(_){}
++        return true;
++      } catch (e2) {
++        console.error('[DB] CRITICAL: could not save POS data:', e2);
++        try { alert('CRITICAL STORAGE ERROR: POS data could not be saved. Please download backup / clear browser storage photos.'); } catch(_){}
++        return false;
++      }
++    }
+   },
+ 
+   reset() {
+@@ -106,10 +140,10 @@ const DB = {
+       ],
+       reportTemplates: [],
+       settings: {
+-        shopName: 'Mr Laundry',
++        shopName: LOCKED_SHOP_PROFILE.shopName,
+         tagline: 'Quality Dry Cleaner Service',
+-        address: 'Your Shop Address Here',
+-        phone: '+92 300 0000000',
++        address: LOCKED_SHOP_PROFILE.address,
++        phone: LOCKED_SHOP_PROFILE.phone,
+         currency: 'Rs.',
+         taxPercent: 0,
+         logo: '🧺',
+@@ -148,7 +182,7 @@ const DB = {
+         photoAutoCleanup: true,
+         // === Portal-specific settings ===
+         shopHours: 'Mon-Sat: 9:00 AM - 9:00 PM\nSunday: Closed',
+-        shopLocation: '',
++        shopLocation: LOCKED_SHOP_PROFILE.shopLocation,
+         shopMapUrl: '',
+         portalLang: 'en',
+         // === Payment settings ===
+@@ -250,7 +284,11 @@ const DB = {
+   },
+ 
+   settings() { return this._data.settings; },
+-  saveSettings(patch) { this._data.settings = { ...this._data.settings, ...patch }; this.save(); },
++  saveSettings(patch) {
++    // Shop name/contact/location are locked for this private POS build.
++    this._data.settings = { ...this._data.settings, ...patch, ...LOCKED_SHOP_PROFILE };
++    this.save();
++  },
+ 
+   login(username, password) {
+     const u = this._data.users.find(x => x.username === username && x.password === password);
+diff --git a/assets/js/pages/settings.js b/assets/js/pages/settings.js
+index 7849f90..0903013 100644
+--- a/assets/js/pages/settings.js
++++ b/assets/js/pages/settings.js
+@@ -34,18 +34,18 @@ function renderSettings() {
+           </div>
+ 
+           <div class="form-row">
+-            <div class="field"><label>Shop Name</label><input id="sName" value="${escapeHtml(s.shopName)}"/></div>
++            <div class="field"><label>Shop Name 🔒</label><input id="sName" value="${escapeHtml(s.shopName)}" readonly/></div>
+             <div class="field"><label>Fallback Logo (emoji)</label><input id="sLogo" value="${escapeHtml(s.logo)}" maxlength="4" style="font-size:20px;text-align:center;"/></div>
+           </div>
+           <div class="form-row cols-1">
+             <div class="field"><label>Tagline</label><input id="sTag" value="${escapeHtml(s.tagline||'')}"/></div>
+           </div>
+           <div class="form-row">
+-            <div class="field"><label>Phone</label><input id="sPhone" value="${escapeHtml(s.phone||'')}"/></div>
++            <div class="field"><label>Phone 🔒</label><input id="sPhone" value="${escapeHtml(s.phone||'')}" readonly/></div>
+             <div class="field"><label>Currency Symbol</label><input id="sCurrency" value="${escapeHtml(s.currency)}"/></div>
+           </div>
+           <div class="form-row cols-1">
+-            <div class="field"><label>Address</label><textarea id="sAddr" rows="2">${escapeHtml(s.address||'')}</textarea></div>
++            <div class="field"><label>Address 🔒</label><textarea id="sAddr" rows="2" readonly>${escapeHtml(s.address||'')}</textarea><small style="color:var(--text-soft);">Locked in private build</small></div>
+           </div>
+           <div class="form-row">
+             <div class="field"><label>Tax Percent (%)</label><input type="number" id="sTax" value="${s.taxPercent||0}"/></div>
+diff --git a/index.html b/index.html
+index 95e5b32..ba4fe8c 100644
+--- a/index.html
++++ b/index.html
+@@ -4,8 +4,8 @@
+   <meta charset="UTF-8" />
+   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+   <title>Mr Laundry — POS</title>
+-  <link rel="stylesheet" href="assets/css/style.css?v=20260607.0839" />
+-  <link rel="stylesheet" href="assets/css/responsive.css?v=20260607.0839" />
++  <link rel="stylesheet" href="assets/css/style.css?v=20260625.1600" />
++  <link rel="stylesheet" href="assets/css/responsive.css?v=20260625.1600" />
+   <link rel="preconnect" href="https://fonts.googleapis.com">
+   <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+   <link rel="manifest" href="manifest.json"/>
+@@ -24,52 +24,52 @@
+ 
+   <!-- QR Code library (inline / pure JS, no external CDN needed for offline use)
+        We use a small embedded QR generator -->
+-                                                                        <script src="assets/js/qrcode.min.js?v=20260607.0839"></script>
+-  <script src="assets/js/i18n.js?v=20260607.0839"></script>
+-  <script src="assets/js/portal-i18n.js?v=20260607.0839"></script>
+-  <script src="assets/js/permissions.js?v=20260607.0839"></script>
+-  <script src="assets/js/db.js?v=20260607.0839"></script>
+-  <script src="assets/js/utils.js?v=20260607.0839"></script>
+-  <script src="assets/js/sounds.js?v=20260607.0839"></script>
+-  <script src="assets/js/security.js?v=20260607.0839"></script>
+-  <script src="assets/js/refund.js?v=20260607.0839"></script>
+-  <script src="assets/js/whatsapp.js?v=20260607.0839"></script>
+-  <script src="assets/js/gdrive.js?v=20260607.0839"></script>
+-  <script src="assets/js/cloudsync.js?v=20260607.0839"></script>
+-  <script src="assets/js/inventory-auto.js?v=20260607.0839"></script>
+-  <script src="assets/js/portal-helpers.js?v=20260607.0839"></script>
+-  <script src="assets/js/shortcuts.js?v=20260607.0839"></script>
+-  <script src="assets/js/extras.js?v=20260607.0839"></script>
+-  <script src="assets/js/auth-recovery.js?v=20260607.0839"></script>
+-  <script src="assets/js/components.js?v=20260607.0839"></script>
+-  <script src="assets/js/notifications.js?v=20260607.0839"></script>
+-  <script src="assets/js/persistent.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/login.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/dashboard.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/pos.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/orders.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/customers.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/products.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/expenses.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/reports.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/users.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/settings.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/invoice.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/vendors.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/purchaseOrders.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/ledger.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/photos.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/inventory.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/cashbook.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/auditLog.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/branches.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/inbox.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/promoAdmin.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/claims.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/delivery.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/drawings.js?v=20260607.0839"></script>
+-  <script src="assets/js/pages/reportBuilder.js?v=20260607.0839"></script>
+-  <script src="assets/js/app.js?v=20260607.0839"></script>
++                                                                        <script src="assets/js/qrcode.min.js?v=20260625.1600"></script>
++  <script src="assets/js/i18n.js?v=20260625.1600"></script>
++  <script src="assets/js/portal-i18n.js?v=20260625.1600"></script>
++  <script src="assets/js/permissions.js?v=20260625.1600"></script>
++  <script src="assets/js/db.js?v=20260625.1600"></script>
++  <script src="assets/js/utils.js?v=20260625.1600"></script>
++  <script src="assets/js/sounds.js?v=20260625.1600"></script>
++  <script src="assets/js/security.js?v=20260625.1600"></script>
++  <script src="assets/js/refund.js?v=20260625.1600"></script>
++  <script src="assets/js/whatsapp.js?v=20260625.1600"></script>
++  <script src="assets/js/gdrive.js?v=20260625.1600"></script>
++  <script src="assets/js/cloudsync.js?v=20260625.1600"></script>
++  <script src="assets/js/inventory-auto.js?v=20260625.1600"></script>
++  <script src="assets/js/portal-helpers.js?v=20260625.1600"></script>
++  <script src="assets/js/shortcuts.js?v=20260625.1600"></script>
++  <script src="assets/js/extras.js?v=20260625.1600"></script>
++  <script src="assets/js/auth-recovery.js?v=20260625.1600"></script>
++  <script src="assets/js/components.js?v=20260625.1600"></script>
++  <script src="assets/js/notifications.js?v=20260625.1600"></script>
++  <script src="assets/js/persistent.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/login.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/dashboard.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/pos.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/orders.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/customers.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/products.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/expenses.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/reports.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/users.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/settings.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/invoice.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/vendors.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/purchaseOrders.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/ledger.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/photos.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/inventory.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/cashbook.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/auditLog.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/branches.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/inbox.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/promoAdmin.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/claims.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/delivery.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/drawings.js?v=20260625.1600"></script>
++  <script src="assets/js/pages/reportBuilder.js?v=20260625.1600"></script>
++  <script src="assets/js/app.js?v=20260625.1600"></script>
+   <script>
+     if ("serviceWorker" in navigator && location.protocol !== "file:") {
+       window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(()=>{}));
+diff --git a/sw.js b/sw.js
+index 104420d..18573f9 100644
+--- a/sw.js
++++ b/sw.js
+@@ -1,4 +1,4 @@
+-const CACHE_NAME = 'mr-laundry-pos-v1';
++const CACHE_NAME = 'mr-laundry-pos-v20260625';
+ const urlsToCache = [
+   '/',
+   '/index.html',
+@@ -8,18 +8,24 @@ const urlsToCache = [
+ ];
+ 
+ self.addEventListener('install', event => {
++  self.skipWaiting();
++  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
++});
++
++self.addEventListener('activate', event => {
+   event.waitUntil(
+-    caches.open(CACHE_NAME)
+-      .then(cache => cache.addAll(urlsToCache))
++    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
++      .then(() => self.clients.claim())
+   );
+ });
+ 
+ self.addEventListener('fetch', event => {
++  if (event.request.method !== 'GET') return;
+   event.respondWith(
+-    caches.match(event.request)
+-      .then(response => {
+-        if (response) return response;
+-        return fetch(event.request);
+-      })
++    fetch(event.request).then(response => {
++      const copy = response.clone();
++      caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(()=>{});
++      return response;
++    }).catch(() => caches.match(event.request))
+   );
+ });

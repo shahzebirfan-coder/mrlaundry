@@ -34,18 +34,18 @@ function renderSettings() {
           </div>
 
           <div class="form-row">
-            <div class="field"><label>Shop Name</label><input id="sName" value="${escapeHtml(s.shopName)}"/></div>
+            <div class="field"><label>Shop Name 🔒</label><input id="sName" value="${escapeHtml(s.shopName)}" readonly/></div>
             <div class="field"><label>Fallback Logo (emoji)</label><input id="sLogo" value="${escapeHtml(s.logo)}" maxlength="4" style="font-size:20px;text-align:center;"/></div>
           </div>
           <div class="form-row cols-1">
             <div class="field"><label>Tagline</label><input id="sTag" value="${escapeHtml(s.tagline||'')}"/></div>
           </div>
           <div class="form-row">
-            <div class="field"><label>Phone</label><input id="sPhone" value="${escapeHtml(s.phone||'')}"/></div>
+            <div class="field"><label>Phone 🔒</label><input id="sPhone" value="${escapeHtml(s.phone||'')}" readonly/></div>
             <div class="field"><label>Currency Symbol</label><input id="sCurrency" value="${escapeHtml(s.currency)}"/></div>
           </div>
           <div class="form-row cols-1">
-            <div class="field"><label>Address</label><textarea id="sAddr" rows="2">${escapeHtml(s.address||'')}</textarea></div>
+            <div class="field"><label>Address 🔒</label><textarea id="sAddr" rows="2" readonly>${escapeHtml(s.address||'')}</textarea><small style="color:var(--text-soft);">Locked in private build</small></div>
           </div>
           <div class="form-row">
             <div class="field"><label>Tax Percent (%)</label><input type="number" id="sTax" value="${s.taxPercent||0}"/></div>
