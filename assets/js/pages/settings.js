@@ -175,8 +175,10 @@ function renderSettings() {
             <b>Total Records:</b><br>
             • Orders: ${DB.all('orders').length}<br>
             • Customers: ${DB.all('customers').length}<br>
-            • Products: ${DB.all('products').length}
+            • Products: ${DB.all('products').length}<br>
+            • Current Invoice Counter: ${DB._data?._counters?.invoice || 1000}
           </div>
+          <button class="btn btn-warning btn-block" id="fixInvoiceSerialBtn" style="margin-bottom:10px;">🔢 Fix Invoice Serial Number</button>
           <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Your data lives in your browser. <b>Always keep a recent backup!</b></p>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <button class="btn btn-success btn-lg" id="exportBtn">📥 Download Backup</button>
@@ -240,6 +242,21 @@ function renderSettings() {
   };
 
   $('#exportBtn').onclick = doBackup;
+  if ($('#fixInvoiceSerialBtn')) $('#fixInvoiceSerialBtn').onclick = () => {
+    const currentCounter = DB._data?._counters?.invoice || 1000;
+    const highestInvoice = (typeof DB._maxNumberFrom === 'function') ? DB._maxNumberFrom(DB.all('orders'), ['invoiceNo']) : 0;
+    const suggested = Math.max(currentCounter, highestInvoice, 1000);
+    const val = prompt('Enter LAST used invoice number. Example: if last invoice is 1207, enter 1207. Next invoice will become 1208.', suggested);
+    if (val === null) return;
+    const n = parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+    if (!Number.isFinite(n) || n < 1000) { toast('Invalid invoice number','error'); return; }
+    DB._ensureCounters?.();
+    DB._data._counters.invoice = n;
+    DB.save();
+    if (typeof CLOUD !== 'undefined' && CLOUD.isEnabled && CLOUD.isEnabled()) CLOUD.push().catch(()=>{});
+    toast('Invoice serial fixed. Next invoice will be ' + (n + 1), 'success');
+    renderSettings();
+  };
   $('#openInvCustBtn').onclick = () => openInvoiceCustomizer();
   if ($('#openPortalCfg')) $('#openPortalCfg').onclick = () => openPortalConfigDialog();
   if ($('#openQRBtn')) $('#openQRBtn').onclick = () => openQRMenuPoster();
