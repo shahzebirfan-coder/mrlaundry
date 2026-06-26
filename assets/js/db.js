@@ -55,29 +55,92 @@ const DB = {
     if (this._data && this._data.settings) {
       this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
     }
+    // Repair serial counters after backup restore/cloud merge so invoice numbers
+    // always continue from the highest existing invoice.
+    this.repairCounters();
+    // Immediately compact old offline/local photo-heavy DB after update.
+    this.save();
     return this._data;
   },
 
-  save() {
-    const write = () => localStorage.setItem(DB_KEY, JSON.stringify(this._data));
-    try { write(); return true; }
-    catch (e) {
-      // If browser localStorage quota is full, new invoices can appear on-screen
-      // but disappear after refresh. Free space by removing old/heavy photos,
-      // then retry the data save. Order/customer/payment records are preserved.
-      console.warn('[DB] localStorage save failed, trying emergency photo cleanup:', e);
-      try {
-        let removed = 0;
-        (this._data.orders || []).forEach(o => {
-          if (o.photos && o.photos.length) { removed += o.photos.length; o.photos = []; o.photoCleanupAt = new Date().toISOString(); }
+  _storageSafeCopy(data, aggressive = false) {
+    const copy = JSON.parse(JSON.stringify(data || {}));
+
+    // Online-only build: never put heavy base64 files into browser localStorage.
+    // They are the main reason Chrome shows QUOTA_EXCEEDED / critical storage errors.
+    (copy.orders || []).forEach(o => {
+      if (o.photos && o.photos.length) {
+        o.photos = [];
+        o.photosStoredInCloudOnly = true;
+      }
+    });
+    (copy.paymentProofs || []).forEach(p => {
+      if (p.screenshot && String(p.screenshot).startsWith('data:')) {
+        p.screenshot = '';
+        p.screenshotStoredInCloudOnly = true;
+      }
+    });
+    (copy.claims || []).forEach(c => {
+      if (c.slipPhoto && String(c.slipPhoto).startsWith('data:')) {
+        c.slipPhoto = '';
+        c.slipPhotoStoredInCloudOnly = true;
+      }
+    });
+
+    if (copy.settings && copy.settings.logoImage && String(copy.settings.logoImage).startsWith('data:')) {
+      copy.settings.logoImage = 'assets/img/logo.jpeg';
+      copy.settings.logoImageStoredInCloudOnly = true;
+    }
+
+    if (aggressive) {
+      // If quota is still full, remove every embedded image from local cache.
+      ['products', 'categories', 'customers', 'vendors', 'drivers'].forEach(tbl => {
+        (copy[tbl] || []).forEach(r => {
+          ['image', 'photo', 'avatar', 'logo', 'signature'].forEach(k => {
+            if (r[k] && String(r[k]).startsWith('data:')) r[k] = '';
+          });
         });
-        if (removed > 0) console.warn(`[DB] Emergency cleanup removed ${removed} saved photos to protect POS records`);
-        write();
-        try { if (typeof toast === 'function') toast('Storage was full — old photos cleaned, invoice data saved', 'success'); } catch(_){}
+      });
+    }
+    return copy;
+  },
+
+  _freeLocalStorageSpace() {
+    // Remove old/offline-only caches. Session/login remains untouched.
+    [
+      'mrLaundryLastBackup',
+      'mrLaundryLastPhotoCleanup',
+      'mrLaundryLocalVersion',
+      'mrLaundryGDriveToken',
+      'mrLaundryGDriveFolderId'
+    ].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
+  },
+
+  save() {
+    // Keep DB._data complete in memory for immediate Firebase push, but only keep
+    // a lightweight cache in localStorage. This fixes the storage error and makes
+    // the POS effectively online-first instead of offline-photo-heavy.
+    const writePayload = (payload) => {
+      try { localStorage.removeItem(DB_KEY); } catch(_){}
+      localStorage.setItem(DB_KEY, JSON.stringify(payload));
+    };
+
+    try {
+      writePayload(this._storageSafeCopy(this._data, false));
+      return true;
+    } catch (e) {
+      console.warn('[DB] localStorage quota hit; retrying with aggressive online-only cache:', e);
+      try {
+        this._freeLocalStorageSpace();
+        writePayload(this._storageSafeCopy(this._data, true));
+        try { if (typeof toast === 'function') toast('Browser storage cleaned — invoice data saved safely', 'success'); } catch(_){}
         return true;
       } catch (e2) {
-        console.error('[DB] CRITICAL: could not save POS data:', e2);
-        try { alert('CRITICAL STORAGE ERROR: POS data could not be saved. Please download backup / clear browser storage photos.'); } catch(_){}
+        console.error('[DB] Could not write local cache. Continuing online-only; Firebase sync will still be attempted.', e2);
+        // Do NOT block cashier or show scary alert. The live in-memory data can
+        // still be pushed by Cloud Sync after DB.save returns.
+        try { localStorage.removeItem(DB_KEY); } catch(_){}
+        try { if (typeof toast === 'function') toast('Local cache full — using online sync only', 'error'); } catch(_){}
         return false;
       }
     }
@@ -248,18 +311,57 @@ const DB = {
     return true;
   },
 
+  _ensureCounters() {
+    this._data._counters = this._data._counters || {};
+    const defaults = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+    for (const k of Object.keys(defaults)) {
+      if (!Number.isFinite(+this._data._counters[k]) || +this._data._counters[k] < defaults[k]) {
+        this._data._counters[k] = defaults[k];
+      } else {
+        this._data._counters[k] = +this._data._counters[k];
+      }
+    }
+    return this._data._counters;
+  },
+
+  _maxNumberFrom(list, fields) {
+    let max = 0;
+    (list || []).forEach(row => {
+      fields.forEach(f => {
+        const raw = row && row[f];
+        if (raw == null) return;
+        const n = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+        if (Number.isFinite(n) && n > max) max = n;
+      });
+    });
+    return max;
+  },
+
+  repairCounters() {
+    // Fix invoice serial after backup restore/import/cloud merge.
+    // If _counters.invoice is old (e.g. 1005) but existing invoices are 1200+,
+    // the next invoice must continue from the highest existing invoiceNo.
+    const c = this._ensureCounters();
+    c.invoice = Math.max(c.invoice, this._maxNumberFrom(this._data.orders, ['invoiceNo']));
+    c.loyalty = Math.max(c.loyalty, this._maxNumberFrom(this._data.customers, ['loyaltyNo']));
+    c.po      = Math.max(c.po,      this._maxNumberFrom(this._data.purchaseOrders, ['poNo', 'poNumber']));
+    c.claim   = Math.max(c.claim,   this._maxNumberFrom(this._data.claims, ['claimNo', 'claimNumber']));
+    c.voucher = Math.max(c.voucher, this._maxNumberFrom(this._data.vouchers, ['voucherNo', 'voucherNumber']));
+    return c;
+  },
+
   nextLoyaltyNumber() {
-    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
-    this._data._counters.loyalty += 1;
+    const counters = this.repairCounters();
+    counters.loyalty += 1;
     this.save();
     const prefix = (this._data.settings.loyaltyPrefix || 'MRL').toUpperCase();
-    return `${prefix}-${this._data._counters.loyalty}`;
+    return `${prefix}-${counters.loyalty}`;
   },
   nextInvoiceNumber() {
-    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
-    this._data._counters.invoice += 1;
+    const counters = this.repairCounters();
+    counters.invoice += 1;
     this.save();
-    return this._data._counters.invoice;
+    return counters.invoice;
   },
   nextClaimNumber() {
     if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
@@ -351,7 +453,10 @@ const DB = {
   exportJSON() { return JSON.stringify(this._data, null, 2); },
   importJSON(json) {
     const parsed = typeof json === 'string' ? JSON.parse(json) : json;
-    this._data = parsed; this.save();
+    this._data = parsed;
+    if (this._data.settings) this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
+    this.repairCounters();
+    this.save();
   }
 };
 

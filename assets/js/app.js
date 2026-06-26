@@ -31,6 +31,20 @@ const app = {
       }
     }
 
+    if (page !== 'login' && typeof navigator !== 'undefined' && navigator.onLine === false) {
+      this.current = 'offline';
+      document.getElementById('app').innerHTML = `
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;padding:20px;">
+          <div style="max-width:460px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.12);">
+            <div style="font-size:64px;margin-bottom:12px;">🌐</div>
+            <h2 style="margin:0 0 10px;color:#111827;">Online Connection Required</h2>
+            <p style="color:#6b7280;line-height:1.5;margin-bottom:18px;">Offline mode has been disabled to protect invoice and cash data. Please connect internet, then continue.</p>
+            <button onclick="location.reload()" style="background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-weight:800;cursor:pointer;">Retry</button>
+          </div>
+        </div>`;
+      return;
+    }
+
     this.current = page;
     switch(page) {
       case 'login':           return renderLogin();
@@ -97,4 +111,15 @@ window.addEventListener('DOMContentLoaded', () => {
       console.warn('[Mr Laundry] These pages will not work. Check that all <script> tags in index.html are loaded correctly.');
     }
   }, 1500);
+});
+
+
+// Online-only guard: if internet drops, stop cashier from continuing in offline cache.
+window.addEventListener('offline', () => {
+  try { toast('Internet disconnected — POS is online-only now', 'error'); } catch(e) {}
+  if (app.current && app.current !== 'login') app.go(app.current);
+});
+window.addEventListener('online', () => {
+  try { toast('Internet connected', 'success'); } catch(e) {}
+  if (app.current === 'offline') location.reload();
 });
