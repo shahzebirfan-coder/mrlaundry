@@ -175,6 +175,19 @@ const CLOUD = {
     return this._db;
   },
 
+  isFreshSeedData(data) {
+    // A brand-new browser has only seed/default records. In that case remote
+    // Firebase data must be treated as the source of truth so customers, users,
+    // vendors and purchase orders are restored on first open.
+    if (!data) return true;
+    const orders = (data.orders || []).filter(x => x && !x._deleted);
+    const customers = (data.customers || []).filter(x => x && !x._deleted && x.id !== 'cu1');
+    const users = (data.users || []).filter(x => x && !x._deleted);
+    const purchaseOrders = (data.purchaseOrders || []).filter(x => x && !x._deleted);
+    const vendors = (data.vendors || []).filter(x => x && !x._deleted && x.id !== 'v1');
+    return orders.length === 0 && customers.length === 0 && purchaseOrders.length === 0 && vendors.length === 0 && users.length <= 2;
+  },
+
   /* ============== MERGE LOGIC ============== */
   mergeData(local, remote) {
     if (!remote) return local;
@@ -343,8 +356,12 @@ const CLOUD = {
       return false;
     }
 
-    const merged = this.mergeData(DB._data, remoteData);
+    const localIsFresh = this.isFreshSeedData(DB._data);
+    const merged = localIsFresh
+      ? this.mergeData(remoteData, DB._data)   // remote base for new browser/device
+      : this.mergeData(DB._data, remoteData);  // normal non-destructive merge
     DB._data = merged;
+    if (typeof DB.repairCounters === 'function') DB.repairCounters();
     this._suppressPush = true;
     try { DB.save(); } finally { this._suppressPush = false; }
     this._lastAppliedVersion = meta.version || Date.now();
@@ -676,7 +693,9 @@ function openCloudSyncManager() {
         try {
           const remote = await CLOUD.pull();
           if (!remote) { log('No data in cloud yet','error'); return; }
-          DB._data = remote; DB.save();
+          DB._data = remote;
+          if (typeof DB.repairCounters === 'function') DB.repairCounters();
+          DB.save();
           toast('Pulled from cloud. Reloading...','success');
           setTimeout(() => location.reload(), 1000);
         } catch(e) { log('❌ ' + e.message, 'error'); }
