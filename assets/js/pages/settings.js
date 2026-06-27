@@ -286,9 +286,25 @@ function renderSettings() {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      confirmDialog('This will REPLACE all current data with the backup. Continue?', () => {
-        try { DB.importJSON(reader.result); toast('Restored! Reloading...','success'); setTimeout(()=>location.reload(), 800); }
-        catch(err){ toast('Invalid backup file','error'); }
+      confirmDialog('This will REPLACE all current data with the backup and then upload the FULL backup to Firebase. Continue?', async () => {
+        try {
+          DB.importJSON(reader.result);
+          if (typeof toast === 'function') toast('Backup restored locally. Uploading full data to Firebase...', 'success');
+
+          // IMPORTANT: wait for full cloud upload before reload. Previously the
+          // page reloaded too quickly, so only some tables reached Firebase;
+          // new devices then saw invoices but missing customers/users/vendors/POs.
+          if (typeof CLOUD !== 'undefined' && CLOUD.isReady && CLOUD.isReady()) {
+            CLOUD.setEnabled(true);
+            if (typeof DB.repairCounters === 'function') DB.repairCounters();
+            await CLOUD.push();
+            try { if (typeof Persistent !== 'undefined') await Persistent.backupAll(); } catch(_) {}
+          }
+
+          toast('✅ Full backup restored and synced. Reloading...', 'success');
+          setTimeout(()=>location.reload(), 1200);
+        }
+        catch(err){ console.error(err); toast('Invalid backup file or sync failed: ' + err.message,'error'); }
       });
     };
     reader.readAsText(file);
