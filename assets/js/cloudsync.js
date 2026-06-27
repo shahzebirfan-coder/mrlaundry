@@ -32,6 +32,8 @@ function applyLockedCloudDefaults() {
   } catch(e) { console.warn('[CloudSync] Could not apply locked defaults:', e); }
 }
 
+function cloudSleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
 
 function buildLiveDashboardData(data) {
   // Compact copy for live.html. It avoids loading photos, products, inventory,
@@ -228,10 +230,22 @@ const CLOUD = {
   },
 
   /* ============== PUSH (CHUNKED) ============== */
-  async push() {
-    if (this._suppressPush) return;
-    if (!this.isEnabled() || !this.isReady()) return;
-    if (this._syncing) { this._pendingPush = true; return; }
+  async push(options = {}) {
+    if (this._suppressPush) return false;
+    if (!this.isEnabled() || !this.isReady()) return false;
+
+    // If another sync is already running, don't show a fake success. For manual
+    // "Push This Device" we wait until the active sync ends, then run a real push.
+    if (this._syncing) {
+      this._pendingPush = true;
+      if (options.wait) {
+        let waited = 0;
+        while (this._syncing && waited < 30000) { await cloudSleep(250); waited += 250; }
+        if (this._syncing) throw new Error('Another cloud sync is still running. Please try again in a few seconds.');
+        return this.push({ wait: false, manual: options.manual });
+      }
+      return false;
+    }
     this._syncing = true;
     try {
       const db = await this.init();
@@ -292,7 +306,8 @@ const CLOUD = {
       } catch (e) { console.warn('[CloudSync] Live dashboard compact write failed:', e); }
 
       // Write main meta doc — triggers listen() on other devices
-      await db.collection('shops').doc(shopId).set({
+      const mainRef = db.collection('shops').doc(shopId);
+      await mainRef.set({
         tables: tableMeta,
         totalSize,
         version,
@@ -303,12 +318,23 @@ const CLOUD = {
         _format: 'chunked-v1'
       });
 
+      // Verify the meta doc was actually written before reporting success.
+      const verifyDoc = await mainRef.get();
+      const verify = verifyDoc.exists ? verifyDoc.data() : null;
+      if (!verify || verify.version !== version) {
+        throw new Error('Cloud push verification failed. Data was not confirmed on Firebase.');
+      }
+
       this._lastAppliedVersion = version;
-      localStorage.setItem(this.LAST_SYNC_KEY, new Date().toISOString());
+      try { localStorage.setItem(this.LAST_SYNC_KEY, new Date().toISOString()); } catch(e) {}
       console.log(`[CloudSync] Pushed ${Object.keys(tableMeta).length} tables (${Math.round(totalSize/1024)}KB)`);
+      return true;
     } finally {
       this._syncing = false;
-      if (this._pendingPush) { this._pendingPush = false; setTimeout(() => this.push(), 200); }
+      if (this._pendingPush) {
+        this._pendingPush = false;
+        if (!options.wait) setTimeout(() => this.push().catch(e => console.warn('Pending push failed:', e)), 200);
+      }
     }
   },
 
@@ -683,9 +709,15 @@ function openCloudSyncManager() {
     });
 
     $('#pushNowBtn', m)?.addEventListener('click', async () => {
-      log('Pushing (chunked)...');
-      try { await CLOUD.push(); log('✅ Pushed to cloud','success'); }
-      catch(e) { log('❌ ' + e.message, 'error'); }
+      log('Pushing to Firebase... please wait');
+      try {
+        const ok = await CLOUD.push({ wait: true, manual: true });
+        const last = localStorage.getItem(CLOUD.LAST_SYNC_KEY);
+        if (!ok) { log('⚠️ Push was queued because another sync is running. Try again in a few seconds.', 'error'); return; }
+        log('✅ Confirmed pushed to Firebase' + (last ? ' at ' + new Date(last).toLocaleString() : ''), 'success');
+        setTimeout(() => { closeModal(); openCloudSyncManager(); }, 900);
+      }
+      catch(e) { log('❌ Push failed: ' + e.message, 'error'); }
     });
 
     $('#pullNowBtn', m)?.addEventListener('click', () => {
