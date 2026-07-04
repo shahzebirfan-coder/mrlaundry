@@ -715,6 +715,9 @@ function openPaymentDialog(orderMeta) {
       const paid = Math.max(0, +$('#paidInput', m).value || 0);
       const actualPaid = Math.min(tot.total, paid);
       const due = Math.max(0, tot.total - actualPaid);
+      const paymentMethod = $('#payMethod', m).value;
+      const cashier = DB.currentUser() || {};
+      const payAt = new Date().toISOString();
       // Determine paymentType label
       let paymentType = 'paid';
       if (actualPaid === 0) paymentType = 'credit';
@@ -739,14 +742,26 @@ function openPaymentDialog(orderMeta) {
         paymentType,
         isCredit: actualPaid === 0,
         status: $('#payStatus', m).value,
-        paymentMethod: $('#payMethod', m).value,
+        paymentMethod,
+        // Important for dashboard/cashbook: payment taken at invoice booking
+        // must also be written to paymentsLog. Otherwise the invoice can show
+        // PAID in Orders, but Today's Payment Received dashboard may miss it.
+        paymentsLog: actualPaid > 0 ? [{
+          id: 'pay_' + Date.now().toString(36),
+          amount: actualPaid,
+          method: paymentMethod,
+          note: paymentType === 'paid' ? 'Initial full payment at booking' : `Initial ${paymentType} payment at booking`,
+          at: payAt,
+          by: cashier.username || 'unknown',
+          byName: cashier.name || ''
+        }] : [],
         deliveryDate: orderMeta.deliveryDate,
         deliveryType: orderMeta.deliveryType,
         bookingDate: orderMeta.bookingDate,
         notes: orderMeta.notes,
-        cashierId: DB.currentUser().id,
-        cashierUsername: DB.currentUser().username,
-        cashierName: DB.currentUser().name,
+        cashierId: cashier.id,
+        cashierUsername: cashier.username,
+        cashierName: cashier.name,
         branchId: (typeof getActiveBranchId === 'function') ? getActiveBranchId() : 'main'
       };
       const saved = DB.insert('orders', order);
