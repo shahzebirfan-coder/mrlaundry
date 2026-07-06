@@ -133,6 +133,7 @@ const CLOUD = {
 
   _app: null, _db: null, _unsub: null,
   _syncing: false, _pendingPush: false,
+  _syncStartedAt: 0, _syncRunId: 0,
   _suppressPush: false,
   _initialMergeDone: false,
   _lastAppliedVersion: 0,
@@ -234,19 +235,44 @@ const CLOUD = {
     if (this._suppressPush) return false;
     if (!this.isEnabled() || !this.isReady()) return false;
 
+    // Sometimes a previous network request can hang and leave _syncing=true.
+    // Manual push should wait longer, and if the lock is stale, safely reset it.
+    const staleAfter = options.staleAfter || 90000;  // 90 sec
+    const maxWait = options.maxWait || 180000;      // 3 min for large backup
+    if (this._syncing && this._syncStartedAt && Date.now() - this._syncStartedAt > staleAfter) {
+      console.warn('[CloudSync] Stale sync lock detected — resetting');
+      this._syncing = false;
+      this._pendingPush = false;
+      this._syncStartedAt = 0;
+    }
+
     // If another sync is already running, don't show a fake success. For manual
     // "Push This Device" we wait until the active sync ends, then run a real push.
     if (this._syncing) {
       this._pendingPush = true;
       if (options.wait) {
         let waited = 0;
-        while (this._syncing && waited < 30000) { await cloudSleep(250); waited += 250; }
-        if (this._syncing) throw new Error('Another cloud sync is still running. Please try again in a few seconds.');
+        while (this._syncing && waited < maxWait) {
+          await cloudSleep(500);
+          waited += 500;
+          if (this._syncStartedAt && Date.now() - this._syncStartedAt > staleAfter) {
+            console.warn('[CloudSync] Active sync became stale while waiting — resetting');
+            this._syncing = false;
+            this._pendingPush = false;
+            this._syncStartedAt = 0;
+            break;
+          }
+        }
+        if (this._syncing) {
+          throw new Error('Cloud sync is taking too long. Please check internet, refresh once, then try Push again.');
+        }
         return this.push({ wait: false, manual: options.manual });
       }
       return false;
     }
     this._syncing = true;
+    const runId = ++this._syncRunId;
+    this._syncStartedAt = Date.now();
     try {
       const db = await this.init();
       const shopId = this.getShopId();
@@ -330,10 +356,13 @@ const CLOUD = {
       console.log(`[CloudSync] Pushed ${Object.keys(tableMeta).length} tables (${Math.round(totalSize/1024)}KB)`);
       return true;
     } finally {
-      this._syncing = false;
-      if (this._pendingPush) {
-        this._pendingPush = false;
-        if (!options.wait) setTimeout(() => this.push().catch(e => console.warn('Pending push failed:', e)), 200);
+      if (this._syncRunId === runId) {
+        this._syncing = false;
+        this._syncStartedAt = 0;
+        if (this._pendingPush) {
+          this._pendingPush = false;
+          if (!options.wait) setTimeout(() => this.push().catch(e => console.warn('Pending push failed:', e)), 200);
+        }
       }
     }
   },
@@ -709,7 +738,7 @@ function openCloudSyncManager() {
     });
 
     $('#pushNowBtn', m)?.addEventListener('click', async () => {
-      log('Pushing to Firebase... please wait');
+      log('Pushing to Firebase... please wait (large backup can take 1–3 minutes)');
       try {
         const ok = await CLOUD.push({ wait: true, manual: true });
         const last = localStorage.getItem(CLOUD.LAST_SYNC_KEY);
