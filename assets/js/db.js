@@ -112,8 +112,18 @@ const DB = {
       'mrLaundryLastPhotoCleanup',
       'mrLaundryLocalVersion',
       'mrLaundryGDriveToken',
-      'mrLaundryGDriveFolderId'
+      'mrLaundryGDriveFolderId',
+      'mrLaundryDB'
     ].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
+
+    // If browser quota is still blocked, clear old app keys except locked cloud
+    // config/session. Firebase is source of truth, so this is safe for online POS.
+    try {
+      const keep = new Set(['mrLaundryFirebaseCfg','mrLaundryShopId','mrLaundryCloudEnabled','mrLaundryTheme','mrLaundryLang','mrLaundryPortalLang']);
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('mrLaundry') && !keep.has(k)) localStorage.removeItem(k);
+      });
+    } catch(_) {}
   },
 
   save() {
@@ -136,11 +146,10 @@ const DB = {
         try { if (typeof toast === 'function') toast('Browser storage cleaned — invoice data saved safely', 'success'); } catch(_){}
         return true;
       } catch (e2) {
-        console.error('[DB] Could not write local cache. Continuing online-only; Firebase sync will still be attempted.', e2);
-        // Do NOT block cashier or show scary alert. The live in-memory data can
-        // still be pushed by Cloud Sync after DB.save returns.
+        console.warn('[DB] Could not write local cache. Continuing online-only; Firebase sync will still be attempted.', e2);
+        // Do NOT block cashier and do NOT show repeated cache-full popups.
+        // The live in-memory data will still be pushed by Cloud Sync after DB.save returns.
         try { localStorage.removeItem(DB_KEY); } catch(_){}
-        try { if (typeof toast === 'function') toast('Local cache full — using online sync only', 'error'); } catch(_){}
         return false;
       }
     }

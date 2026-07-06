@@ -41,18 +41,47 @@ const Persistent = {
   },
 
   /* === 3. Backup critical settings to IndexedDB === */
+  // Online-only build: DO NOT mirror mrLaundryDB into IndexedDB.
+  // Old versions stored full DB/photos there and caused repeated "cache full"
+  // quota errors on other computers. Firebase is the source of truth now.
   CRITICAL_KEYS: [
-    'mrLaundryDB',
     'mrLaundryFirebaseCfg',
     'mrLaundryShopId',
     'mrLaundryCloudEnabled',
-    'mrLaundryGDriveClientId',
-    'mrLaundrySession',
     'mrLaundryTheme',
     'mrLaundryLang',
     'mrLaundryPortalLang',
     'mrLaundryActiveBranch'
   ],
+
+  async clearLegacyHeavyBackups() {
+    // Remove old IndexedDB backup store that may contain a huge mrLaundryDB
+    // with base64 photos/screenshots. This is the common cause of quota/cache
+    // full errors even after localStorage has been compacted.
+    try {
+      if (this._db) { try { this._db.close(); } catch(_){} this._db = null; }
+      await new Promise(resolve => {
+        const req = indexedDB.deleteDatabase('mrLaundryBackup');
+        req.onsuccess = req.onerror = req.onblocked = () => resolve();
+      });
+      console.log('[Persistent] Cleared legacy heavy IndexedDB backup');
+    } catch(e) { console.warn('[Persistent] Could not clear legacy backup:', e); }
+  },
+
+  async clearBrowserCaches() {
+    try {
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch(e) {}
+    try {
+      if (navigator.serviceWorker?.getRegistrations) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch(e) {}
+  },
 
   _db: null,
 
@@ -127,16 +156,14 @@ const Persistent = {
 (async function initPersistent() {
   if (typeof window === 'undefined') return;
 
-  // Step 1: Try to restore lost settings from IndexedDB BEFORE app loads
-  try {
-    const restored = await Persistent.restoreIfNeeded();
-    if (restored > 0) {
-      console.log('[Persistent] Restored lost settings — reloading page...');
-      // Soft reload to apply restored DB
-      setTimeout(() => location.reload(), 300);
-      return;
-    }
-  } catch (e) {}
+  // Online-only cleanup first: remove old offline/PWA caches and old large
+  // IndexedDB backups. Do not restore old mrLaundryDB from IndexedDB anymore.
+  await Persistent.clearBrowserCaches();
+  await Persistent.clearLegacyHeavyBackups();
+
+  // Restore only small non-DB settings if available (Firebase config is locked
+  // in cloudsync.js anyway, so this is just a convenience).
+  try { await Persistent.restoreIfNeeded(); } catch (e) {}
 
   // Step 2: Request persistent storage permission
   await Persistent.requestPersistence();
