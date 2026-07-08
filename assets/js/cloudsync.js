@@ -22,6 +22,7 @@ const DEFAULT_FIREBASE_CONFIG = {
 };
 const DEFAULT_SHOP_ID = 'shahzeb-laundry-private-pos';
 const CLOUD_SYNC_LOCKED = true;
+const IMPORTANT_SYNC_TABLES = ['orders', 'customers', 'users', 'vendors', 'purchaseOrders', 'expenses'];
 
 function applyLockedCloudDefaults() {
   if (!CLOUD_SYNC_LOCKED) return;
@@ -191,6 +192,21 @@ const CLOUD = {
     return orders.length === 0 && customers.length === 0 && purchaseOrders.length === 0 && vendors.length === 0 && users.length <= 2;
   },
 
+  importantCounts(data) {
+    const out = {};
+    for (const t of IMPORTANT_SYNC_TABLES) {
+      out[t] = Array.isArray(data?.[t]) ? data[t].filter(x => x && !x._deleted).length : 0;
+    }
+    return out;
+  },
+
+  assertSafeToPush(data) {
+    if (this.isFreshSeedData(data)) {
+      throw new Error('Safety lock: this device has empty/default POS data. Push cancelled to protect your Firebase backup. Use Merge Now or open the main/admin device.');
+    }
+    return true;
+  },
+
   /* ============== MERGE LOGIC ============== */
   mergeData(local, remote) {
     if (!remote) return local;
@@ -270,6 +286,16 @@ const CLOUD = {
       }
       return false;
     }
+
+    // Manual push is now SAFE PUSH: first pull+merge cloud data into this
+    // device, then push the merged result. This prevents cashier/new devices
+    // from overwriting Firebase with incomplete local data.
+    if (options.manual && !options._preMerged) {
+      try { await this.pullAndMerge(); } catch(e) { console.warn('[CloudSync] Pre-merge before manual push failed:', e); }
+      return this.push({ ...options, _preMerged: true });
+    }
+
+    this.assertSafeToPush(DB._data);
     this._syncing = true;
     const runId = ++this._syncRunId;
     this._syncStartedAt = Date.now();
@@ -501,8 +527,12 @@ const CLOUD = {
     if (CLOUD.isEnabled() && CLOUD.isReady()) {
       try {
         await CLOUD.init();
-        await CLOUD.pullAndMerge();
-        await CLOUD.push();
+        const pulled = await CLOUD.pullAndMerge();
+        if (!pulled && CLOUD.isFreshSeedData(DB._data)) {
+          console.warn('[CloudSync] No cloud data pulled and local data is empty/default — push skipped for safety.');
+        } else {
+          await CLOUD.push();
+        }
         await CLOUD.listen();
         CLOUD._initialMergeDone = true;
         console.log('[Mr Laundry] Cloud sync active — chunked storage');
@@ -548,8 +578,9 @@ async function reconnectCloudSync() {
   try {
     await CLOUD.init();
     CLOUD.setEnabled(true);
-    await CLOUD.pullAndMerge();
-    await CLOUD.push();
+    const pulled = await CLOUD.pullAndMerge();
+    if (!pulled && CLOUD.isFreshSeedData(DB._data)) throw new Error('Safety lock: local data is empty/default and no cloud data was pulled. Push skipped.');
+    await CLOUD.push({ manual: true });
     await CLOUD.listen();
     if (typeof toast === 'function') toast('✅ Cloud sync re-enabled!', 'success');
     setTimeout(() => location.reload(), 1000);
@@ -684,9 +715,9 @@ function openCloudSyncManager() {
       ${!enabled ? `
         <button class="btn btn-success btn-block" id="enableBtn">✅ Enable Cloud Sync</button>
       ` : `
-        <button class="btn btn-success" id="mergeNowBtn">🔄 Merge Now (Pull + Push)</button>
-        <button class="btn btn-primary" id="pushNowBtn">⬆️ Force Push This Device → Cloud</button>
-        <button class="btn btn-warning" id="pullNowBtn">⬇️ Force Pull Cloud → This Device (OVERWRITE)</button>
+        <button class="btn btn-success" id="mergeNowBtn">🔄 Safe Merge Now (Pull + Push)</button>
+        <button class="btn btn-primary" id="pushNowBtn">⬆️ Safe Push (Merge + Upload) → Cloud</button>
+        <div style="padding:10px;background:#fef3c7;border-radius:8px;color:#92400e;font-size:12px;text-align:center;">⚠️ Force Pull/Overwrite disabled for data safety. Use “Safe Merge Now” instead.</div>
         ${CLOUD_SYNC_LOCKED ? '<div style="padding:10px;background:#d1fae5;border-radius:8px;text-align:center;font-weight:700;color:#065f46;">🔒 Cloud Sync locked ON for this shop</div>' : '<button class="btn btn-danger" id="disableBtn">⏸️ Pause Cloud Sync</button>'}
       `}
     </div>
