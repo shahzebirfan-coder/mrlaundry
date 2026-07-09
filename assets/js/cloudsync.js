@@ -308,6 +308,9 @@ const CLOUD = {
       const username = DB.currentUser()?.username || 'unknown';
       const serverTs = firebase.firestore.FieldValue.serverTimestamp();
 
+      // Never let cloud invoice counter go backwards after backup restore/sync.
+      try { if (typeof DB?.repairCounters === 'function') DB.repairCounters(); await this.ensureCloudInvoiceCounter(data); } catch(e) { console.warn('[CloudSync] invoice counter sync failed:', e); }
+
       const tablesRef = db.collection('shops').doc(shopId).collection('tables');
       const tableMeta = {};
       let totalSize = 0;
@@ -512,6 +515,91 @@ const CLOUD = {
       return JSON.parse(meta.data);
     }
     return null;
+  },
+
+  async cloudMaxInvoiceNumber() {
+    try {
+      const db = await this.init();
+      const shopId = this.getShopId();
+      const mainDoc = await db.collection('shops').doc(shopId).get();
+      if (!mainDoc.exists) return 0;
+      const meta = mainDoc.data();
+      let orders = [];
+      if (meta._format === 'chunked-v1' && meta.tables?.orders) {
+        const info = meta.tables.orders;
+        const tablesRef = db.collection('shops').doc(shopId).collection('tables');
+        if ((info.chunks || 1) === 1) {
+          const doc = await tablesRef.doc('orders').get();
+          if (doc.exists) orders = JSON.parse(doc.data().data || '[]');
+        } else {
+          const docs = await Promise.all(Array.from({length: info.chunks}, (_, i) => tablesRef.doc(`orders__c${i}`).get()));
+          const chunks = docs.map(d => d.exists ? d.data().data : '');
+          orders = JSON.parse(chunks.join('') || '[]');
+        }
+      } else if (meta.data) {
+        const all = JSON.parse(meta.data);
+        orders = all.orders || [];
+      }
+      return Math.max(0, ...((orders || []).map(o => parseInt(String(o.invoiceNo || '').replace(/[^0-9]/g, ''), 10) || 0)));
+    } catch(e) {
+      console.warn('[CloudSync] Could not read cloud max invoice number:', e);
+      return 0;
+    }
+  },
+
+  async ensureCloudInvoiceCounter(data) {
+    if (!this.isEnabled() || !this.isReady()) return;
+    const db = await this.init();
+    const shopId = this.getShopId();
+    const ref = db.collection('shops').doc(shopId).collection('tables').doc('_invoiceCounter');
+    const localMax = Math.max(
+      +(data?._counters?.invoice || 1000),
+      ...((data?.orders || []).map(o => parseInt(String(o.invoiceNo || '').replace(/[^0-9]/g, ''), 10) || 0))
+    );
+    await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const cloudMax = snap.exists ? (+snap.data().value || 1000) : 1000;
+      const value = Math.max(cloudMax, localMax, 1000);
+      tx.set(ref, {
+        value,
+        deviceId: getDeviceId(),
+        deviceLabel: getDeviceLabel(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        _format: 'invoice-counter-v1'
+      }, { merge: true });
+    });
+  },
+
+  async nextInvoiceNumber() {
+    if (!this.isEnabled() || !this.isReady()) return DB.nextInvoiceNumber();
+    const db = await this.init();
+    const shopId = this.getShopId();
+    const ref = db.collection('shops').doc(shopId).collection('tables').doc('_invoiceCounter');
+    let nextNo = null;
+    const cloudOrderMax = await this.cloudMaxInvoiceNumber();
+    const localMax = Math.max(
+      cloudOrderMax,
+      +((typeof DB !== 'undefined' && DB.repairCounters) ? DB.repairCounters().invoice : DB?._data?._counters?.invoice || 1000),
+      ...(((DB?._data?.orders) || []).map(o => parseInt(String(o.invoiceNo || '').replace(/[^0-9]/g, ''), 10) || 0))
+    );
+    await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const cloudMax = snap.exists ? (+snap.data().value || 1000) : 1000;
+      nextNo = Math.max(cloudMax, localMax, 1000) + 1;
+      tx.set(ref, {
+        value: nextNo,
+        deviceId: getDeviceId(),
+        deviceLabel: getDeviceLabel(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        _format: 'invoice-counter-v1'
+      }, { merge: true });
+    });
+    if (DB?._data) {
+      DB._data._counters = DB._data._counters || {};
+      DB._data._counters.invoice = Math.max(+(DB._data._counters.invoice || 1000), nextNo);
+      DB.save();
+    }
+    return nextNo;
   },
 
   stop() {
