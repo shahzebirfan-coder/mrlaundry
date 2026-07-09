@@ -24,9 +24,20 @@ const DB = {
     if (raw) {
       try { this._data = JSON.parse(raw); }
       catch(e){ this._data = this._seed(); this.save(); }
-      // Migration: ensure new top-level tables exist
+      // Migration: ensure all required top-level tables exist. Important:
+      // cloud/live safety recovery can restore only orders/customers/expenses,
+      // so missing core tables (users/products/categories) must be re-seeded
+      // instead of leaving the app blank on next load.
       const seed = this._seed();
-      ['vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+      ['users','categories','products','customers','orders','expenses','ownerDrawings','vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+      if (!Array.isArray(this._data.users) || !this._data.users.length) this._data.users = seed.users;
+      if (!Array.isArray(this._data.categories) || !this._data.categories.length) this._data.categories = seed.categories;
+      if (!Array.isArray(this._data.products) || !this._data.products.length) this._data.products = seed.products;
+      if (!Array.isArray(this._data.customers) || !this._data.customers.length) this._data.customers = seed.customers;
+      if (!Array.isArray(this._data.orders)) this._data.orders = [];
+      if (!Array.isArray(this._data.expenses)) this._data.expenses = [];
+      if (!Array.isArray(this._data.vendors) || !this._data.vendors.length) this._data.vendors = seed.vendors;
+      if (!Array.isArray(this._data.purchaseOrders)) this._data.purchaseOrders = [];
       // Ensure default Hanger & Shopper inventory items exist (auto-add if missing)
       const inv = this._data.inventory;
       if (!inv.find(i => i.autoDeduct === 'hanger')) {
