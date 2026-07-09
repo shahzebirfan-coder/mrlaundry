@@ -1,6 +1,10 @@
 /* ===================== ORDERS / INVOICES ===================== */
 let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' };
 
+function orderSafeTime(o) { return o?.createdAt || o?.bookingDate || o?.date || ''; }
+function orderSafeDay(o) { return String(o?.bookingDate || o?.createdAt || o?.date || '').slice(0,10); }
+function orderSafeItems(o) { return Array.isArray(o?.items) ? o.items : []; }
+
 function renderOrders() {
   const content = `
     <h1 class="page-title">📦 ${t('ord.title')}</h1>
@@ -71,14 +75,14 @@ function renderOrders() {
 }
 
 function filteredOrders() {
-  const orders = [...DB.all('orders')].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+  const orders = [...DB.all('orders')].sort((a,b)=>String(orderSafeTime(b)).localeCompare(String(orderSafeTime(a))));
   return orders.filter(o => {
     if (ordersFilter.status !== 'all' && o.status !== ordersFilter.status) return false;
     if (ordersFilter.payment === 'paid'    && o.due > 0) return false;
     if (ordersFilter.payment === 'credit'  && o.paid > 0) return false;
     if (ordersFilter.payment === 'advance' && o.paymentType !== 'advance') return false;
     if (ordersFilter.payment === 'partial' && (o.paid === 0 || o.due === 0 || o.paymentType === 'advance')) return false;
-    const d = o.createdAt.slice(0,10);
+    const d = orderSafeDay(o);
     if (ordersFilter.dateFrom && d < ordersFilter.dateFrom) return false;
     if (ordersFilter.dateTo && d > ordersFilter.dateTo) return false;
     if (ordersFilter.search) {
@@ -117,15 +121,15 @@ function renderOrdersBody() {
 
   $('#ordersBody').innerHTML = filtered.map(o => {
     const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
-    const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+    const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + String(o.id||'').slice(-6).toUpperCase();
     return `<tr>
       <td><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
       <td><b>${escapeHtml(c.name)}</b><br><small style="color:var(--text-soft);">${escapeHtml(c.phone||'')}</small></td>
-      <td>${o.items.length} items<br><b style='color:var(--primary);'>${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
+      <td>${orderSafeItems(o).length} items<br><b style='color:var(--primary);'>${orderSafeItems(o).reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
       <td><b>${fmtMoney(o.total)}</b></td>
       <td>${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
-      <td><span class="badge ${o.status}">${o.status}</span></td>
-      <td>${fmtDateShort(o.createdAt)}</td>
+      <td><span class="badge ${escapeHtml(o.status||'pending')}">${escapeHtml(o.status||'pending')}</span></td>
+      <td>${fmtDateShort(orderSafeTime(o))}</td>
       <td>${escapeHtml(o.deliveryDate || '-')}</td>
       <td>
         <button class="btn btn-secondary btn-sm" data-act="view" data-id="${o.id}" title="${t('ord.viewInv')}">👁️</button>
@@ -157,7 +161,7 @@ function renderOrdersBody() {
         });
       } else {
         confirmDialog('Delete this invoice permanently?', () => {
-          if (typeof logAction === 'function') logAction('order.delete', `Order ${id.slice(-6)}`);
+          if (typeof logAction === 'function') logAction('order.delete', `Order ${String(id||'').slice(-6)}`);
           const orderToDel = DB.get('orders', id);
           if (orderToDel && typeof restoreInventory === 'function') restoreInventory(orderToDel);
           DB.remove('orders', id); toast('Deleted','success'); renderOrdersBody();
@@ -172,7 +176,7 @@ function openStatusChange(orderId) {
   if (!o) return;
   const c = DB.get('customers', o.customerId) || {};
   const html = `
-    <h3>🔄 Update Order — INV-${o.invoiceNo || o.id.slice(-6).toUpperCase()}</h3>
+    <h3>🔄 Update Order — INV-${o.invoiceNo || String(o.id||'').slice(-6).toUpperCase()}</h3>
     <p class="sub">Customer: ${escapeHtml(c.name)} • ${escapeHtml(c.phone||'')}</p>
     <div class="form-row cols-1">
       <div class="field">
@@ -231,17 +235,17 @@ function openEditInvoice(orderId) {
   `).join('');
 
   const html = `
-    <h3>✏️ Edit Invoice — INV-${o.invoiceNo || o.id.slice(-6).toUpperCase()}</h3>
+    <h3>✏️ Edit Invoice — INV-${o.invoiceNo || String(o.id||'').slice(-6).toUpperCase()}</h3>
     <p class="sub">⚠️ Admin-only. Changes are logged with your username.</p>
 
     <div style="padding:10px;background:var(--surface-alt);border-radius:8px;margin-bottom:14px;font-size:13px;">
-      Customer: <b>${escapeHtml(c.name)}</b> • ${escapeHtml(c.phone||'')} • Booked: ${fmtDate(o.createdAt)}
+      Customer: <b>${escapeHtml(c.name)}</b> • ${escapeHtml(c.phone||'')} • Booked: ${fmtDate(orderSafeTime(o))}
     </div>
 
     <div style="font-weight:700;margin-bottom:8px;">Items</div>
     <table class="tbl" style="margin-bottom:12px;">
       <thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Line Total</th><th></th></tr></thead>
-      <tbody id="editItems">${itemsHtml(o.items)}</tbody>
+      <tbody id="editItems">${itemsHtml(orderSafeItems(o))}</tbody>
     </table>
     <button class="btn btn-secondary btn-sm" id="addRowBtn">+ Add Item Row</button>
 
@@ -399,7 +403,7 @@ function openReceivePayment(orderId) {
   if ((o.due || 0) <= 0) { toast(t('rcv.noDue') + ' ✅', 'success'); return; }
 
   const c = DB.get('customers', o.customerId) || { name: 'Walk-in', phone: '' };
-  const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+  const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + String(o.id||'').slice(-6).toUpperCase();
   const s = DB.settings();
 
   const html = `
@@ -539,7 +543,7 @@ function printPaymentReceipt(orderId, payRecord) {
   if (!o) return;
   const c = DB.get('customers', o.customerId) || { name: 'Walk-in', phone: '' };
   const s = DB.settings();
-  const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+  const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + String(o.id||'').slice(-6).toUpperCase();
   const width = s.invoiceWidth || 360;
 
   const div = document.createElement('div');
@@ -554,7 +558,7 @@ function printPaymentReceipt(orderId, payRecord) {
     </div>
     <div style="text-align:center;font-size:16px;font-weight:800;margin:6px 0;padding:6px;background:#000;color:#fff;">PAYMENT RECEIPT</div>
     <table style="width:100%;font-size:12px;border-collapse:collapse;">
-      <tr><td>Receipt #:</td><td style="text-align:right;"><b>${payRecord.id.slice(-8).toUpperCase()}</b></td></tr>
+      <tr><td>Receipt #:</td><td style="text-align:right;"><b>${String(payRecord.id||'').slice(-8).toUpperCase()}</b></td></tr>
       <tr><td>Invoice:</td><td style="text-align:right;"><b>${escapeHtml(invNo)}</b></td></tr>
       <tr><td>Date:</td><td style="text-align:right;">${new Date(payRecord.at).toLocaleString()}</td></tr>
       <tr><td>Customer:</td><td style="text-align:right;"><b>${escapeHtml(c.name)}</b></td></tr>
@@ -610,7 +614,7 @@ function openQuickPay() {
       const q = inp.value.trim().toLowerCase();
       if (!q) {
         // Show all orders with due > 0
-        const dueOrders = DB.all('orders').filter(o => (o.due||0) > 0).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
+        const dueOrders = DB.all('orders').filter(o => (o.due||0) > 0).sort((a,b) => String(orderSafeTime(b)).localeCompare(String(orderSafeTime(a)))).slice(0, 20);
         if (!dueOrders.length) {
           out.innerHTML = '<div class="empty" style="padding:30px;"><div class="emoji">✅</div><h4>' + t('qp.noOutstanding') + '</h4><p>' + t('qp.allPaid') + '</p></div>';
           return;
@@ -624,7 +628,7 @@ function openQuickPay() {
         const c = DB.get('customers', o.customerId) || {};
         const phone = String(c.phone || '').replace(/\D/g, '');
         return inv.includes(digits) || phone.includes(digits) || (c.name||'').toLowerCase().includes(q);
-      }).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
+      }).sort((a,b) => String(orderSafeTime(b)).localeCompare(String(orderSafeTime(a)))).slice(0, 30);
 
       if (!orders.length) {
         out.innerHTML = '<div class="empty" style="padding:30px;"><div class="emoji">🔍</div><h4>' + t('qp.noMatches') + '</h4><p>' + t('qp.tryDifferent') + '</p></div>';
@@ -637,7 +641,7 @@ function openQuickPay() {
       return `<table class="tbl" style="margin-top:6px;"><thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>` +
         orders.map(o => {
           const c = DB.get('customers', o.customerId) || { name:'Walk-in', phone:'' };
-          const inv = o.invoiceNo ? `INV-${o.invoiceNo}` : '#'+o.id.slice(-6).toUpperCase();
+          const inv = o.invoiceNo ? `INV-${o.invoiceNo}` : '#'+String(o.id||'').slice(-6).toUpperCase();
           const due = o.due || 0;
           return `<tr>
             <td><b>${escapeHtml(inv)}</b></td>
@@ -645,7 +649,7 @@ function openQuickPay() {
             <td>${fmtMoney(o.total)}</td>
             <td style="color:var(--success);">${fmtMoney(o.paid)}</td>
             <td style="color:${due>0?'var(--danger)':'var(--success)'};font-weight:700;">${fmtMoney(due)}</td>
-            <td><span class="badge ${o.status}">${o.status}</span></td>
+            <td><span class="badge ${escapeHtml(o.status||'pending')}">${escapeHtml(o.status||'pending')}</span></td>
             <td>
               ${due > 0
                 ? `<button class="btn btn-success btn-sm" data-qpay="${o.id}">💰 ${t('rcv.title')}</button>`
