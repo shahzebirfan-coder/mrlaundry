@@ -711,20 +711,32 @@ function openPaymentDialog(orderMeta) {
 
     $('#backBtn', m).onclick = () => { closeModal(); openBookingForm(); };
 
-    $('#confirmBtn', m).onclick = () => {
+    $('#confirmBtn', m).onclick = async () => {
       const paid = Math.max(0, +$('#paidInput', m).value || 0);
       const actualPaid = Math.min(tot.total, paid);
       const due = Math.max(0, tot.total - actualPaid);
       const paymentMethod = $('#payMethod', m).value;
       const cashier = DB.currentUser() || {};
       const payAt = new Date().toISOString();
+      const btn = $('#confirmBtn', m);
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving invoice...'; }
+      let invoiceNo;
+      try {
+        invoiceNo = (typeof CLOUD !== 'undefined' && CLOUD.isEnabled?.() && CLOUD.isReady?.())
+          ? await CLOUD.nextInvoiceNumber()
+          : DB.nextInvoiceNumber();
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Save & Print Invoice'; }
+        toast('Invoice number sync failed. Please check internet and try again. ' + e.message, 'error');
+        return;
+      }
       // Determine paymentType label
       let paymentType = 'paid';
       if (actualPaid === 0) paymentType = 'credit';
       else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
 
       const order = {
-        invoiceNo: DB.nextInvoiceNumber(),
+        invoiceNo,
         items: posState.cart.map(i => ({ ...i, lineTotal: i.price * i.qty })),
         customerId: posState.customerId,
         subtotal: tot.subtotal,
