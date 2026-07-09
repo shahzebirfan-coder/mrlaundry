@@ -87,6 +87,13 @@ function buildLiveDashboardData(data) {
       type: e.type || '',
       note: e.note || e.description || '',
       description: e.description || ''
+    })),
+    vendors: (data.vendors || []).filter(v => !v._deleted).map(v => ({
+      id: v.id, name: v.name || '', phone: v.phone || '', contactPerson: v.contactPerson || '', poRates: v.poRates || null
+    })),
+    purchaseOrders: (data.purchaseOrders || []).filter(p => !p._deleted).map(p => ({
+      id: p.id, poNo: p.poNo, vendorId: p.vendorId, date: p.date, items: p.items || [], total: +p.total || 0,
+      paid: +p.paid || 0, due: +p.due || 0, status: p.status || 'pending', notes: p.notes || '', createdAt: p.createdAt || ''
     }))
   };
 }
@@ -311,6 +318,10 @@ const CLOUD = {
       // Never let cloud invoice counter go backwards after backup restore/sync.
       try { if (typeof DB?.repairCounters === 'function') DB.repairCounters(); await this.ensureCloudInvoiceCounter(data); } catch(e) { console.warn('[CloudSync] invoice counter sync failed:', e); }
 
+      // Always keep a separate safety backup before updating live cloud tables.
+      // If a later sync/device goes wrong, POS can restore from this backup automatically.
+      try { await this.writeSafetyBackup(data, version, username); } catch(e) { console.warn('[CloudSync] safety backup write failed:', e); }
+
       const tablesRef = db.collection('shops').doc(shopId).collection('tables');
       const tableMeta = {};
       let totalSize = 0;
@@ -401,7 +412,17 @@ const CLOUD = {
     const db = await this.init();
     const shopId = this.getShopId();
     const mainDoc = await db.collection('shops').doc(shopId).get();
-    if (!mainDoc.exists) return false;
+    if (!mainDoc.exists) {
+      const backup = await this.readSafetyBackup() || await this.readLiveDashboardBackup();
+      if (backup && !this.isFreshSeedData(backup)) {
+        DB._data = this.mergeData(backup, DB._data);
+        if (typeof DB.repairCounters === 'function') DB.repairCounters();
+        this._suppressPush = true;
+        try { DB.save(); } finally { this._suppressPush = false; }
+        return true;
+      }
+      return false;
+    }
 
     const meta = mainDoc.data();
     let remoteData = null;
@@ -438,6 +459,16 @@ const CLOUD = {
       catch(e) { console.warn('Bad remote data', e); return false; }
     } else {
       return false;
+    }
+
+    // Disaster recovery: if live cloud tables are empty/incomplete but the
+    // safety backup has more records, use backup as the remote source.
+    const safetyBackup = await this.readSafetyBackup();
+    const liveBackup = await this.readLiveDashboardBackup();
+    const bestBackup = this.backupLooksBetter(safetyBackup, liveBackup) ? safetyBackup : (liveBackup || safetyBackup);
+    if (bestBackup && (this.isFreshSeedData(remoteData) || this.backupLooksBetter(bestBackup, remoteData))) {
+      console.warn('[CloudSync] Using cloud safety/live backup because cloud live data is empty/incomplete');
+      remoteData = this.mergeData(bestBackup, remoteData || {});
     }
 
     const localIsFresh = this.isFreshSeedData(DB._data);
@@ -515,6 +546,105 @@ const CLOUD = {
       return JSON.parse(meta.data);
     }
     return null;
+  },
+
+  backupLooksBetter(backup, current) {
+    if (!backup) return false;
+    if (!current) return true;
+    const b = this.importantCounts(backup), c = this.importantCounts(current);
+    // If backup has materially more records in any important table, prefer it.
+    return IMPORTANT_SYNC_TABLES.some(t => (b[t] || 0) > (c[t] || 0));
+  },
+
+  async writeSafetyBackup(data, version, username) {
+    if (!data || this.isFreshSeedData(data)) return false;
+    const db = await this.init();
+    const shopId = this.getShopId();
+    const backupRef = db.collection('shops').doc(shopId).collection('safetyBackup').doc('latest');
+    const tablesRef = backupRef.collection('tables');
+    const tableMeta = {};
+    let totalSize = 0;
+    for (const tbl of Object.keys(data)) {
+      const json = JSON.stringify(data[tbl] ?? null);
+      totalSize += json.length;
+      if (json.length < MAX_DOC_SIZE) {
+        tableMeta[tbl] = { chunks: 1, size: json.length };
+        await tablesRef.doc(tbl).set({ data: json, chunks: 1, version, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      } else {
+        const chunks = Math.ceil(json.length / MAX_DOC_SIZE);
+        tableMeta[tbl] = { chunks, size: json.length };
+        for (let i = 0; i < chunks; i++) {
+          await tablesRef.doc(`${tbl}__c${i}`).set({
+            data: json.substr(i * MAX_DOC_SIZE, MAX_DOC_SIZE), chunkIndex: i, totalChunks: chunks,
+            parent: tbl, version, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }
+    }
+    await backupRef.set({
+      tables: tableMeta,
+      totalSize,
+      version,
+      updatedBy: username || 'unknown',
+      deviceId: getDeviceId(),
+      deviceLabel: getDeviceLabel(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      _format: 'safety-backup-v1'
+    });
+    console.log(`[CloudSync] Safety backup updated (${Object.keys(tableMeta).length} tables, ${Math.round(totalSize/1024)}KB)`);
+    return true;
+  },
+
+  async readLiveDashboardBackup() {
+    try {
+      const db = await this.init();
+      const shopId = this.getShopId();
+      const doc = await db.collection('shops').doc(shopId).collection('tables').doc('_liveDashboard').get();
+      if (!doc.exists || !doc.data().data) return null;
+      const compact = JSON.parse(doc.data().data);
+      const recovered = {
+        settings: compact.settings || {},
+        customers: compact.customers || [],
+        orders: compact.orders || [],
+        expenses: compact.expenses || [],
+        vendors: compact.vendors || [],
+        purchaseOrders: compact.purchaseOrders || []
+      };
+      if (this.isFreshSeedData(recovered)) return null;
+      return recovered;
+    } catch(e) {
+      console.warn('[CloudSync] Could not read live dashboard recovery data:', e);
+      return null;
+    }
+  },
+
+  async readSafetyBackup() {
+    try {
+      const db = await this.init();
+      const shopId = this.getShopId();
+      const backupRef = db.collection('shops').doc(shopId).collection('safetyBackup').doc('latest');
+      const metaDoc = await backupRef.get();
+      if (!metaDoc.exists) return null;
+      const meta = metaDoc.data();
+      if (meta._format !== 'safety-backup-v1' || !meta.tables) return null;
+      const result = {};
+      const tablesRef = backupRef.collection('tables');
+      for (const tbl of Object.keys(meta.tables)) {
+        const info = meta.tables[tbl];
+        if ((info.chunks || 1) === 1) {
+          const doc = await tablesRef.doc(tbl).get();
+          if (doc.exists) result[tbl] = JSON.parse(doc.data().data);
+        } else {
+          const docs = await Promise.all(Array.from({length: info.chunks}, (_, i) => tablesRef.doc(`${tbl}__c${i}`).get()));
+          const chunks = docs.map(d => d.exists ? d.data().data : null);
+          if (chunks.every(x => x != null)) result[tbl] = JSON.parse(chunks.join(''));
+        }
+      }
+      return result;
+    } catch(e) {
+      console.warn('[CloudSync] Could not read safety backup:', e);
+      return null;
+    }
   },
 
   async cloudMaxInvoiceNumber() {
@@ -804,6 +934,7 @@ function openCloudSyncManager() {
         <button class="btn btn-success btn-block" id="enableBtn">✅ Enable Cloud Sync</button>
       ` : `
         <button class="btn btn-success" id="mergeNowBtn">🔄 Safe Merge Now (Pull + Push)</button>
+        <button class="btn btn-warning" id="recoverBackupBtn">🛟 Recover from Cloud Safety Backup</button>
         <button class="btn btn-primary" id="pushNowBtn">⬆️ Safe Push (Merge + Upload) → Cloud</button>
         <div style="padding:10px;background:#fef3c7;border-radius:8px;color:#92400e;font-size:12px;text-align:center;">⚠️ Force Pull/Overwrite disabled for data safety. Use “Safe Merge Now” instead.</div>
         ${CLOUD_SYNC_LOCKED ? '<div style="padding:10px;background:#d1fae5;border-radius:8px;text-align:center;font-weight:700;color:#065f46;">🔒 Cloud Sync locked ON for this shop</div>' : '<button class="btn btn-danger" id="disableBtn">⏸️ Pause Cloud Sync</button>'}
@@ -854,6 +985,23 @@ function openCloudSyncManager() {
         log('✅ Merge complete. Reloading...','success');
         setTimeout(() => location.reload(), 1000);
       } catch(e) { log('❌ ' + e.message, 'error'); }
+    });
+
+    $('#recoverBackupBtn', m)?.addEventListener('click', () => {
+      confirmDialog('Recover from Cloud Safety Backup? This will MERGE the safety backup into this device and upload it safely. Continue?', async () => {
+        log('Reading cloud safety backup...');
+        try {
+          const backup = await CLOUD.readSafetyBackup() || await CLOUD.readLiveDashboardBackup();
+          if (!backup || CLOUD.isFreshSeedData(backup)) { log('No valid safety backup found','error'); return; }
+          DB._data = CLOUD.mergeData(backup, DB._data);
+          if (typeof DB.repairCounters === 'function') DB.repairCounters();
+          DB.save();
+          log('Uploading recovered data to Firebase...');
+          await CLOUD.push({ wait: true, manual: true });
+          log('✅ Recovered from safety backup and synced. Reloading...', 'success');
+          setTimeout(() => location.reload(), 1200);
+        } catch(e) { log('❌ Recovery failed: ' + e.message, 'error'); }
+      });
     });
 
     $('#pushNowBtn', m)?.addEventListener('click', async () => {
