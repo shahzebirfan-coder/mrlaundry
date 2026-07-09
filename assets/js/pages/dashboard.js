@@ -1,5 +1,8 @@
 /* ===================== DASHBOARD ===================== */
 function renderDashboard() {
+  const safeDayOf = (row) => String(row?.bookingDate || row?.date || row?.createdAt || '').slice(0,10);
+  const safeMonthOf = (row) => safeDayOf(row).slice(0,7);
+  const safeTime = (row) => row?.createdAt || row?.bookingDate || row?.date || new Date().toISOString();
   const orders = DB.all('orders');
   const customers = DB.all('customers');
   const expenses = DB.all('expenses');
@@ -7,7 +10,7 @@ function renderDashboard() {
   const monthKey = today.slice(0,7);
 
   // === TODAY ===
-  const todayOrders   = orders.filter(o => o.createdAt.slice(0,10) === today);
+  const todayOrders   = orders.filter(o => safeDayOf(o) === today);
   const todayInvoice  = todayOrders.reduce((s,o)=> s + (o.total||0), 0); // Total invoiced amount (revenue billed)
   const todayDue      = todayOrders.reduce((s,o)=> s + (o.due  ||0), 0);
 
@@ -17,7 +20,7 @@ function renderDashboard() {
   for (const o of orders) {
     if (!Array.isArray(o.paymentsLog)) continue;
     for (const p of o.paymentsLog) {
-      if ((p.at||'').slice(0,10) === today) {
+      if (String(p.at || p.createdAt || '').slice(0,10) === today) {
         todayPayments.push({ ...p, orderId: o.id, invoiceNo: o.invoiceNo, customerId: o.customerId, orderTotal: o.total });
       }
     }
@@ -41,15 +44,15 @@ function renderDashboard() {
   }
   todayPayments.sort((a,b)=> (b.at||'').localeCompare(a.at||''));
   const todayReceived = todayPayments.reduce((s,p)=> s+(p.amount||0), 0);
-  const todayExp      = expenses.filter(e => e.date === today).reduce((s,e)=> s + (e.amount||0), 0);
+  const todayExp      = expenses.filter(e => safeDayOf(e) === today).reduce((s,e)=> s + (e.amount||0), 0);
   const todayProfit   = todayReceived - todayExp;       // cash-basis profit (received minus expenses)
   const todaySales    = todayOrders.length;
 
   // === MONTH ===
-  const monthOrders  = orders.filter(o => o.createdAt.slice(0,7) === monthKey);
+  const monthOrders  = orders.filter(o => safeMonthOf(o) === monthKey);
   const monthInvoice = monthOrders.reduce((s,o)=> s + (o.total||0), 0);
   const monthReceived= monthOrders.reduce((s,o)=> s + (o.paid ||0), 0);
-  const monthExp     = expenses.filter(e => (e.date||'').slice(0,7) === monthKey).reduce((s,e)=>s+(e.amount||0),0);
+  const monthExp     = expenses.filter(e => safeMonthOf(e) === monthKey).reduce((s,e)=>s+(e.amount||0),0);
   const monthProfit  = monthReceived - monthExp;
 
   // === PIPELINE ===
@@ -60,7 +63,7 @@ function renderDashboard() {
   for (let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i);
     const k=isoDay(d);
-    const sum = orders.filter(o=>o.createdAt.slice(0,10)===k).reduce((s,o)=>s+(o.total||0),0);
+    const sum = orders.filter(o=>safeDayOf(o)===k).reduce((s,o)=>s+(o.total||0),0);
     last7.push({label: d.toLocaleDateString('en',{weekday:'short'}), value: sum, date:k});
   }
   const maxVal = Math.max(1, ...last7.map(d=>d.value));
@@ -74,16 +77,16 @@ function renderDashboard() {
     </div>
   `).join('');
 
-  const recentOrders = [...orders].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,8);
+  const recentOrders = [...orders].sort((a,b)=>safeTime(b).localeCompare(safeTime(a))).slice(0,8);
   const recentRows = recentOrders.length ? recentOrders.map(o => {
     const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
     return `<tr>
-      <td><b>#${o.id.slice(-6).toUpperCase()}</b></td>
+      <td><b>#${String(o.id||'').slice(-6).toUpperCase()}</b></td>
       <td>${escapeHtml(c.name)}</td>
-      <td>${o.items.length} items</td>
+      <td>${((o.items||[]).length)} items</td>
       <td><span class="badge ${o.status}">${o.status}</span></td>
       <td><b>${fmtMoney(o.total)}</b></td>
-      <td>${fmtDate(o.createdAt)}</td>
+      <td>${fmtDate(safeTime(o))}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="6" class="empty"><div class="emoji">📦</div><h4>No orders yet</h4><p>Make your first sale to see it here.</p></td></tr>`;
 
@@ -313,7 +316,7 @@ function renderDashboard() {
           <tbody>
             ${todayPayments.map(p => {
               const c = DB.get('customers', p.customerId) || { name:'Walk-in' };
-              const inv = p.invoiceNo ? `INV-${p.invoiceNo}` : '#'+p.orderId.slice(-6).toUpperCase();
+              const inv = p.invoiceNo ? `INV-${p.invoiceNo}` : '#'+String(p.orderId||'').slice(-6).toUpperCase();
               const emoji = ({cash:'💵',card:'💳',bank:'🏦',jazzcash:'📱',easypaisa:'📱',cheque:'📃',online:'🌐',credit:'📋'}[p.method] || '💰');
               return `<tr>
                 <td>${new Date(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</td>
