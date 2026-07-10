@@ -67,13 +67,44 @@ function buildLiveDashboardData(data) {
       id: o.id,
       invoiceNo: o.invoiceNo,
       customerId: o.customerId,
+      // ---- FIX: line items MUST be synced. Previously omitted, which caused
+      // invoices to show "0 items / 0 pcs" after a cloud sync round-trip
+      // (amount survived, item list was wiped). ----
+      items: Array.isArray(o.items) ? o.items.map(it => ({
+        id: it.id != null ? it.id : undefined,
+        productId: it.productId != null ? it.productId : undefined,
+        name: it.name || '',
+        service: it.service || '',
+        price: +it.price || 0,
+        qty: +it.qty || 0,
+        unit: it.unit || '',
+        lineTotal: +it.lineTotal || (+it.price || 0) * (+it.qty || 0),
+        note: it.note || ''
+      })) : [],
+      subtotal: +o.subtotal || 0,
+      discount: +o.discount || 0,
+      manualDiscount: +o.manualDiscount || 0,
+      loyaltyDiscount: +o.loyaltyDiscount || 0,
+      loyaltyPercent: +o.loyaltyPercent || 0,
+      discountType: o.discountType || '',
+      discountValue: +o.discountValue || 0,
+      tax: +o.tax || 0,
       total: +o.total || 0,
       paid: +o.paid || 0,
       due: +o.due || 0,
+      advance: +o.advance || 0,
+      paymentType: o.paymentType || '',
+      isCredit: !!o.isCredit,
       status: o.status || 'pending',
       createdAt: o.createdAt || '',
+      updatedAt: o.updatedAt || '',
       bookingDate: o.bookingDate || '',
+      deliveryDate: o.deliveryDate || '',
+      deliveryType: o.deliveryType || '',
+      notes: o.notes || '',
+      branchId: o.branchId || 'main',
       paymentMethod: o.paymentMethod || 'cash',
+      cashierId: o.cashierId || '',
       cashierUsername: o.cashierUsername || o.createdBy || '',
       cashierName: o.cashierName || '',
       paymentsLog: cleanPayments(o.paymentsLog)
@@ -215,9 +246,31 @@ const CLOUD = {
   },
 
   /* ============== MERGE LOGIC ============== */
+  // Non-destructive per-record merge. `winner` is the record that wins by
+  // timestamp, `loser` is the other version. We normally return the winner,
+  // but we RESCUE important sub-collections (line items, payment log) if the
+  // winner lost them while the loser still has them. This is the safety net
+  // that prevents the "0 items / 0 pcs" invoice bug from ever recurring, even
+  // if some device pushes a stripped-down record.
+  _mergeRecordSafely(winner, loser) {
+    if (!winner) return loser;
+    if (!loser) return winner;
+    const out = Object.assign({}, winner);
+    const rescueArray = (key) => {
+      const w = Array.isArray(out[key]) ? out[key] : [];
+      const lo = Array.isArray(loser[key]) ? loser[key] : [];
+      if (w.length === 0 && lo.length > 0) out[key] = lo;
+    };
+    rescueArray('items');       // invoice / PO line items
+    rescueArray('paymentsLog'); // payment history
+    rescueArray('photos');      // attached photos
+    return out;
+  },
+
   mergeData(local, remote) {
     if (!remote) return local;
     if (!local) return remote;
+    const mergeRecordSafely = this._mergeRecordSafely.bind(this);
     const merged = JSON.parse(JSON.stringify(local));
 
     for (const tbl of Object.keys(remote)) {
@@ -233,7 +286,13 @@ const CLOUD = {
           if (!existing) { byId[rec.id] = rec; continue; }
           const lTs = +new Date(existing.updatedAt || existing.createdAt || 0) || 0;
           const rTs = +new Date(rec.updatedAt || rec.createdAt || 0) || 0;
-          if (rTs >= lTs) byId[rec.id] = rec;
+          if (rTs >= lTs) {
+            byId[rec.id] = mergeRecordSafely(existing, rec);
+          } else {
+            // Local is newer overall, but still rescue any item lists the
+            // remote may hold if local somehow lost them.
+            byId[rec.id] = mergeRecordSafely(rec, existing);
+          }
         }
         merged[tbl] = Object.values(byId).filter(rec => !rec._deleted);
       } else if (tbl === 'settings' && typeof r === 'object') {
