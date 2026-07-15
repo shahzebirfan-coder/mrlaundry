@@ -148,14 +148,15 @@ function openProductForm(existing) {
             ${productImageHTML(p.image, 100)}
           </div>
           <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
-            <div style="display:flex;gap:6px;">
-              <button type="button" class="btn btn-primary btn-sm" id="pImgUploadBtn">📤 Upload Photo</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary btn-sm" id="pImgUrlBtn">🔗 Paste Image URL</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="pImgUploadBtn">📤 Upload Photo</button>
               <button type="button" class="btn btn-secondary btn-sm" id="pImgEmojiBtn">😀 Use Emoji</button>
               <button type="button" class="btn btn-ghost btn-sm" id="pImgClearBtn" title="Remove image">🗑️</button>
             </div>
             <input type="file" id="pImgFile" accept="image/*" style="display:none;"/>
-            <input type="text" id="pImg" value="${escapeHtml(p.image||'🧺')}" placeholder="Emoji or image data" style="font-size:13px;font-family:monospace;"/>
-            <small style="color:var(--text-soft);">Upload a small product photo (auto-resized to 200x200). Or use an emoji.</small>
+            <input type="text" id="pImg" value="${escapeHtml(p.image||'🧺')}" placeholder="Paste image link (https://...) or emoji" style="font-size:13px;font-family:monospace;"/>
+            <small style="color:var(--text-soft);">✅ Recommended: paste an image <b>link (URL)</b> — it stays light and never disappears. Upload also works (auto-resized), or use an emoji.</small>
           </div>
         </div>
       </div>
@@ -182,6 +183,15 @@ function openProductForm(existing) {
     const imgInput = $('#pImg', m);
     const preview = $('#pImgPreview', m);
     const refreshPreview = () => { preview.innerHTML = productImageHTML(imgInput.value || '🧺', 100); };
+    $('#pImgUrlBtn', m).onclick = () => {
+      const url = prompt('Paste the image link (URL) — e.g. from Google Images (must start with https://):', imgInput.value.startsWith('http') ? imgInput.value : 'https://');
+      if (url == null) return;
+      const clean = url.trim();
+      if (!clean || clean === 'https://') return;
+      if (!/^https?:\/\//i.test(clean)) { toast('Link must start with http:// or https://','error'); return; }
+      imgInput.value = clean; refreshPreview();
+      toast('✅ Image link set — click Save','success');
+    };
     $('#pImgUploadBtn', m).onclick = () => fileInput.click();
     $('#pImgEmojiBtn', m).onclick = () => openEmojiPicker((emoji) => { imgInput.value = emoji; refreshPreview(); });
     $('#pImgClearBtn', m).onclick = () => { imgInput.value = '🧺'; refreshPreview(); };
@@ -191,10 +201,10 @@ function openProductForm(existing) {
       if (!f) return;
       if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
       try {
-        const dataUrl = await resizeImageToDataURL(f, 200, 200, 0.85);
+        const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
         imgInput.value = dataUrl;
         refreshPreview();
-        toast('✅ Image uploaded — click Save','success');
+        toast('✅ Image uploaded — click Save. Tip: image links (URL) are lighter.','success');
       } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
     };
 
@@ -306,7 +316,7 @@ function openBulkImageManager() {
 
   openModal(`
     <h3>📷 Bulk Image Manager — Set product images quickly</h3>
-    <p class="sub">Click any product to upload an image. Auto-resized & saved.</p>
+    <p class="sub">Click a tile to upload a photo, or click <b>🔗 URL</b> on a tile to paste an image link (recommended — stays light, never disappears).</p>
     ${buildHtml()}
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
@@ -330,13 +340,28 @@ function openBulkImageManager() {
           <div style="width:80px;height:80px;margin:0 auto 6px;border-radius:10px;background:linear-gradient(135deg,#e0e7ff,#fff);display:flex;align-items:center;justify-content:center;overflow:hidden;">${productImageHTML(p.image, 80)}</div>
           <div style="font-weight:700;font-size:12px;line-height:1.2;height:30px;overflow:hidden;">${escapeHtml(p.name)}</div>
           <div style="font-size:11px;color:#4f7cff;font-weight:700;">Rs. ${p.price}</div>
+          <button type="button" class="bim-url" data-id="${p.id}" style="margin-top:6px;font-size:10px;padding:3px 8px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer;font-weight:700;color:#334155;">🔗 URL</button>
         </div>`;
       }).join('') || '<div class="empty" style="grid-column:1/-1;padding:30px;"><div class="emoji">🔍</div><h4>No products match</h4></div>';
 
-      m.querySelectorAll('.bim-tile').forEach(t => t.onclick = () => {
+      m.querySelectorAll('.bim-tile').forEach(t => t.onclick = (ev) => {
+        if (ev.target.classList.contains('bim-url')) return; // handled below
         pendingProductId = t.dataset.id;
         $('#bimFile', m).value = ''; // reset
         $('#bimFile', m).click();
+      });
+      m.querySelectorAll('.bim-url').forEach(btn => btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const id = btn.dataset.id;
+        const cur = DB.get('products', id);
+        const url = prompt(`Paste image link (URL) for "${cur?.name||''}" — must start with https://`, (cur?.image||'').startsWith('http') ? cur.image : 'https://');
+        if (url == null) return;
+        const clean = url.trim();
+        if (!clean || clean === 'https://') return;
+        if (!/^https?:\/\//i.test(clean)) { toast('Link must start with http:// or https://','error'); return; }
+        DB.update('products', id, { image: clean });
+        toast(`✅ Image link set for ${cur?.name||'product'}`,'success');
+        renderGrid();
       });
     };
 
@@ -348,7 +373,7 @@ function openBulkImageManager() {
       if (!f || !pendingProductId) return;
       if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
       try {
-        const dataUrl = await resizeImageToDataURL(f, 200, 200, 0.85);
+        const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
         DB.update('products', pendingProductId, { image: dataUrl });
         const p = DB.get('products', pendingProductId);
         toast(`✅ Image set for ${p.name}`, 'success');

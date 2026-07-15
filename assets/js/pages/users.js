@@ -139,6 +139,14 @@ function openUserForm(existing) {
       else DB.insert('users', { ...data, password });
       closeModal(); toast('Saved','success'); renderUsersBody();
       if (typeof logAction === 'function') logAction(existing?'user.edit':'user.add', name);
+      // Immediately push the new/updated user to cloud so it can never be lost
+      // to a sync race (this was causing new cashier IDs to disappear and fail
+      // to log in on other devices / after refresh).
+      try {
+        if (typeof CLOUD !== 'undefined' && CLOUD.isEnabled && CLOUD.isEnabled() && CLOUD.isReady && CLOUD.isReady()) {
+          CLOUD.push({ manual: true }).catch(e => console.warn('User push failed:', e));
+        }
+      } catch(e) { console.warn('User cloud push error:', e); }
     };
   }});
 }
