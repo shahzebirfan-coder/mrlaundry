@@ -31,6 +31,13 @@ const DB = {
       const seed = this._seed();
       ['users','categories','products','customers','orders','expenses','ownerDrawings','vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
       if (!Array.isArray(this._data.users) || !this._data.users.length) this._data.users = seed.users;
+      // Guarantee the built-in staff accounts always exist on every device,
+      // even if a cloud merge/reset ever dropped them. Existing accounts (and
+      // any password changes made in the app) are left untouched.
+      (seed.users || []).forEach(su => {
+        const exists = this._data.users.some(u => u && (u.id === su.id || (u.username && su.username && u.username.toLowerCase() === su.username.toLowerCase())));
+        if (!exists) this._data.users.push({ ...su });
+      });
       if (!Array.isArray(this._data.categories) || !this._data.categories.length) this._data.categories = seed.categories;
       if (!Array.isArray(this._data.products) || !this._data.products.length) this._data.products = seed.products;
       if (!Array.isArray(this._data.customers) || !this._data.customers.length) this._data.customers = seed.customers;
@@ -104,8 +111,14 @@ const DB = {
     }
 
     if (aggressive) {
-      // If quota is still full, remove every embedded image from local cache.
-      ['products', 'categories', 'customers', 'vendors', 'drivers'].forEach(tbl => {
+      // If quota is still full, remove heavy embedded base64 images from the
+      // LOCAL cache only — but NOT from products/categories. Product & category
+      // reference images are core to the POS (cashiers rely on them to book
+      // orders) and must never be silently dropped, otherwise every device ends
+      // up showing only emojis. Recommended usage is to store product images as
+      // URLs (tiny), which are never stripped anyway. Customers/vendors/drivers
+      // avatars are non-critical, so those may still be trimmed locally.
+      ['customers', 'vendors', 'drivers'].forEach(tbl => {
         (copy[tbl] || []).forEach(r => {
           ['image', 'photo', 'avatar', 'logo', 'signature'].forEach(k => {
             if (r[k] && String(r[k]).startsWith('data:')) r[k] = '';
@@ -177,7 +190,8 @@ const DB = {
       _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
         { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
-        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now }
+        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now },
+        { id: 'u3', name: 'Kashif', username: 'kashif', password: '123456', role: 'cashier', createdAt: now }
       ],
       categories: [
         { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },

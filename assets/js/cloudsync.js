@@ -61,7 +61,8 @@ function buildLiveDashboardData(data) {
     customers: (data.customers || []).filter(c => !c._deleted).map(c => ({
       id: c.id,
       name: c.name || 'Walk-in',
-      phone: c.phone || ''
+      phone: c.phone || '',
+      updatedAt: c.updatedAt || c.createdAt || ''
     })),
     orders: (data.orders || []).filter(o => !o._deleted).map(o => ({
       id: o.id,
@@ -117,14 +118,18 @@ function buildLiveDashboardData(data) {
       category: e.category || e.type || 'Expense',
       type: e.type || '',
       note: e.note || e.description || '',
-      description: e.description || ''
+      description: e.description || '',
+      updatedAt: e.updatedAt || e.createdAt || ''
     })),
     vendors: (data.vendors || []).filter(v => !v._deleted).map(v => ({
-      id: v.id, name: v.name || '', phone: v.phone || '', contactPerson: v.contactPerson || '', poRates: v.poRates || null
+      id: v.id, name: v.name || '', phone: v.phone || '', contactPerson: v.contactPerson || '', poRates: v.poRates || null,
+      updatedAt: v.updatedAt || v.createdAt || ''
     })),
     purchaseOrders: (data.purchaseOrders || []).filter(p => !p._deleted).map(p => ({
       id: p.id, poNo: p.poNo, vendorId: p.vendorId, date: p.date, items: p.items || [], total: +p.total || 0,
-      paid: +p.paid || 0, due: +p.due || 0, status: p.status || 'pending', notes: p.notes || '', createdAt: p.createdAt || ''
+      paid: +p.paid || 0, due: +p.due || 0, status: p.status || 'pending', notes: p.notes || '',
+      paymentsLog: cleanPayments(p.paymentsLog),
+      createdAt: p.createdAt || '', updatedAt: p.updatedAt || p.createdAt || ''
     }))
   };
 }
@@ -224,10 +229,13 @@ const CLOUD = {
     if (!data) return true;
     const orders = (data.orders || []).filter(x => x && !x._deleted);
     const customers = (data.customers || []).filter(x => x && !x._deleted && x.id !== 'cu1');
-    const users = (data.users || []).filter(x => x && !x._deleted);
     const purchaseOrders = (data.purchaseOrders || []).filter(x => x && !x._deleted);
     const vendors = (data.vendors || []).filter(x => x && !x._deleted && x.id !== 'v1');
-    return orders.length === 0 && customers.length === 0 && purchaseOrders.length === 0 && vendors.length === 0 && users.length <= 2;
+    // NOTE: `users` is intentionally NOT part of the freshness test. Adding a
+    // cashier account must never make a device look "fresh" and get its user
+    // list overwritten by cloud — that was causing new cashier IDs to vanish
+    // and fail to log in. Users always merge non-destructively (union by id).
+    return orders.length === 0 && customers.length === 0 && purchaseOrders.length === 0 && vendors.length === 0;
   },
 
   importantCounts(data) {
@@ -252,18 +260,59 @@ const CLOUD = {
   // winner lost them while the loser still has them. This is the safety net
   // that prevents the "0 items / 0 pcs" invoice bug from ever recurring, even
   // if some device pushes a stripped-down record.
+  //
+  // It ALSO protects money: on multi-device setups a device with a stale copy
+  // (or a slightly-behind clock) could otherwise win by timestamp and revert a
+  // recorded payment back to "unpaid". Payments only ever move forward, so we
+  // keep the HIGHEST paid amount and the UNION of payment log entries across
+  // both versions, then recompute `due` accordingly.
   _mergeRecordSafely(winner, loser) {
     if (!winner) return loser;
     if (!loser) return winner;
     const out = Object.assign({}, winner);
+
     const rescueArray = (key) => {
       const w = Array.isArray(out[key]) ? out[key] : [];
       const lo = Array.isArray(loser[key]) ? loser[key] : [];
       if (w.length === 0 && lo.length > 0) out[key] = lo;
     };
-    rescueArray('items');       // invoice / PO line items
-    rescueArray('paymentsLog'); // payment history
-    rescueArray('photos');      // attached photos
+    rescueArray('items');   // invoice / PO line items
+    rescueArray('photos');  // attached photos
+
+    // ----- Money-safe payment merge -----
+    // Union of paymentsLog by entry id (or a fingerprint) so no recorded
+    // payment is ever dropped when two devices sync.
+    const wLog = Array.isArray(out.paymentsLog) ? out.paymentsLog : [];
+    const lLog = Array.isArray(loser.paymentsLog) ? loser.paymentsLog : [];
+    if (wLog.length || lLog.length) {
+      const seen = new Map();
+      const key = (p) => (p && (p.id || `${p.at||''}|${p.amount||0}|${p.method||''}`)) || Math.random();
+      [...wLog, ...lLog].forEach(p => { if (p) { const k = key(p); if (!seen.has(k)) seen.set(k, p); } });
+      out.paymentsLog = Array.from(seen.values());
+    }
+
+    // `paid` never goes backwards. Take the max of both versions; if the union
+    // of logged payments is even higher, trust that. Then recompute `due`.
+    const hasPaid = ('paid' in winner) || ('paid' in loser);
+    if (hasPaid) {
+      const logSum = Array.isArray(out.paymentsLog)
+        ? out.paymentsLog.reduce((s, p) => s + (+((p && p.amount)) || 0), 0)
+        : 0;
+      const total = +out.total || +loser.total || 0;
+      let paid = Math.max(+winner.paid || 0, +loser.paid || 0, logSum);
+      if (total > 0) paid = Math.min(paid, total); // never exceed the bill
+      out.paid = paid;
+      if (total > 0) out.due = Math.max(0, total - paid);
+      else if ('due' in winner || 'due' in loser) {
+        out.due = Math.min(+winner.due ?? Infinity, +loser.due ?? Infinity);
+        if (!isFinite(out.due)) out.due = 0;
+      }
+      // If it's now fully paid, reflect the paid status.
+      if (total > 0 && out.due === 0 && (winner.status === 'paid' || loser.status === 'paid' || paid >= total)) {
+        out.status = 'paid';
+      }
+    }
+
     return out;
   },
 
