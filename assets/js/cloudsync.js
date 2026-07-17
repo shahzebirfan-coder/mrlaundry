@@ -406,8 +406,27 @@ const CLOUD = {
     // device, then push the merged result. This prevents cashier/new devices
     // from overwriting Firebase with incomplete local data.
     if (options.manual && !options._preMerged) {
-      try { await this.pullAndMerge(); } catch(e) { console.warn('[CloudSync] Pre-merge before manual push failed:', e); }
-      return this.push({ ...options, _preMerged: true });
+      // Suppress the background auto-push while we pre-merge, otherwise the
+      // debounced auto-push (triggered by pullAndMerge's DB.save) grabs the
+      // sync lock and the real push below returns "queued". We restore it in
+      // finally so normal auto-sync keeps working afterwards.
+      const prevSuppress = this._suppressPush;
+      this._suppressPush = true;
+      try {
+        await this.pullAndMerge();
+      } catch(e) {
+        console.warn('[CloudSync] Pre-merge before manual push failed:', e);
+      } finally {
+        this._suppressPush = prevSuppress;
+      }
+      // Give any in-flight background sync a brief moment to clear its lock.
+      let guard = 0;
+      while (this._syncing && guard < 20) { await cloudSleep(150); guard++; }
+      if (this._syncing && this._syncStartedAt && Date.now() - this._syncStartedAt > 5000) {
+        // Stale lock from a stuck/aborted sync — safe to reset before our push.
+        this._syncing = false; this._pendingPush = false; this._syncStartedAt = 0;
+      }
+      return this.push({ ...options, _preMerged: true, wait: true });
     }
 
     this.assertSafeToPush(DB._data);
@@ -1115,9 +1134,16 @@ function openCloudSyncManager() {
     $('#pushNowBtn', m)?.addEventListener('click', async () => {
       log('Pushing to Firebase... please wait (large backup can take 1–3 minutes)');
       try {
-        const ok = await CLOUD.push({ wait: true, manual: true });
+        let ok = await CLOUD.push({ wait: true, manual: true });
+        // If a background sync momentarily held the lock, wait briefly and
+        // retry once automatically instead of showing an error to the user.
+        if (!ok) {
+          log('Another sync was finishing — retrying automatically...');
+          await new Promise(r => setTimeout(r, 2500));
+          ok = await CLOUD.push({ wait: true, manual: true });
+        }
         const last = localStorage.getItem(CLOUD.LAST_SYNC_KEY);
-        if (!ok) { log('⚠️ Push was queued because another sync is running. Try again in a few seconds.', 'error'); return; }
+        if (!ok) { log('⚠️ Still busy. Please wait ~10 seconds and click Safe Push once more.', 'error'); return; }
         log('✅ Confirmed pushed to Firebase' + (last ? ' at ' + new Date(last).toLocaleString() : ''), 'success');
         setTimeout(() => { closeModal(); openCloudSyncManager(); }, 900);
       }
