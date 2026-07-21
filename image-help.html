@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mr Laundry — Image Link Help</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f7fb;color:#0f172a;margin:0;padding:18px;line-height:1.55;}
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-size:24px;margin:0 0 4px;}
+  h2{font-size:18px;margin:22px 0 8px;}
+  .sub{color:#64748b;font-size:14px;margin-bottom:18px;}
+  .card{background:#fff;border:1px solid #e5eaf2;border-radius:14px;padding:18px;margin-bottom:14px;box-shadow:0 8px 24px rgba(15,23,42,.05);}
+  .step{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start;}
+  .num{flex-shrink:0;width:28px;height:28px;border-radius:50%;background:#4f7cff;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .best{border-left:5px solid #16a34a;}
+  .ok{border-left:5px solid #0ea5e9;}
+  a.btn{display:inline-block;background:#4f7cff;color:#fff;text-decoration:none;padding:10px 16px;border-radius:10px;font-weight:800;font-size:14px;margin:4px 6px 4px 0;}
+  a.btn.green{background:#16a34a;}
+  code{background:#f1f5f9;padding:2px 6px;border-radius:5px;font-size:12px;word-break:break-all;}
+  .good{color:#166534;font-weight:800;}
+  .bad{color:#991b1b;font-weight:800;}
+  input[type=text]{width:100%;box-sizing:border-box;padding:12px;border:2px solid #d8e0ec;border-radius:10px;font-size:14px;font-family:monospace;}
+  #testResult{margin-top:12px;padding:12px;border-radius:10px;font-weight:700;display:none;}
+  .r-ok{background:#dcfce7;color:#166534;}
+  .r-bad{background:#fee2e2;color:#991b1b;}
+  #testImg{max-width:120px;max-height:120px;border-radius:10px;border:1px solid #e2e8f0;margin-top:10px;display:none;}
+  .pill{display:inline-block;background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:800;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🖼️ Product Image Link — Aasan Guide</h1>
+  <p class="sub">Google Images se "Copy image address" aksar GALAT (temporary) link deta hai jo cashier ke device par nahi khulta. Yahan aasan aur sahi tareeqe hain.</p>
+
+  <div class="card best">
+    <h2>🥇 Sabse Aasan — Bing Images</h2>
+    <p>Bing par "Copy image address" <span class="good">hamesha sahi direct link</span> deta hai.</p>
+    <div class="step"><div class="num">1</div><div>Neeche button se Bing Images kholein</div></div>
+    <div class="step"><div class="num">2</div><div>Product search karein (e.g. <code>men suit 2 piece</code>, <code>kurta pajama</code>)</div></div>
+    <div class="step"><div class="num">3</div><div>Image par <b>click</b> karein → dayein taraf badi image khulegi</div></div>
+    <div class="step"><div class="num">4</div><div>Us <b>badi image par right-click → "Copy image link"</b></div></div>
+    <div class="step"><div class="num">5</div><div>Neeche "Link Tester" mein paste karke check karein ✅</div></div>
+    <a class="btn green" href="https://www.bing.com/images" target="_blank">🔎 Bing Images kholein</a>
+  </div>
+
+  <div class="card ok">
+    <h2>🥈 Free Professional Photos — Unsplash / Pexels</h2>
+    <p>Free, high-quality photos. Links hamesha permanent (kabhi nahi tootenge).</p>
+    <a class="btn" href="https://unsplash.com/s/photos/clothes" target="_blank">Unsplash kholein</a>
+    <a class="btn" href="https://www.pexels.com/search/clothes/" target="_blank">Pexels kholein</a>
+    <p style="font-size:13px;color:#64748b;margin-top:8px;">Photo par right-click → "Copy image address" → neeche test karein.</p>
+  </div>
+
+  <div class="card">
+    <h2>✅ Sahi vs ❌ Galat Link — Kaise Pehchanein</h2>
+    <p><span class="good">✅ SAHI</span> — <code>.jpg</code> / <code>.png</code> / <code>.webp</code> par khatam ho:<br>
+    <code>https://example.com/photos/suit.jpg</code></p>
+    <p><span class="bad">❌ GALAT</span> — in mein se koi shabd ho to nahi chalega:<br>
+    <code>gstatic.com/images?q=tbn</code> &nbsp; <code>google.com/imgres</code> &nbsp; <code>google.com/url?</code></p>
+  </div>
+
+  <div class="card" style="border:2px solid #4f7cff;">
+    <h2>🧪 Link Tester — Yahan Paste Karke Check Karein</h2>
+    <p style="font-size:13px;color:#64748b;">Image ka link paste karein — foran bata dega chalega ya nahi, aur preview dikhayega.</p>
+    <input type="text" id="urlInput" placeholder="https://... image link yahan paste karein"/>
+    <div id="testResult"></div>
+    <img id="testImg" alt="preview"/>
+    <p style="font-size:13px;color:#166534;margin-top:12px;display:none;" id="copyHint">👍 Agar preview aur ✅ green dikhe, to yehi link POS mein Products → Bulk Image Manager → 🔗 URL par paste kar dein.</p>
+  </div>
+</div>
+
+<script>
+function isBadLink(u){
+  const bad=[/encrypted-tbn\d*\.gstatic\.com/i,/gstatic\.com\/images\?q=tbn/i,/google\.[a-z.]+\/imgres/i,/google\.[a-z.]+\/url\?/i,/google\.[a-z.]+\/search/i,/lh3\.googleusercontent\.com\/proxy/i];
+  return bad.some(re=>re.test(u));
+}
+const input=document.getElementById('urlInput');
+const res=document.getElementById('testResult');
+const img=document.getElementById('testImg');
+const hint=document.getElementById('copyHint');
+let t=null;
+input.addEventListener('input',()=>{
+  clearTimeout(t);
+  t=setTimeout(check,400);
+});
+function show(cls,msg){res.style.display='block';res.className=cls;res.textContent=msg;}
+function check(){
+  const u=input.value.trim();
+  img.style.display='none';hint.style.display='none';
+  if(!u){res.style.display='none';return;}
+  if(!/^https?:\/\//i.test(u)){show('r-bad','❌ Link http:// ya https:// se shuru hona chahiye.');return;}
+  if(isBadLink(u)){show('r-bad','❌ Yeh Google ka TEMPORARY link hai — cashier ke device par NAHI khulega. Bing ya Unsplash se lein, ya image full-size khol kar "Copy image address".');return;}
+  show('r-ok','⏳ Link theek lagta hai — image load ho rahi hai...');
+  const test=new Image();
+  test.onload=()=>{show('r-ok','✅ BILKUL SAHI! Yeh link har device par chalega. Preview neeche 👇');img.src=u;img.style.display='block';hint.style.display='block';};
+  test.onerror=()=>{show('r-bad','⚠️ Link khula nahi. Ho sakta hai image private ho ya galat ho. Doosra link try karein.');};
+  test.src=u;
+}
+</script>
+</body>
+</html>
