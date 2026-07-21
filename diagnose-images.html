@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mr Laundry — Image Sync Diagnostic</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f7fb;color:#0f172a;margin:0;padding:18px;}
+  .wrap{max-width:1000px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 4px;}
+  .sub{color:#64748b;font-size:13px;margin-bottom:16px;}
+  .card{background:#fff;border:1px solid #e5eaf2;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 8px 24px rgba(15,23,42,.05);}
+  .stat{display:flex;gap:14px;flex-wrap:wrap;}
+  .pill{padding:10px 14px;border-radius:12px;font-weight:800;font-size:14px;}
+  .green{background:#dcfce7;color:#166534;}
+  .amber{background:#fef3c7;color:#92400e;}
+  .red{background:#fee2e2;color:#991b1b;}
+  .blue{background:#dbeafe;color:#1d4ed8;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+  th,td{padding:8px 10px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top;}
+  th{background:#f8fafc;color:#64748b;font-size:11px;text-transform:uppercase;}
+  code{font-size:11px;background:#f1f5f9;padding:2px 5px;border-radius:5px;word-break:break-all;}
+  .imgcell img{width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;}
+  .loader{padding:30px;text-align:center;color:#64748b;}
+  button{border:0;border-radius:10px;padding:10px 16px;font-weight:800;cursor:pointer;background:#4f7cff;color:#fff;font-size:14px;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;}
+  .b-url{background:#dcfce7;color:#166534;}
+  .b-data{background:#dbeafe;color:#1d4ed8;}
+  .b-emoji{background:#fef3c7;color:#92400e;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔎 Mr Laundry — Image Sync Diagnostic</h1>
+  <p class="sub">Yeh page CLOUD (Firebase) par products ki asli halat dikhata hai. Isay apne device aur cashier ke device — dono par kholein aur natije compare karein.</p>
+  <div class="card" id="statusCard"><div class="loader">⏳ Connecting to cloud…</div></div>
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="stat" id="stats"></div>
+    <div style="margin-top:12px;color:#64748b;font-size:12px;">Neechay wo products hain jin par abhi bhi EMOJI hai (yani image cloud par nahi pahunchi):</div>
+    <table id="emojiTable"><thead><tr><th>#</th><th>Product</th><th>Type</th><th>Value (image field)</th></tr></thead><tbody></tbody></table>
+    <div style="margin-top:16px;color:#64748b;font-size:12px;">Aur yeh wo products hain jin par REAL image (URL) hai:</div>
+    <table id="urlTable"><thead><tr><th>#</th><th>Preview</th><th>Product</th><th>URL</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey:'AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY',
+  authDomain:'mr-laundry-pos-a6740.firebaseapp.com',
+  projectId:'mr-laundry-pos-a6740',
+  storageBucket:'mr-laundry-pos-a6740.firebasestorage.app',
+  messagingSenderId:'927434668958',
+  appId:'1:927434668958:web:2516175f4046edcfbcf48f'
+};
+const SHOP_ID = 'shahzeb-laundry-private-pos';
+const MAX_DOC_SIZE = 800000;
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+async function loadTable(db, tbl, meta){
+  const info = meta.tables && meta.tables[tbl];
+  const ref = db.collection('shops').doc(SHOP_ID).collection('tables');
+  if(!info){ // maybe legacy single doc
+    const d = await ref.doc(tbl).get();
+    if(d.exists && d.data().data){ try{return JSON.parse(d.data().data);}catch(e){return [];} }
+    return [];
+  }
+  if(info.chunks === 1){
+    const d = await ref.doc(tbl).get();
+    if(d.exists && d.data().data){ try{return JSON.parse(d.data().data);}catch(e){return [];} }
+    return [];
+  }
+  const chunks=[];
+  for(let i=0;i<info.chunks;i++){
+    const d = await ref.doc(`${tbl}__c${i}`).get();
+    if(d.exists) chunks[i]=d.data().data;
+  }
+  try{return JSON.parse(chunks.join(''));}catch(e){return [];}
+}
+
+(async function(){
+  const statusCard = document.getElementById('statusCard');
+  try{
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const mainDoc = await db.collection('shops').doc(SHOP_ID).get();
+    if(!mainDoc.exists){ statusCard.innerHTML='<div class="pill red">❌ Cloud par is Shop ka koi data nahi mila. Shop ID galat ho sakti hai.</div>'; return; }
+    const meta = mainDoc.data();
+    const products = await loadTable(db, 'products', meta);
+    if(!Array.isArray(products) || !products.length){ statusCard.innerHTML='<div class="pill red">❌ Cloud par products table khaali hai.</div>'; return; }
+
+    const isImg = (v)=> typeof v==='string' && (v.startsWith('http')||v.startsWith('data:')||v.startsWith('/')||v.startsWith('assets/'));
+    const urlList = products.filter(p=>typeof p.image==='string' && p.image.startsWith('http'));
+    const dataList = products.filter(p=>typeof p.image==='string' && p.image.startsWith('data:'));
+    const emojiList = products.filter(p=>!isImg(p.image));
+
+    const updatedAt = meta.updatedAt && meta.updatedAt.toDate ? meta.updatedAt.toDate().toLocaleString() : '—';
+    statusCard.innerHTML = `<div class="pill green">✅ Cloud connected — last cloud update: <b>${esc(updatedAt)}</b> by ${esc(meta.updatedBy||'?')} (${esc(meta.deviceLabel||'?')})</div>`;
+
+    document.getElementById('stats').innerHTML = `
+      <div class="pill blue">📦 Total products: <b>${products.length}</b></div>
+      <div class="pill green">🔗 With URL image: <b>${urlList.length}</b></div>
+      <div class="pill blue">🖼️ With uploaded (data:) image: <b>${dataList.length}</b></div>
+      <div class="pill amber">😀 Still emoji only: <b>${emojiList.length}</b></div>`;
+
+    const et = document.querySelector('#emojiTable tbody');
+    et.innerHTML = emojiList.length ? emojiList.map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td><span class="badge b-emoji">emoji</span></td><td><code>${esc(p.image)}</code></td></tr>`).join('') : '<tr><td colspan="4" style="color:#166534;font-weight:700;">🎉 Koi bhi emoji-only product nahi — sab par image hai!</td></tr>';
+
+    const ut = document.querySelector('#urlTable tbody');
+    ut.innerHTML = urlList.length ? urlList.map((p,i)=>`<tr><td>${i+1}</td><td class="imgcell"><img src="${esc(p.image)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'⚠️ nahi khuli',style:'color:#991b1b;font-weight:700;'}))"/></td><td>${esc(p.name)}</td><td><code>${esc(p.image)}</code></td></tr>`).join('') : '<tr><td colspan="4" style="color:#92400e;">Koi URL image cloud par nahi mili.</td></tr>';
+
+    document.getElementById('resultCard').style.display='block';
+  }catch(e){
+    statusCard.innerHTML = `<div class="pill red">❌ Error: ${esc(e.message)}</div><div style="margin-top:8px;color:#64748b;font-size:12px;">Internet check karein, ya Firebase rules access allow karti hain ya nahi.</div>`;
+  }
+})();
+</script>
+</body>
+</html>
