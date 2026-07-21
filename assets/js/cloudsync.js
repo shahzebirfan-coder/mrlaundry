@@ -279,6 +279,17 @@ const CLOUD = {
     rescueArray('items');   // invoice / PO line items
     rescueArray('photos');  // attached photos
 
+    // ----- Image-safe merge (products/categories) -----
+    // A real image is a URL or data: URI. An emoji/blank is NOT. Once a product
+    // has a real image, a stale copy that only has an emoji must NEVER overwrite
+    // it — otherwise pictures "disappear a little while after saving" when an
+    // older device/tab syncs its emoji-only copy back in. So if the winner lost
+    // the real image but the loser still has one, keep the loser's image.
+    const isRealImg = (v) => typeof v === 'string' && (v.startsWith('http') || v.startsWith('data:') || v.startsWith('/') || v.startsWith('assets/'));
+    ['image', 'photo', 'logo', 'avatar'].forEach(k => {
+      if (!isRealImg(out[k]) && isRealImg(loser[k])) out[k] = loser[k];
+    });
+
     // ----- Money-safe payment merge -----
     // Union of paymentsLog by entry id (or a fingerprint) so no recorded
     // payment is ever dropped when two devices sync.
