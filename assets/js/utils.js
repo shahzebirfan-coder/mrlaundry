@@ -321,9 +321,13 @@ function productImageHTML(image, size, classes) {
   classes = classes || '';
   const fallback = '🧺';
   const img = image || fallback;
-  // If it's a URL or data URI, render as <img> that fills its container
+  // If it's a URL or data URI, render as <img> that fills its container.
+  // Performance: lazy-load + async decode so opening the POS grid does NOT
+  // download all product images at once (that was hanging the POS when many
+  // products had image links). Only images near the viewport load; the rest
+  // load as the user scrolls.
   if (typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http') || img.startsWith('/') || img.startsWith('assets/'))) {
-    return `<img src="${img}" class="${classes}" onerror="this.outerHTML='<span>${fallback}</span>'" alt=""/>`;
+    return `<img src="${img}" class="${classes}" loading="lazy" decoding="async" fetchpriority="low" referrerpolicy="no-referrer" onerror="this.outerHTML='<span>${fallback}</span>'" alt=""/>`;
   }
   // Otherwise treat as emoji/text — let CSS handle size
   return `<span>${img}</span>`;
