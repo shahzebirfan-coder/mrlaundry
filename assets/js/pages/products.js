@@ -1,6 +1,34 @@
 /* ===================== PRODUCTS & CATEGORIES ===================== */
 let prodFilter = { search:'', category:'all' };
 
+/* ---------------------------------------------------------------
+   Image URL validator.
+   Google Images "thumbnail" links (encrypted-tbnX.gstatic.com,
+   or ...google.com/imgres / /url?...) are TEMPORARY and only load
+   on the device that searched. They break on other devices (e.g.
+   the cashier's) and expire over time. This helper flags those so
+   the shop only saves permanent, cross-device image links.
+   Returns { ok:boolean, reason:string }.
+---------------------------------------------------------------- */
+function checkProductImageUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return { ok:false, reason:'Link khaali hai.' };
+  if (!/^https?:\/\//i.test(u)) return { ok:false, reason:'Link http:// ya https:// se shuru hona chahiye.' };
+  const bad = [
+    /encrypted-tbn\d*\.gstatic\.com/i,        // Google thumbnail (temporary)
+    /gstatic\.com\/images\?q=tbn/i,           // Google thumbnail (temporary)
+    /google\.[a-z.]+\/imgres/i,               // Google image viewer page (not the image)
+    /google\.[a-z.]+\/url\?/i,                // Google redirect link
+    /google\.[a-z.]+\/search/i,               // Google search page
+    /lh3\.googleusercontent\.com\/proxy/i     // Google proxy thumbnail
+  ];
+  if (bad.some(re => re.test(u))) {
+    return { ok:false, reason:'Yeh Google ka TEMPORARY thumbnail link hai — yeh cashier ke device par nahi khulega aur baad mein toot jayega. Image ko full-size kholein, phir right-click → "Copy image address" (link .jpg/.png/.webp par khatam ho).' };
+  }
+  return { ok:true, reason:'' };
+}
+window.checkProductImageUrl = checkProductImageUrl;
+
 function renderProducts() {
   const content = `
     <h1 class="page-title">🧺 Products & Rate List</h1>
@@ -188,7 +216,8 @@ function openProductForm(existing) {
       if (url == null) return;
       const clean = url.trim();
       if (!clean || clean === 'https://') return;
-      if (!/^https?:\/\//i.test(clean)) { toast('Link must start with http:// or https://','error'); return; }
+      const chk = checkProductImageUrl(clean);
+      if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link — dekhein warning','error'); return; }
       imgInput.value = clean; refreshPreview();
       toast('✅ Image link set — click Save','success');
     };
@@ -214,11 +243,17 @@ function openProductForm(existing) {
       const price = +$('#pPrice', m).value;
       if (!name || price < 0) { toast('Enter name & price','error'); return; }
       const maxV = $('#pPriceMax', m).value;
+      const imgVal = $('#pImg', m).value || '🧺';
+      // Block temporary Google thumbnail links (they break on other devices).
+      if (/^https?:\/\//i.test(imgVal)) {
+        const chk = checkProductImageUrl(imgVal);
+        if (!chk.ok) { alert('⚠️ Image link theek nahi, is liye save nahi kiya:\n\n' + chk.reason + '\n\nAap emoji rakh sakte hain ya sahi image link daal sakte hain.'); return; }
+      }
       const data = {
         name, price,
         priceMax: maxV === '' ? null : Math.max(0, +maxV || 0),
         category: $('#pCat', m).value,
-        image: $('#pImg', m).value || '🧺',
+        image: imgVal,
         active: true
       };
       if (existing) DB.update('products', existing.id, data);
@@ -332,11 +367,17 @@ function openBulkImageManager() {
         return true;
       });
       const withImg = all.filter(p => p.image && (p.image.startsWith('data:') || p.image.startsWith('http'))).length;
-      $('#bimStats', m).innerHTML = `📊 <b>${withImg}</b> of <b>${all.length}</b> products have real images (${Math.round(withImg/all.length*100)}%). Click any tile to upload!`;
+      const badLinks = all.filter(p => typeof p.image === 'string' && /^https?:\/\//i.test(p.image) && !checkProductImageUrl(p.image).ok);
+      const badWarn = badLinks.length
+        ? `<div style="margin-top:8px;background:#fef2f2;border-left:4px solid #dc2626;padding:8px 10px;border-radius:8px;color:#991b1b;font-weight:700;">⚠️ ${badLinks.length} product(s) par TEMPORARY Google link hai jo cashier ke device par nahi khulega. Neeche tile par 🔗 URL se sahi link lagayein.</div>`
+        : '';
+      $('#bimStats', m).innerHTML = `📊 <b>${withImg}</b> of <b>${all.length}</b> products have real images (${Math.round(withImg/all.length*100)}%). Click any tile to upload!` + badWarn;
       $('#bimGrid', m).innerHTML = filtered.map(p => {
         const hasImg = p.image && (p.image.startsWith('data:') || p.image.startsWith('http'));
-        return `<div class="bim-tile" data-id="${p.id}" style="background:#fff;border:2px solid ${hasImg?'#10b981':'#e5e9f2'};border-radius:12px;padding:10px;text-align:center;cursor:pointer;transition:.15s;position:relative;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-          ${hasImg ? '<div style="position:absolute;top:4px;right:4px;background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;">✓</div>' : ''}
+        const isBad = typeof p.image === 'string' && /^https?:\/\//i.test(p.image) && !checkProductImageUrl(p.image).ok;
+        const borderColor = isBad ? '#dc2626' : (hasImg ? '#10b981' : '#e5e9f2');
+        return `<div class="bim-tile" data-id="${p.id}" style="background:#fff;border:2px solid ${borderColor};border-radius:12px;padding:10px;text-align:center;cursor:pointer;transition:.15s;position:relative;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+          ${isBad ? '<div style="position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:12px;" title="Temporary link — cashier ke device par nahi khulega">⚠️</div>' : (hasImg ? '<div style="position:absolute;top:4px;right:4px;background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;">✓</div>' : '')}
           <div style="width:80px;height:80px;margin:0 auto 6px;border-radius:10px;background:linear-gradient(135deg,#e0e7ff,#fff);display:flex;align-items:center;justify-content:center;overflow:hidden;">${productImageHTML(p.image, 80)}</div>
           <div style="font-weight:700;font-size:12px;line-height:1.2;height:30px;overflow:hidden;">${escapeHtml(p.name)}</div>
           <div style="font-size:11px;color:#4f7cff;font-weight:700;">Rs. ${p.price}</div>
@@ -358,7 +399,8 @@ function openBulkImageManager() {
         if (url == null) return;
         const clean = url.trim();
         if (!clean || clean === 'https://') return;
-        if (!/^https?:\/\//i.test(clean)) { toast('Link must start with http:// or https://','error'); return; }
+        const chk = checkProductImageUrl(clean);
+        if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link','error'); return; }
         DB.update('products', id, { image: clean });
         toast(`✅ Image link set for ${cur?.name||'product'}`,'success');
         renderGrid();
