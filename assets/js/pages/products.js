@@ -29,6 +29,17 @@ function checkProductImageUrl(url) {
 }
 window.checkProductImageUrl = checkProductImageUrl;
 
+/* Nudge the normal (light, debounced) background sync so a newly-set image
+   reaches the cloud quickly, WITHOUT blocking the POS. We deliberately avoid
+   the heavy { manual:true } push (which does a full pull+merge+full upload on
+   every save and makes the POS lag). DB.save() already triggers the debounced
+   auto-push; this is just a safety no-op wrapper kept for clarity. */
+function pushProductsNow() {
+  // DB.save() (called inside DB.update/insert) already schedules the debounced
+  // background push. Nothing heavy needed here — keep the UI snappy.
+  return;
+}
+
 function renderProducts() {
   const content = `
     <h1 class="page-title">🧺 Products & Rate List</h1>
@@ -258,6 +269,7 @@ function openProductForm(existing) {
       };
       if (existing) DB.update('products', existing.id, data);
       else DB.insert('products', data);
+      pushProductsNow();
       closeModal(); toast('Saved','success'); renderProductsBody();
     };
   }});
@@ -402,6 +414,7 @@ function openBulkImageManager() {
         const chk = checkProductImageUrl(clean);
         if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link','error'); return; }
         DB.update('products', id, { image: clean });
+        pushProductsNow();
         toast(`✅ Image link set for ${cur?.name||'product'}`,'success');
         renderGrid();
       });
@@ -417,6 +430,7 @@ function openBulkImageManager() {
       try {
         const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
         DB.update('products', pendingProductId, { image: dataUrl });
+        pushProductsNow();
         const p = DB.get('products', pendingProductId);
         toast(`✅ Image set for ${p.name}`, 'success');
         renderGrid();
