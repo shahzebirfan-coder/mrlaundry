@@ -318,18 +318,41 @@ ${html}
   if (isThermal) {
     pageSize = `${thermalWidthMm}mm auto`;
     pageMargin = '0';
+    // IMPORTANT for continuous roll printing:
+    //  - Do NOT use page-break-inside:avoid on the whole invoice. On a roll a
+    //    long invoice that is taller than one "page" would otherwise be pushed
+    //    entirely onto the next page, leaving the first page half-empty (that
+    //    is exactly the 2-page / big-gap problem). Content must flow freely.
+    //  - Force the invoice body width to the FULL roll width and center it, so
+    //    text is centered instead of shifted to the left.
     thermalCss = `
-      html, body { width: ${thermalWidthMm}mm !important; margin: 0 !important; padding: 0 !important; }
-      .invoice-page {
+      html, body {
         width: ${thermalWidthMm}mm !important;
-        max-width: ${thermalWidthMm}mm !important;
         margin: 0 auto !important;
-        padding: 2mm !important;
-        page-break-inside: avoid; break-inside: avoid;
+        padding: 0 !important;
       }
-      .invoice-page table, .invoice-page tr,
-      .invoice-page .inv-items, .invoice-page .inv-totals, .invoice-page .inv-row
-        { page-break-inside: avoid; break-inside: avoid; }
+      #printWrapper, .print-slip {
+        width: 100% !important;
+        margin: 0 auto !important;
+      }
+      /* Override the inline max-width:360px so the invoice fits the roll width
+         exactly and stays centered (was shifting left & getting cut). */
+      .invoice-page, .invoice-customer, .invoice-office {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 auto !important;
+        padding: 1.5mm 2mm !important;
+        box-sizing: border-box !important;
+        text-align: center !important;
+        /* let it flow across the roll — no forced page breaks */
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+      }
+      .invoice-page table { width: 100% !important; }
+      /* Only keep small rows from splitting mid-line (a single item row),
+         NOT the whole invoice. */
+      .invoice-page tr { page-break-inside: avoid; break-inside: avoid; }
     `;
   } else {
     pageSize = 'auto';
