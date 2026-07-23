@@ -95,9 +95,18 @@ function doPrint(includeOffice) {
     wrap.appendChild(slips[1].cloneNode(true));
   }
 
-  // Use universal printElement helper
+  // Use universal printElement helper.
+  // Map the shop's invoice width setting to a physical roll width so a long
+  // invoice prints as one continuous strip (no A4 page split / blank gap).
+  //   280px -> 58mm roll, 360px -> 80mm roll. Wider (A5/A4) -> normal paper.
   if (typeof printElement === 'function') {
-    printElement(wrap, { title: 'Invoice Print' });
+    const s = (typeof DB !== 'undefined' && DB.settings) ? DB.settings() : {};
+    const w = +s.invoiceWidth || 360;
+    let opts = { title: 'Invoice Print' };
+    if (w <= 300)      opts = { ...opts, thermal: true, thermalWidthMm: 58 };
+    else if (w <= 400) opts = { ...opts, thermal: true, thermalWidthMm: 80 };
+    else               opts = { ...opts, thermal: false }; // A6/A5/A4 = normal paper
+    printElement(wrap, opts);
   } else {
     alert('Print helper not loaded. Refresh page.');
   }
