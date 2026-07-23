@@ -270,9 +270,10 @@ table { width: 100%; border-collapse: collapse; }
 .print-slip:last-child { page-break-after: auto; break-after: auto; }
 .print-page-break { page-break-after: always; break-after: page; height: 0; }
 @media print {
-  @page { margin: 4mm; size: auto; }
+  @page { margin: __PAGE_MARGIN__; size: __PAGE_SIZE__; }
   body { padding: 0 !important; background: #fff !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  __THERMAL_CSS__
 }
 @media screen {
   body { padding: 20px; background: #f0f4ff; }
@@ -307,8 +308,41 @@ ${html}
 </` + `script>
 </body></html>`;
 
+  // Decide page geometry. Thermal roll printers need a fixed WIDTH and an
+  // "auto" (continuous) HEIGHT so a long invoice prints as one strip instead
+  // of being split across A4 pages with a big blank gap. For A4/A5 paper we
+  // keep normal auto sizing.
+  const thermalWidthMm = (typeof options.thermalWidthMm === 'number') ? options.thermalWidthMm : 80;
+  const isThermal = options.thermal !== false; // default: treat receipts as thermal
+  let pageSize, pageMargin, thermalCss;
+  if (isThermal) {
+    pageSize = `${thermalWidthMm}mm auto`;
+    pageMargin = '0';
+    thermalCss = `
+      html, body { width: ${thermalWidthMm}mm !important; margin: 0 !important; padding: 0 !important; }
+      .invoice-page {
+        width: ${thermalWidthMm}mm !important;
+        max-width: ${thermalWidthMm}mm !important;
+        margin: 0 auto !important;
+        padding: 2mm !important;
+        page-break-inside: avoid; break-inside: avoid;
+      }
+      .invoice-page table, .invoice-page tr,
+      .invoice-page .inv-items, .invoice-page .inv-totals, .invoice-page .inv-row
+        { page-break-inside: avoid; break-inside: avoid; }
+    `;
+  } else {
+    pageSize = 'auto';
+    pageMargin = '4mm';
+    thermalCss = '';
+  }
+  const finalDoc = printDoc
+    .replace('__PAGE_SIZE__', pageSize)
+    .replace('__PAGE_MARGIN__', pageMargin)
+    .replace('__THERMAL_CSS__', thermalCss);
+
   win.document.open();
-  win.document.write(printDoc);
+  win.document.write(finalDoc);
   win.document.close();
 }
 
