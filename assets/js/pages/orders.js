@@ -238,8 +238,19 @@ function openEditInvoice(orderId) {
     <h3>✏️ Edit Invoice — INV-${o.invoiceNo || String(o.id||'').slice(-6).toUpperCase()}</h3>
     <p class="sub">⚠️ Admin-only. Changes are logged with your username.</p>
 
-    <div style="padding:10px;background:var(--surface-alt);border-radius:8px;margin-bottom:14px;font-size:13px;">
-      Customer: <b>${escapeHtml(c.name)}</b> • ${escapeHtml(c.phone||'')} • Booked: ${fmtDate(orderSafeTime(o))}
+    <div style="padding:10px;background:var(--surface-alt);border-radius:8px;margin-bottom:14px;">
+      <div style="font-size:13px;margin-bottom:8px;">📅 Booked: ${fmtDate(orderSafeTime(o))}</div>
+      <div class="form-row">
+        <div class="field">
+          <label>👤 Customer Name</label>
+          <input type="text" id="eCustName" value="${escapeHtml(c.name||'')}" placeholder="Customer name"/>
+        </div>
+        <div class="field">
+          <label>📞 Phone</label>
+          <input type="text" id="eCustPhone" value="${escapeHtml(c.phone||'')}" placeholder="Phone number"/>
+        </div>
+      </div>
+      <small style="color:var(--text-soft);">✏️ Name/phone theek karne ke liye upar edit karein — Save par update ho jayega.</small>
     </div>
 
     <div style="font-weight:700;margin-bottom:8px;">Items</div>
@@ -368,9 +379,31 @@ function openEditInvoice(orderId) {
       const editLog = o.editLog || [];
       editLog.push({ by: DB.currentUser().username, at: new Date().toISOString() });
 
+      // --- Customer name / phone correction ---
+      // If admin changed the name/phone, save it. To avoid corrupting the shared
+      // "Walk-in Customer" record (id cu1), we create a real customer for it.
+      let newCustomerId = o.customerId;
+      const newName = ($('#eCustName', m)?.value || '').trim();
+      const newPhone = ($('#eCustPhone', m)?.value || '').trim();
+      if (newName) {
+        const cur = DB.get('customers', o.customerId) || {};
+        const changed = (newName !== (cur.name || '')) || (newPhone !== (cur.phone || ''));
+        if (changed) {
+          if (o.customerId === 'cu1' || !o.customerId) {
+            // Walk-in: make a dedicated customer instead of editing the shared one
+            const created = DB.insert('customers', { name: newName, phone: newPhone, address: '', createdAt: new Date().toISOString() });
+            newCustomerId = created.id;
+          } else {
+            DB.update('customers', o.customerId, { name: newName, phone: newPhone });
+          }
+          if (typeof logAction === 'function') logAction('order.edit', `INV-${o.invoiceNo||orderId.slice(-6)}: customer changed to ${newName}`);
+        }
+      }
+
       if (typeof logAction === 'function') logAction('order.edit', `INV-${o.invoiceNo||orderId.slice(-6)}: items changed`);
       const _oldStatus = o.status;
       DB.update('orders', orderId, {
+        customerId: newCustomerId,
         items, subtotal, discountType: discType, discountValue: discVal,
         discount: disc, manualDiscount: disc, loyaltyDiscount: 0, loyaltyPercent: 0,
         tax: 0, total, paid, due, isCredit: due > 0,
