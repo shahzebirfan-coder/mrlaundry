@@ -1,11 +1,40 @@
 /* ===================== ORDERS / INVOICES ===================== */
-let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' };
+let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all', month:'' };
 
 function orderSafeTime(o) { return o?.createdAt || o?.bookingDate || o?.date || ''; }
 function orderSafeDay(o) { return String(o?.bookingDate || o?.createdAt || o?.date || '').slice(0,10); }
 function orderSafeItems(o) { return Array.isArray(o?.items) ? o.items : []; }
 
+/* Build the list of months (YYYY-MM) that actually have invoices, newest first.
+   Used for the "Month" dropdown so the page loads only the current month by
+   default (huge speed + easy scrolling), while older months stay one click away. */
+function orderMonthsAvailable() {
+  const set = new Set();
+  DB.all('orders').forEach(o => {
+    const d = orderSafeDay(o);
+    if (d && d.length >= 7) set.add(d.slice(0,7));
+  });
+  const cur = new Date().toISOString().slice(0,7);
+  set.add(cur); // always include current month even if empty
+  return Array.from(set).sort().reverse();
+}
+function monthLabel(ym) {
+  if (!ym) return '';
+  const [y,m] = ym.split('-');
+  const names = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${names[+m]||m} ${y}`;
+}
+
 function renderOrders() {
+  // Default view = current month (unless a specific date range/all is chosen).
+  if (ordersFilter.month === '' && !ordersFilter.dateFrom && !ordersFilter.dateTo) {
+    ordersFilter.month = new Date().toISOString().slice(0,7);
+  }
+  const months = orderMonthsAvailable();
+  const monthOptions = `
+    <option value="all" ${ordersFilter.month==='all'?'selected':''}>🗓️ All Invoices</option>
+    ${months.map(ym => `<option value="${ym}" ${ordersFilter.month===ym?'selected':''}>${monthLabel(ym)}</option>`).join('')}
+  `;
   const content = `
     <h1 class="page-title">📦 ${t('ord.title')}</h1>
     <p class="page-sub">Search, view, and ${DB.currentUser().role==='admin'?'edit':'track'} all invoices.</p>
@@ -14,6 +43,9 @@ function renderOrders() {
       <div style="font-weight:700;margin-bottom:10px;">${t('ord.findInvoice')}</div>
       <div class="filter-bar" style="margin-bottom:8px;">
         <input id="oSearch" placeholder="${t('ord.searchPlaceholder')}" style="flex:1;min-width:280px;" value="${escapeHtml(ordersFilter.search)}"/>
+        <select id="oMonthSel" title="Select month" style="font-weight:700;color:var(--primary);">
+          ${monthOptions}
+        </select>
         <select id="oStatus">
           <option value="all">${t('ord.allStatus')}</option>
           <option value="pending">⏳ ${t('status.pending')}</option>
@@ -58,14 +90,21 @@ function renderOrders() {
   bindLayout();
 
   $('#oSearch').oninput  = e => { ordersFilter.search = e.target.value; renderOrdersBody(); };
+  $('#oMonthSel').onchange = e => {
+    ordersFilter.month = e.target.value;
+    // Selecting a month clears any manual date range so they don't conflict.
+    ordersFilter.dateFrom = ''; ordersFilter.dateTo = '';
+    renderOrders();
+  };
   $('#oStatus').onchange = e => { ordersFilter.status = e.target.value; renderOrdersBody(); };
   $('#oPayment').onchange= e => { ordersFilter.payment = e.target.value; renderOrdersBody(); };
-  $('#oFrom').onchange   = e => { ordersFilter.dateFrom = e.target.value; renderOrdersBody(); };
-  $('#oTo').onchange     = e => { ordersFilter.dateTo = e.target.value; renderOrdersBody(); };
-  $('#oToday').onclick   = () => { ordersFilter.dateFrom = ordersFilter.dateTo = isoDay(); renderOrders(); };
-  $('#oWeek').onclick    = () => { const d=new Date(); d.setDate(d.getDate()-6); ordersFilter.dateFrom = isoDay(d); ordersFilter.dateTo = isoDay(); renderOrders(); };
-  $('#oMonth').onclick   = () => { const d=new Date(); ordersFilter.dateFrom = isoDay(new Date(d.getFullYear(),d.getMonth(),1)); ordersFilter.dateTo = isoDay(); renderOrders(); };
-  $('#oClear').onclick   = () => { ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' }; renderOrders(); };
+  // Choosing a manual date range switches off the month filter.
+  $('#oFrom').onchange   = e => { ordersFilter.dateFrom = e.target.value; ordersFilter.month = 'all'; renderOrdersBody(); };
+  $('#oTo').onchange     = e => { ordersFilter.dateTo = e.target.value; ordersFilter.month = 'all'; renderOrdersBody(); };
+  $('#oToday').onclick   = () => { ordersFilter.month='all'; ordersFilter.dateFrom = ordersFilter.dateTo = isoDay(); renderOrders(); };
+  $('#oWeek').onclick    = () => { ordersFilter.month='all'; const d=new Date(); d.setDate(d.getDate()-6); ordersFilter.dateFrom = isoDay(d); ordersFilter.dateTo = isoDay(); renderOrders(); };
+  $('#oMonth').onclick   = () => { ordersFilter.dateFrom=''; ordersFilter.dateTo=''; ordersFilter.month = new Date().toISOString().slice(0,7); renderOrders(); };
+  $('#oClear').onclick   = () => { ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all', month:'' }; renderOrders(); };
   $('#oQuickPay').onclick = () => openQuickPay();
 
   // Set status/payment dropdowns to current value
@@ -76,6 +115,9 @@ function renderOrders() {
 
 function filteredOrders() {
   const orders = [...DB.all('orders')].sort((a,b)=>String(orderSafeTime(b)).localeCompare(String(orderSafeTime(a))));
+  // When the user is searching, look across ALL invoices (ignore the month
+  // filter) so they never have to hop months to find an invoice/customer.
+  const searching = !!(ordersFilter.search && ordersFilter.search.trim());
   return orders.filter(o => {
     if (ordersFilter.status !== 'all' && o.status !== ordersFilter.status) return false;
     if (ordersFilter.payment === 'paid'    && o.due > 0) return false;
@@ -83,6 +125,11 @@ function filteredOrders() {
     if (ordersFilter.payment === 'advance' && o.paymentType !== 'advance') return false;
     if (ordersFilter.payment === 'partial' && (o.paid === 0 || o.due === 0 || o.paymentType === 'advance')) return false;
     const d = orderSafeDay(o);
+    // Month filter (only when NOT searching, and not 'all', and no manual range)
+    if (!searching && ordersFilter.month && ordersFilter.month !== 'all'
+        && !ordersFilter.dateFrom && !ordersFilter.dateTo) {
+      if (d.slice(0,7) !== ordersFilter.month) return false;
+    }
     if (ordersFilter.dateFrom && d < ordersFilter.dateFrom) return false;
     if (ordersFilter.dateTo && d > ordersFilter.dateTo) return false;
     if (ordersFilter.search) {
@@ -100,12 +147,19 @@ function filteredOrders() {
 
 function renderOrdersBody() {
   const filtered = filteredOrders();
+  const searching = !!(ordersFilter.search && ordersFilter.search.trim());
+  const viewHint = searching
+    ? `🔎 Searching in <b>all invoices</b>`
+    : (ordersFilter.month && ordersFilter.month !== 'all' && !ordersFilter.dateFrom && !ordersFilter.dateTo
+        ? `📅 Showing <b>${monthLabel(ordersFilter.month)}</b> — change month or pick “All Invoices” above`
+        : (ordersFilter.month === 'all' ? `🗓️ Showing <b>all invoices</b>` : ''));
 
   // Summary
   const totalRevenue = filtered.reduce((s,o)=>s+(o.total||0),0);
   const totalPaid = filtered.reduce((s,o)=>s+(o.paid||0),0);
   const totalDue = filtered.reduce((s,o)=>s+(o.due||0),0);
   $('#ordersSummary').innerHTML = `
+    ${viewHint ? `<div style="background:#eaf0ff;border-left:4px solid var(--primary);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:13px;color:#1a2238;">${viewHint}</div>` : ''}
     <div class="grid-stats" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px;">
       <div class="stat-card"><div class="ic b1">🧾</div><div><div class="lbl">Showing</div><div class="val">${filtered.length} invoices</div></div></div>
       <div class="stat-card"><div class="ic b2">💰</div><div><div class="lbl">${t('ord.total')}</div><div class="val">${fmtMoney(totalRevenue)}</div></div></div>
