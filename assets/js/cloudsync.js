@@ -99,6 +99,7 @@ function buildLiveDashboardData(data) {
       status: o.status || 'pending',
       createdAt: o.createdAt || '',
       updatedAt: o.updatedAt || '',
+      _rev: +o._rev || 0,
       bookingDate: o.bookingDate || '',
       deliveryDate: o.deliveryDate || '',
       deliveryType: o.deliveryType || '',
@@ -346,12 +347,21 @@ const CLOUD = {
           if (!existing) { byId[rec.id] = rec; continue; }
           const lTs = +new Date(existing.updatedAt || existing.createdAt || 0) || 0;
           const rTs = +new Date(rec.updatedAt || rec.createdAt || 0) || 0;
-          if (rTs >= lTs) {
-            byId[rec.id] = mergeRecordSafely(existing, rec);
-          } else {
-            // Local is newer overall, but still rescue any item lists the
-            // remote may hold if local somehow lost them.
+          const lRev = +existing._rev || 0;
+          const rRev = +rec._rev || 0;
+          // Decide the winner. Prefer the higher edit counter (_rev) because it
+          // is clock-independent and reflects the genuinely newer edit. Only if
+          // both revs are equal do we fall back to the timestamp. This fixes
+          // edits (customer name / product price) reverting when another
+          // device with a stale copy syncs back in.
+          let remoteWins;
+          if (rRev !== lRev) remoteWins = rRev > lRev;
+          else remoteWins = rTs > lTs; // strict '>' so an equal-time local edit is kept
+          if (remoteWins) {
             byId[rec.id] = mergeRecordSafely(rec, existing);
+          } else {
+            // Local is the winner; still rescue arrays/images the remote may hold.
+            byId[rec.id] = mergeRecordSafely(existing, rec);
           }
         }
         merged[tbl] = Object.values(byId).filter(rec => !rec._deleted);
@@ -965,6 +975,12 @@ async function reconnectCloudSync() {
     DB.update = function(table, id, patch) {
       patch = patch || {};
       patch.updatedAt = new Date().toISOString();
+      // Monotonic edit counter that does NOT depend on the device clock. Every
+      // real edit bumps it, so a genuine newer edit always beats an older copy
+      // even if another device's clock is skewed. This stops edits (customer
+      // name, product price, etc.) from silently reverting after a sync.
+      const existing = (DB._data[table] || []).find(r => r && r.id === id);
+      patch._rev = ((existing && +existing._rev) || 0) + 1;
       return origUpdate(table, id, patch);
     };
   }
