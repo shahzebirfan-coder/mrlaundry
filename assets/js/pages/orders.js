@@ -456,6 +456,28 @@ function openEditInvoice(orderId) {
 
       if (typeof logAction === 'function') logAction('order.edit', `INV-${o.invoiceNo||orderId.slice(-6)}: items changed`);
       const _oldStatus = o.status;
+
+      // If the edit INCREASED the paid amount, record that extra money as a
+      // proper payment entry (with today's date) in paymentsLog. Otherwise the
+      // dashboard / cashbook / reports never see it (they read paymentsLog by
+      // date), which is why a payment added via Edit on an old invoice did not
+      // show up in "Today's Payments".
+      const prevPaid = +o.paid || 0;
+      let paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
+      const extraPaid = paid - prevPaid;
+      if (extraPaid > 0) {
+        const cashier = DB.currentUser() || {};
+        paymentsLog.push({
+          id: 'pay_' + Date.now().toString(36),
+          amount: extraPaid,
+          method: $('#ePayMethod', m).value || 'cash',
+          note: 'Payment added via invoice edit',
+          at: new Date().toISOString(),
+          by: cashier.username || 'unknown',
+          byName: cashier.name || ''
+        });
+      }
+
       DB.update('orders', orderId, {
         customerId: newCustomerId,
         items, subtotal, discountType: discType, discountValue: discVal,
@@ -464,6 +486,7 @@ function openEditInvoice(orderId) {
         status: $('#eStatus', m).value,
         deliveryDate: $('#eDelivery', m).value,
         paymentMethod: $('#ePayMethod', m).value,
+        paymentsLog,
         editLog
       });
       closeModal(); toast('Invoice updated','success'); renderOrdersBody();
