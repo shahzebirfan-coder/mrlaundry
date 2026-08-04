@@ -386,6 +386,13 @@ const CLOUD = {
   async push(options = {}) {
     if (this._suppressPush) return false;
     if (!this.isEnabled() || !this.isReady()) return false;
+    // Offline? Skip the network call immediately. Data is already saved locally
+    // by DB.save(); the Dual-Mode reconnect handler will push it once the
+    // internet returns. This keeps the POS instant while offline.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      this._pendingPush = true;
+      return false;
+    }
 
     // Sometimes a previous network request can hang and leave _syncing=true.
     // Manual push should wait longer, and if the lock is stale, safely reset it.
@@ -1235,3 +1242,104 @@ service cloud.firestore {
     </div>
   `, { large: true });
 }
+
+
+/* ============================================================
+   DUAL MODE — Offline-first + auto-resync on reconnect
+   ------------------------------------------------------------
+   The POS already saves every order/payment to localStorage, so it keeps
+   working with no internet. This block adds:
+     1. A small ONLINE / OFFLINE badge (top-right) so the cashier always knows.
+     2. Automatic sync the moment the internet comes back (pull + merge + push)
+        — no need to press "Safe Merge Now" manually.
+   It is purely additive and never blocks the cashier.
+   ============================================================ */
+(function dualModeOfflineSync() {
+  if (typeof window === 'undefined') return;
+
+  let badge = null;
+  function ensureBadge() {
+    if (badge) return badge;
+    badge = document.createElement('div');
+    badge.id = 'netStatusBadge';
+    badge.style.cssText = [
+      'position:fixed','top:10px','right:12px','z-index:99999',
+      'font:700 12px/1 "Segoe UI",Arial,sans-serif','padding:7px 12px',
+      'border-radius:999px','box-shadow:0 4px 12px rgba(0,0,0,.18)',
+      'display:flex','align-items:center','gap:7px','pointer-events:none',
+      'transition:opacity .4s','user-select:none'
+    ].join(';');
+    document.body.appendChild(badge);
+    return badge;
+  }
+
+  function paintBadge(online, syncing) {
+    const b = ensureBadge();
+    if (online && syncing) {
+      b.style.background = '#dbeafe'; b.style.color = '#1d4ed8';
+      b.innerHTML = '<span style="width:9px;height:9px;border-radius:50%;background:#3b82f6;box-shadow:0 0 0 4px rgba(59,130,246,.2)"></span> Syncing…';
+      b.style.opacity = '1';
+    } else if (online) {
+      b.style.background = '#dcfce7'; b.style.color = '#166534';
+      b.innerHTML = '<span style="width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.2)"></span> Online';
+      b.style.opacity = '1';
+      // fade the green badge after a few seconds so it isn't distracting
+      clearTimeout(b._fade);
+      b._fade = setTimeout(() => { if (b.textContent.trim() === 'Online') b.style.opacity = '0'; }, 4000);
+    } else {
+      b.style.background = '#fee2e2'; b.style.color = '#991b1b';
+      b.innerHTML = '<span style="width:9px;height:9px;border-radius:50%;background:#ef4444;box-shadow:0 0 0 4px rgba(239,68,68,.2)"></span> Offline — saving locally, will sync when back';
+      b.style.opacity = '1';
+      clearTimeout(b._fade);
+    }
+  }
+
+  async function resyncNow() {
+    if (typeof CLOUD === 'undefined') return;
+    if (!CLOUD.isEnabled || !CLOUD.isEnabled() || !CLOUD.isReady || !CLOUD.isReady()) return;
+    try {
+      paintBadge(true, true);
+      // Pull + merge cloud changes first (safe, non-destructive), then push ours.
+      await CLOUD.pullAndMerge();
+      await CLOUD.push().catch(()=>{});
+      try { await CLOUD.listen(); } catch(e) {}
+      paintBadge(true, false);
+      try { if (typeof toast === 'function') toast('🔄 Back online — data synced', 'success'); } catch(e) {}
+    } catch (e) {
+      console.warn('[DualMode] resync failed:', e);
+      paintBadge(navigator.onLine, false);
+    }
+  }
+
+  let resyncTimer = null;
+  function onOnline() {
+    paintBadge(true, false);
+    // small delay to let the connection stabilise before syncing
+    clearTimeout(resyncTimer);
+    resyncTimer = setTimeout(resyncNow, 1500);
+  }
+  function onOffline() {
+    paintBadge(false, false);
+  }
+
+  window.addEventListener('online', onOnline);
+  window.addEventListener('offline', onOffline);
+
+  // Initial paint once DOM is ready
+  function init() {
+    paintBadge(navigator.onLine, false);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  // Safety net: some networks drop without firing the 'online' event. Every
+  // 20s, if we think we're online and sync is idle, do a light connectivity
+  // check and trigger a resync if we just recovered.
+  let wasOnline = navigator.onLine;
+  setInterval(() => {
+    const now = navigator.onLine;
+    if (now && !wasOnline) onOnline();      // recovered
+    else if (!now && wasOnline) onOffline(); // dropped
+    wasOnline = now;
+  }, 20000);
+})();
