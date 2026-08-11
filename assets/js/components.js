@@ -22,6 +22,7 @@ function renderLayout(activePage, contentHtml) {
     { id:'auditLog',  icon:'🔐', label:t('nav.auditLog') },
     { id:'vendors',   icon:'🏭', label:t('nav.vendors') },
     { id:'branches',  icon:'🏢', label:'Branches' },
+    { id:'factory',   icon:'🏭', label:'Factory (Per-KG)' },
     { id:'inbox',     icon:'📨', label:'Customer Inbox' },
     { id:'claims',    icon:'🛡️', label:'Claims' },
     { id:'delivery',  icon:'🚚', label:'Pickup & Delivery' },

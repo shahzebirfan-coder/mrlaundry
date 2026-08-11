@@ -64,6 +64,7 @@ const app = {
       case 'cashbook':        return renderCashbook();
       case 'auditLog':        return renderAuditLog();
       case 'branches':        return renderBranches();
+      case 'factory':         return renderFactory();
       case 'inbox':           return renderInbox();
       case 'promoAdmin':      return renderPromoAdmin();
       case 'claims':          return renderClaims();

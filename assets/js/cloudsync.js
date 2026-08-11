@@ -22,7 +22,7 @@ const DEFAULT_FIREBASE_CONFIG = {
 };
 const DEFAULT_SHOP_ID = 'shahzeb-laundry-private-pos';
 const CLOUD_SYNC_LOCKED = true;
-const IMPORTANT_SYNC_TABLES = ['orders', 'customers', 'users', 'vendors', 'purchaseOrders', 'expenses'];
+const IMPORTANT_SYNC_TABLES = ['orders', 'customers', 'users', 'vendors', 'purchaseOrders', 'expenses', 'factoryClients', 'factoryEntries', 'factoryPayments', 'factoryEmployees', 'factoryExpenses', 'factoryInvestments'];
 
 function applyLockedCloudDefaults() {
   if (!CLOUD_SYNC_LOCKED) return;
@@ -267,7 +267,7 @@ const CLOUD = {
   // recorded payment back to "unpaid". Payments only ever move forward, so we
   // keep the HIGHEST paid amount and the UNION of payment log entries across
   // both versions, then recompute `due` accordingly.
-  _mergeRecordSafely(winner, loser) {
+  _mergeRecordSafely(winner, loser, winnerIsNewerEdit) {
     if (!winner) return loser;
     if (!loser) return winner;
     const out = Object.assign({}, winner);
@@ -292,8 +292,18 @@ const CLOUD = {
     });
 
     // ----- Money-safe payment merge -----
-    // Union of paymentsLog by entry id (or a fingerprint) so no recorded
-    // payment is ever dropped when two devices sync.
+    // IMPORTANT: If the winner is a genuinely newer edit (higher _rev), it is a
+    // DELIBERATE correction by the user (e.g. cash→credit, or paid set to 0).
+    // In that case we trust the winner's money fields exactly as-is and do NOT
+    // apply the "paid never goes backwards" / paymentsLog-union safeties, which
+    // would otherwise restore the old payment and undo the correction.
+    if (winnerIsNewerEdit) {
+      // keep out.paid, out.due, out.paymentsLog, out.status from the winner as-is
+      return out;
+    }
+
+    // --- Same-version sync race (no deliberate edit): protect money ---
+    // Union of paymentsLog so no recorded payment is dropped between two devices.
     const wLog = Array.isArray(out.paymentsLog) ? out.paymentsLog : [];
     const lLog = Array.isArray(loser.paymentsLog) ? loser.paymentsLog : [];
     if (wLog.length || lLog.length) {
@@ -303,8 +313,8 @@ const CLOUD = {
       out.paymentsLog = Array.from(seen.values());
     }
 
-    // `paid` never goes backwards. Take the max of both versions; if the union
-    // of logged payments is even higher, trust that. Then recompute `due`.
+    // `paid` never goes backwards on a same-version race. Take the max; if the
+    // union of logged payments is even higher, trust that. Then recompute `due`.
     const hasPaid = ('paid' in winner) || ('paid' in loser);
     if (hasPaid) {
       const logSum = Array.isArray(out.paymentsLog)
@@ -357,11 +367,19 @@ const CLOUD = {
           let remoteWins;
           if (rRev !== lRev) remoteWins = rRev > lRev;
           else remoteWins = rTs > lTs; // strict '>' so an equal-time local edit is kept
+          // Is the winner a GENUINELY newer edit (higher _rev)? If yes, its
+          // money fields (paid/paymentsLog) must be respected AS-IS — even if
+          // lower — so a deliberate correction (e.g. changing a cash invoice to
+          // credit / setting paid to 0) is not undone by the "paid never goes
+          // backwards" safety. That safety only applies to same-version races.
+          const winnerRev = remoteWins ? rRev : lRev;
+          const loserRev  = remoteWins ? lRev : rRev;
+          const winnerIsNewerEdit = winnerRev > loserRev;
           if (remoteWins) {
-            byId[rec.id] = mergeRecordSafely(rec, existing);
+            byId[rec.id] = mergeRecordSafely(rec, existing, winnerIsNewerEdit);
           } else {
             // Local is the winner; still rescue arrays/images the remote may hold.
-            byId[rec.id] = mergeRecordSafely(existing, rec);
+            byId[rec.id] = mergeRecordSafely(existing, rec, winnerIsNewerEdit);
           }
         }
         merged[tbl] = Object.values(byId).filter(rec => !rec._deleted);
