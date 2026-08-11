@@ -51,6 +51,9 @@ function renderSettings() {
             <div class="field"><label>Tax Percent (%)</label><input type="number" id="sTax" value="${s.taxPercent||0}"/></div>
             <div class="field"><label>Invoice URL Base (for QR)</label><input id="sBase" value="${escapeHtml(s.baseUrl||'')}" placeholder="https://yourshop.com (optional)"/></div>
           </div>
+          <div class="form-row">
+            <div class="field"><label>🏭 Factory Rate per KG (Rs.)</label><input type="number" id="sFactoryRate" value="${s.factoryRatePerKg||200}" placeholder="200"/><small style="color:var(--text-soft);">Default per-KG rate for wholesale factory laundry</small></div>
+          </div>
           <div class="form-row cols-1">
             <div class="field"><label>Invoice Footer Message</label><input id="sFooter" value="${escapeHtml(s.invoiceFooter||'')}"/></div>
           </div>
@@ -226,6 +229,7 @@ function renderSettings() {
       currency: $('#sCurrency').value.trim() || 'Rs.',
       address: $('#sAddr').value.trim(),
       taxPercent: Math.max(0, +$('#sTax').value || 0),
+      factoryRatePerKg: Math.max(0, +$('#sFactoryRate').value || 200),
       baseUrl: $('#sBase').value.trim(),
       invoiceFooter: $('#sFooter').value.trim(),
       loyaltyPrefix: ($('#sLoyPrefix').value || 'MRL').toUpperCase(),
