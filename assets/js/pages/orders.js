@@ -476,6 +476,43 @@ function openEditInvoice(orderId) {
           by: cashier.username || 'unknown',
           byName: cashier.name || ''
         });
+      } else if (paid < prevPaid) {
+        // Paid was REDUCED (e.g. cash invoice corrected to credit / set to 0).
+        // The existing paymentsLog entries must be adjusted to match the new
+        // paid amount, otherwise the payment "comes back" when the app or a
+        // sync recomputes paid from paymentsLog. We record an adjustment entry
+        // so the log SUM equals the new paid, and keep a clear audit note.
+        const logSum = paymentsLog.reduce((s,p)=>s+(+p.amount||0),0);
+        const diff = paid - logSum; // negative
+        if (Math.round(logSum) !== Math.round(paid)) {
+          if (paid <= 0) {
+            // Fully reversed — mark all prior entries reversed and zero the log.
+            const cashier = DB.currentUser() || {};
+            paymentsLog = [{
+              id: 'padj_' + Date.now().toString(36),
+              amount: 0,
+              method: $('#ePayMethod', m).value || 'cash',
+              note: 'Payment reversed via edit (was ' + fmtMoney(prevPaid) + ')',
+              at: new Date().toISOString(),
+              by: cashier.username || 'unknown',
+              byName: cashier.name || '',
+              _reversal: true
+            }];
+          } else {
+            // Partial reduction — add a negative adjustment so the log sum matches.
+            const cashier = DB.currentUser() || {};
+            paymentsLog.push({
+              id: 'padj_' + Date.now().toString(36),
+              amount: diff, // negative
+              method: $('#ePayMethod', m).value || 'cash',
+              note: 'Payment adjusted via edit',
+              at: new Date().toISOString(),
+              by: cashier.username || 'unknown',
+              byName: cashier.name || '',
+              _adjustment: true
+            });
+          }
+        }
       }
 
       DB.update('orders', orderId, {
