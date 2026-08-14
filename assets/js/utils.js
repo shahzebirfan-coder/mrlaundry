@@ -58,7 +58,21 @@ function openModal(innerHtml, opts={}) {
   const wrap = el(`<div class="modal-backdrop"><div class="modal ${opts.large?'lg':''}"></div></div>`);
   wrap.querySelector('.modal').innerHTML = innerHtml;
   $('#modal-root').appendChild(wrap);
-  wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
+  // NOTE: Clicking outside the box does NOT close it anymore. This prevents
+  // losing an in-progress form (e.g. adding an expense) when the user
+  // accidentally clicks the background. The modal only closes via its own
+  // Cancel / Close / Save buttons. A small shake gives feedback instead.
+  // Set opts.closeOnBackdrop = true to restore old behaviour for a specific modal.
+  if (opts.closeOnBackdrop === true) {
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
+  } else {
+    wrap.addEventListener('click', (e) => {
+      if (e.target === wrap) {
+        const box = wrap.querySelector('.modal');
+        if (box) { box.classList.remove('modal-shake'); void box.offsetWidth; box.classList.add('modal-shake'); }
+      }
+    });
+  }
   if (opts.onOpen) opts.onOpen(wrap.querySelector('.modal'));
   return wrap.querySelector('.modal');
 }
