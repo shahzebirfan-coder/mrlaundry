@@ -363,6 +363,15 @@ table.tbl { width:100%; border-collapse: collapse; }
 .modal-footer { display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
 @keyframes fade { from{opacity:0} to{opacity:1} }
 @keyframes pop { from{transform:scale(.95); opacity:0} to{transform:scale(1); opacity:1} }
+/* Gentle shake when the user clicks OUTSIDE the box — hints "use Cancel/Close" */
+.modal.modal-shake { animation: modalShake .35s ease; }
+@keyframes modalShake {
+  0%,100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
+}
 
 /* ===================== TOAST ===================== */
 #toast-container {
