@@ -22,7 +22,7 @@ const DEFAULT_FIREBASE_CONFIG = {
 };
 const DEFAULT_SHOP_ID = 'shahzeb-laundry-private-pos';
 const CLOUD_SYNC_LOCKED = true;
-const IMPORTANT_SYNC_TABLES = ['orders', 'customers', 'users', 'vendors', 'purchaseOrders', 'expenses', 'factoryClients', 'factoryEntries', 'factoryPayments', 'factoryEmployees', 'factoryExpenses', 'factoryInvestments'];
+const IMPORTANT_SYNC_TABLES = ['orders', 'customers', 'users', 'vendors', 'purchaseOrders', 'expenses', 'factoryClients', 'factoryEntries', 'factoryDeliveries', 'factoryPayments', 'factoryEmployees', 'factoryExpenses', 'factoryInvestments'];
 
 function applyLockedCloudDefaults() {
   if (!CLOUD_SYNC_LOCKED) return;
@@ -175,6 +175,8 @@ const CLOUD = {
   SHOP_KEY: 'mrLaundryShopId',
   ENABLED_KEY: 'mrLaundryCloudEnabled',
   LAST_SYNC_KEY: 'mrLaundryLastSync',
+  LAST_ERROR_KEY: 'mrLaundryLastSyncError',
+  AUTO_PUSH_MIN_KEY: 'mrLaundryAutoPushMin',
 
   _app: null, _db: null, _unsub: null,
   _syncing: false, _pendingPush: false,
@@ -195,6 +197,15 @@ const CLOUD = {
   isEnabled() { return CLOUD_SYNC_LOCKED || localStorage.getItem(this.ENABLED_KEY) === 'true'; },
   setEnabled(v) { localStorage.setItem(this.ENABLED_KEY, (CLOUD_SYNC_LOCKED || v)?'true':'false'); },
   isReady() { return !!(this.getConfig() && this.getShopId()); },
+
+  /* Auto-push: how often (minutes) the open POS quietly re-syncs with the
+     cloud even if nothing is saved on this device. 0 = OFF (only the
+     instant Save-push and the Manual Push button upload). */
+  getAutoPushMin() {
+    const raw = localStorage.getItem(this.AUTO_PUSH_MIN_KEY);
+    return raw === null ? 30 : Math.max(0, +raw || 0);
+  },
+  setAutoPushMin(v) { localStorage.setItem(this.AUTO_PUSH_MIN_KEY, String(Math.max(0, +v || 0))); },
 
   async loadSDK() {
     if (window.firebase?.firestore) return;
@@ -565,7 +576,7 @@ const CLOUD = {
       }
 
       this._lastAppliedVersion = version;
-      try { localStorage.setItem(this.LAST_SYNC_KEY, new Date().toISOString()); } catch(e) {}
+      try { localStorage.setItem(this.LAST_SYNC_KEY, new Date().toISOString()); localStorage.removeItem(this.LAST_ERROR_KEY); } catch(e) {}
       console.log(`[CloudSync] Pushed ${Object.keys(tableMeta).length} tables (${Math.round(totalSize/1024)}KB)`);
       return true;
     } finally {
@@ -1046,7 +1057,12 @@ async function reconnectCloudSync() {
     if (!CLOUD.isEnabled() || !CLOUD.isReady()) return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
-      CLOUD.push().catch(e => console.warn('Push failed:', e));
+      CLOUD.push().catch(e => {
+        console.warn('Push failed:', e);
+        // Remember WHY sync is failing — shown in the Cloud Sync panel so
+        // "Last sync: NA" is never a silent mystery again.
+        try { localStorage.setItem('mrLaundryLastSyncError', new Date().toLocaleString() + ' — ' + ((e && e.message) || e)); } catch(_){}
+      });
     }, 300);
   };
 })();
@@ -1072,6 +1088,9 @@ function openCloudSyncManager() {
   const lastSync = localStorage.getItem(CLOUD.LAST_SYNC_KEY);
   const deviceId = getDeviceId();
   const deviceLabel = getDeviceLabel();
+  const autoMin = CLOUD.getAutoPushMin();
+  const lastErr = localStorage.getItem(CLOUD.LAST_ERROR_KEY);
+  let dataKB = 0; try { dataKB = Math.round(JSON.stringify(DB._data).length/1024); } catch(e) {}
 
   openModal(`
     <h3>☁️ Cloud Sync (Multi-Device)</h3>
@@ -1103,9 +1122,19 @@ function openCloudSyncManager() {
       </div>
     </div>
 
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;background:${autoMin>0?'#dbeafe':'var(--surface-alt)'};padding:10px;border-radius:8px;margin-bottom:8px;">
+      <div style="font-size:12px;line-height:1.5;"><b>🔄 Auto-push (${autoMin>0?autoMin+' min':'OFF'})</b><br>
+        <span style="color:var(--text-soft);">Har ${autoMin>0?autoMin:'—'} minute mein changes cloud par automatically upload ho jayengi. OFF ka matlab sirf Save/Manual Push par jayega.</span></div>
+      <select id="fAutoPushSel" style="padding:8px;border-radius:8px;border:1px solid var(--border);font-weight:700;background:#fff;">
+        ${[0,5,15,30,60].map(m=>`<option value="${m}" ${autoMin===m?'selected':''}>${m===0?'❌ OFF':'⏰ '+m+' min'}</option>`).join('')}
+      </select>
+    </div>
+    <div style="background:var(--surface-alt);padding:10px;border-radius:8px;font-size:12px;margin-bottom:6px;">
+      📦 Size: <b>${dataKB} KB</b> &nbsp;•&nbsp; 🔄 Last sync: <b>${lastSync ? new Date(lastSync).toLocaleString() : 'NA'}</b>
+      ${lastErr?`<br><span style="color:var(--danger);">⚠️ Pichhla error: ${escapeHtml(lastErr)}</span>`:''}
+    </div>
     <div style="background:var(--surface-alt);padding:10px;border-radius:8px;font-size:12px;margin-bottom:14px;">
-      ${lastSync ? `🔄 Last sync: ${new Date(lastSync).toLocaleString()}` : '⚠️ Never synced'}
-      <br>📱 This device: <b>${escapeHtml(deviceLabel)}</b> <code style="font-size:10px;">${deviceId}</code>
+      📱 This device: <b>${escapeHtml(deviceLabel)}</b> <code style="font-size:10px;">${deviceId}</code>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:8px;">
@@ -1132,6 +1161,14 @@ function openCloudSyncManager() {
     };
 
     $('#firebaseGuideBtn', m)?.addEventListener('click', () => { closeModal(); openFirebaseSetupGuide(); });
+
+    const aps = $('#fAutoPushSel', m);
+    if (aps) aps.onchange = e => {
+      const v = +e.target.value || 0;
+      CLOUD.setAutoPushMin(v);
+      toast(v>0?`⏰ Auto-push ON: har ${v} minute`:'❌ Auto-push OFF — sirf Save/Manual Push jayegi','success');
+      closeModal(); openCloudSyncManager();
+    };
 
     $('#enableBtn', m)?.addEventListener('click', async () => {
       const cfgText = $('#fbCfg', m).value.trim();
@@ -1360,4 +1397,44 @@ service cloud.firestore {
     else if (!now && wasOnline) onOffline(); // dropped
     wasOnline = now;
   }, 20000);
+})();
+
+/* ============== AUTO-PUSH SCHEDULER (periodic safe sync) ==============
+   While the POS stays open, every N minutes (Sync panel → Auto-push,
+   default 30): pull+merge the cloud first, then push ONLY if this device
+   has local changes that were not pushed yet (or never pushed at all).
+   OFF (0 min) keeps the old behaviour: instant Save-push + Manual Push.
+   Any failure is stored as Last error in the Cloud Sync panel — no more
+   silent 'Last sync: NA' mysteries on shop screens. */
+(function autoPushScheduler(){
+  if (typeof window === 'undefined' || typeof CLOUD === 'undefined') return;
+  const LOCALV_KEY = 'mrLaundryLocalVersion';   // bumped by DB.save()
+  const PUSHEDV_KEY = 'mrLaundryLastPushedLocalVersion';
+  let nextAt = Date.now() + 60000;              // first auto round 1 min after load
+  setInterval(async () => {
+    try {
+      const min = CLOUD.getAutoPushMin();
+      if (min <= 0) return;
+      if (Date.now() < nextAt) return;
+      nextAt = Date.now() + Math.max(60000, min * 60000);
+      if (!CLOUD.isEnabled() || !CLOUD.isReady()) return;
+      if (CLOUD._syncing || CLOUD._suppressPush) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      // 1) receive other devices' changes (safe, non-destructive merge)
+      try { await CLOUD.pullAndMerge(); } catch(e) { console.warn('[AutoSync] pull failed:', e); }
+      // 2) send only if this device has unsent local changes (or never pushed)
+      const lv = +localStorage.getItem(LOCALV_KEY) || 0;
+      const pv = +localStorage.getItem(PUSHEDV_KEY) || 0;
+      if (pv && lv <= pv) return; // nothing new since our last push — stay quiet
+      const ok = await CLOUD.push();
+      if (ok) {
+        try { localStorage.setItem(PUSHEDV_KEY, String(Date.now())); } catch(e) {}
+        if (typeof toast === 'function') { try { toast('🔄 Auto-push: cloud sync ho gaya ✅','success'); } catch(e){} }
+      }
+    } catch (e) {
+      console.warn('[AutoSync] failed:', e);
+      try { localStorage.setItem(CLOUD.LAST_ERROR_KEY, new Date().toLocaleString() + ' — ' + ((e && e.message) || e)); } catch(_){}
+      if (typeof toast === 'function') { try { toast('⚠️ Auto-push fail hua — Cloud Sync panel khol kar dekhein','error'); } catch(e2){} }
+    }
+  }, 60000);
 })();

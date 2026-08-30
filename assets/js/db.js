@@ -29,7 +29,7 @@ const DB = {
       // so missing core tables (users/products/categories) must be re-seeded
       // instead of leaving the app blank on next load.
       const seed = this._seed();
-      ['users','categories','products','customers','orders','expenses','ownerDrawings','vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates','factoryClients','factoryEntries','factoryPayments','factoryEmployees','factoryExpenses','factoryInvestments'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+      ['users','categories','products','customers','orders','expenses','ownerDrawings','vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates','factoryClients','factoryEntries','factoryDeliveries','factoryPayments','factoryEmployees','factoryExpenses','factoryInvestments'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
       if (!Array.isArray(this._data.users) || !this._data.users.length) this._data.users = seed.users;
       // Guarantee the built-in staff accounts always exist on every device,
       // even if a cloud merge/reset ever dropped them. Existing accounts (and
@@ -238,6 +238,7 @@ const DB = {
       reportTemplates: [],
       factoryClients: [],
       factoryEntries: [],
+      factoryDeliveries: [],
       factoryPayments: [],
       factoryEmployees: [],
       factoryExpenses: [],
