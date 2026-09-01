@@ -58,7 +58,7 @@
     };
     const SHOP_ID = 'shahzeb-laundry-private-pos';
     const MAX_DOC_SIZE = 800000;
-    let db, unsub, lastData = null, lastUpdated = null;
+    let db, unsub, lastData = null, lastUpdated = null, lastFetchAt = 0, __refreshing = false, __errRetries = 0, __inited = false;
 
     function esc(v){return String(v ?? '').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
     function money(n){return 'Rs. ' + Math.round(Number(n||0)).toLocaleString('en-PK');}
@@ -72,13 +72,29 @@
     function expenseDay(e){ return e.date || rowDate(e.createdAt); }
     function customerName(data, id){ const c=(data.customers||[]).find(x=>x.id===id); return c?.name || 'Walk-in'; }
 
-    async function loadLiveDashboardData(){
-      const doc = await db.collection('shops').doc(SHOP_ID).collection('tables').doc('_liveDashboard').get();
-      if (!doc.exists) return null;
-      const raw = doc.data().data;
-      if (!raw) return null;
-      lastUpdated = doc.data().updatedAt?.toDate ? doc.data().updatedAt.toDate() : new Date();
+    /* The POS writes the compact live doc in CHUNKS when it ever grows past
+       Firestore's ~1MB per-document hard cap (that cap is what silently froze
+       live.html on stale data once history crossed 1MB). Reassemble here. */
+    async function assembleLivePayload(tablesRef, payload){
+      let raw = payload.data;
+      const n = +payload.chunks || 1;
+      if (n > 1) {
+        const parts = await Promise.all(Array.from({length: n - 1}, (_, i) => tablesRef.doc(`_liveDashboard__x${i+1}`).get()));
+        const extra = parts.map(p => p.exists ? p.data().data : null);
+        if (extra.some(x => x == null)) throw new Error('Live data chunks incomplete — retry');
+        raw += extra.join('');
+      }
       return JSON.parse(raw);
+    }
+
+    async function loadLiveDashboardData(forceServer){
+      const tablesRef = db.collection('shops').doc(SHOP_ID).collection('tables');
+      const doc = await tablesRef.doc('_liveDashboard').get(forceServer ? {source:'server'} : undefined);
+      if (!doc.exists) return null;
+      const p = doc.data();
+      if (!p.data) return null;
+      lastUpdated = p.updatedAt?.toDate ? p.updatedAt.toDate() : new Date();
+      return await assembleLivePayload(tablesRef, p);
     }
 
     async function loadCloudData(){
@@ -160,6 +176,7 @@
 
     function render(data){
       lastData = data;
+      lastFetchAt = Date.now();
       const s = data.settings || {};
       const st = buildStats(data);
       const maxBar = Math.max(1, ...st.last7.map(x=>x.value));
@@ -240,28 +257,69 @@
     }
 
     function renderError(err){
-      document.getElementById('root').innerHTML = `<div class="wrap"><div class="error"><b>Live dashboard error:</b><br>${esc(err.message || err)}</div><button onclick="location.reload()">Reload</button></div>`;
+      // Weak internet? Don't just sit on an error screen — retry on its own
+      // twice before asking the user to reload.
+      if (typeof navigator !== 'undefined' && navigator.onLine && __errRetries < 2) {
+        __errRetries++;
+        document.getElementById('root').innerHTML = `<div class="wrap"><div class="error"><b>Live dashboard:</b><br>${esc(err.message || err)}<br><small>Auto-retry ${__errRetries}/2 chal raha hai — 6 second mein dobara koshish…</small></div><button onclick="manualRefresh()">Refresh Now</button></div>`;
+        setTimeout(() => { init().catch(renderError); }, 6000);
+        return;
+      }
+      document.getElementById('root').innerHTML = `<div class="wrap"><div class="error"><b>Live dashboard error:</b><br>${esc(err.message || err)}</div><button onclick="location.reload()">Reload</button> <button class="secondary" onclick="manualRefresh()">Refresh</button></div>`;
     }
 
     async function manualRefresh(){
-      try { render(await loadCloudData()); } catch(e) { renderError(e); }
+      if (__refreshing) return;   // don't stack rapid clicks
+      __refreshing = true;
+      try {
+        // Fast path first: the tiny compact doc, straight from the SERVER
+        // (skips any stale local cache). Fallback: read the real tables.
+        let d = null;
+        try { d = await loadLiveDashboardData(true); } catch(e) { d = null; }
+        if (d) render(d); else render(await loadCloudData());
+        __errRetries = 0;
+      } catch(e) { renderError(e); }
+      finally { __refreshing = false; }
     }
 
+    function loadScript(src){
+      return new Promise((res, rej) => {
+        const sc = document.createElement('script');
+        sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('failed ' + src));
+        document.head.appendChild(sc);
+      });
+    }
     async function init(){
       if (!navigator.onLine) throw new Error('Internet required. Live dashboard is online-only.');
-      if (!window.firebase) throw new Error('Firebase SDK could not load. Check internet connection.');
-      firebase.initializeApp(firebaseConfig);
-      db = firebase.firestore();
+      if (!window.firebase || !window.firebase.firestore) {
+        // Flaky shop internet sometimes drops the SDK <script> tags on first
+        // load — retry loading them before giving up (fewer manual refreshes).
+        const urls = [
+          'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js',
+          'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'
+        ];
+        for (let a = 0; a < 3 && (!window.firebase || !window.firebase.firestore); a++) {
+          await new Promise(r => setTimeout(r, 1200));
+          for (const u of urls) { try { await loadScript(u); } catch(e) {} }
+        }
+        if (!window.firebase || !window.firebase.firestore) throw new Error('Firebase SDK could not load. Check internet connection.');
+      }
+      if (!__inited) {
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        __inited = true;
+      }
 
       // Super-fast path: POS writes a compact live dashboard doc on every sync.
       // live.html listens to that one tiny document instead of downloading the
       // full POS database. If it doesn't exist yet, we fall back once.
       const liveRef = db.collection('shops').doc(SHOP_ID).collection('tables').doc('_liveDashboard');
+      try { if (unsub) unsub(); } catch(e) {}
       unsub = liveRef.onSnapshot(async snap => {
         try {
           if (snap.exists && snap.data().data) {
             lastUpdated = snap.data().updatedAt?.toDate ? snap.data().updatedAt.toDate() : new Date();
-            return render(JSON.parse(snap.data().data));
+            return render(await assembleLivePayload(liveRef.parent, snap.data()));
           }
           render(await loadCloudData());
         } catch(e) { renderError(e); }
@@ -269,7 +327,19 @@
 
       // Show something immediately while realtime snapshot connects.
       loadLiveDashboardData().then(d => { if (d) render(d); }).catch(()=>{});
-      setInterval(() => { if (lastData) render(lastData); }, 30000);
+      // Clock tick every 30s; plus a safety net: if realtime hiccups and we
+      // haven't had fresh data for 2 minutes, quietly re-pull from the server.
+      if (!window.__liveRefreshTimer) {
+        window.__liveRefreshTimer = setInterval(async () => {
+          if (lastData) render(lastData);
+          try {
+            if (__inited && !document.hidden && Date.now() - lastFetchAt > 120000) {
+              const d = await loadLiveDashboardData(true);
+              if (d) render(d);
+            }
+          } catch(e) {}
+        }, 30000);
+      }
     }
     window.addEventListener('online', () => manualRefresh());
     window.addEventListener('offline', () => renderError(new Error('Internet disconnected. Live dashboard is online-only.')));
