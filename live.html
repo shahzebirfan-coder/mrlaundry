@@ -87,14 +87,32 @@
       return JSON.parse(raw);
     }
 
-    async function loadLiveDashboardData(forceServer){
+    async function loadLiveDashboardPack(forceServer){
       const tablesRef = db.collection('shops').doc(SHOP_ID).collection('tables');
       const doc = await tablesRef.doc('_liveDashboard').get(forceServer ? {source:'server'} : undefined);
       if (!doc.exists) return null;
       const p = doc.data();
       if (!p.data) return null;
       lastUpdated = p.updatedAt?.toDate ? p.updatedAt.toDate() : new Date();
-      return await assembleLivePayload(tablesRef, p);
+      return { data: await assembleLivePayload(tablesRef, p), version: +p.version || 0 };
+    }
+
+    /* If the compact doc is older than the POS's last real push, it is stale
+       (e.g. a device still running old code, or a write that was rejected).
+       The POS writes the compact doc and the main meta with the SAME version
+       number, so a smaller version = frozen doc → fall back to reading the
+       real tables. live.html then NEVER shows yesterday's numbers. */
+    async function getMainMetaVersion(){
+      try {
+        const meta = await db.collection('shops').doc(SHOP_ID).get();
+        return meta.exists ? (+meta.data().version || 0) : 0;
+      } catch(e) { return 0; }
+    }
+    async function validateCompactPack(pack){
+      if (!pack || !pack.data) return null;
+      const mv = await getMainMetaVersion();
+      if (mv && (+pack.version || 0) < mv) return null; // stale → caller falls back
+      return pack.data;
     }
 
     async function loadCloudData(){
@@ -273,9 +291,10 @@
       __refreshing = true;
       try {
         // Fast path first: the tiny compact doc, straight from the SERVER
-        // (skips any stale local cache). Fallback: read the real tables.
+        // (skips any stale local cache) — but ONLY if it isn't older than the
+        // POS's last real push. Fallback: read the real tables directly.
         let d = null;
-        try { d = await loadLiveDashboardData(true); } catch(e) { d = null; }
+        try { d = await validateCompactPack(await loadLiveDashboardPack(true)); } catch(e) { d = null; }
         if (d) render(d); else render(await loadCloudData());
         __errRetries = 0;
       } catch(e) { renderError(e); }
@@ -318,15 +337,18 @@
       unsub = liveRef.onSnapshot(async snap => {
         try {
           if (snap.exists && snap.data().data) {
-            lastUpdated = snap.data().updatedAt?.toDate ? snap.data().updatedAt.toDate() : new Date();
-            return render(await assembleLivePayload(liveRef.parent, snap.data()));
+            const sp = snap.data();
+            lastUpdated = sp.updatedAt?.toDate ? sp.updatedAt.toDate() : new Date();
+            const d = await validateCompactPack({ data: await assembleLivePayload(liveRef.parent, sp), version: +sp.version || 0 });
+            if (d) return render(d);
+            return render(await loadCloudData()); // frozen/old compact doc — use real tables
           }
           render(await loadCloudData());
         } catch(e) { renderError(e); }
       }, renderError);
 
       // Show something immediately while realtime snapshot connects.
-      loadLiveDashboardData().then(d => { if (d) render(d); }).catch(()=>{});
+      loadLiveDashboardPack().then(async pack => { const d = await validateCompactPack(pack); if (d) render(d); }).catch(()=>{});
       // Clock tick every 30s; plus a safety net: if realtime hiccups and we
       // haven't had fresh data for 2 minutes, quietly re-pull from the server.
       if (!window.__liveRefreshTimer) {
@@ -334,8 +356,8 @@
           if (lastData) render(lastData);
           try {
             if (__inited && !document.hidden && Date.now() - lastFetchAt > 120000) {
-              const d = await loadLiveDashboardData(true);
-              if (d) render(d);
+              const d = await validateCompactPack(await loadLiveDashboardPack(true));
+              if (d) render(d); else render(await loadCloudData());
             }
           } catch(e) {}
         }, 30000);
