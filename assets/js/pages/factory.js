@@ -243,6 +243,7 @@ function fTabEntries() {
         <button class="btn btn-warning" id="fDeliver" ${cid?'':'disabled'} title="Delivered wazan record karein">📦 Deliver</button>
         <button class="btn btn-success" id="fAddPay">💰 Payment</button>
         <button class="btn btn-secondary btn-sm" id="fPrint">🖨️ Statement</button>
+        <button class="btn btn-secondary btn-sm" id="fPrintDC" title="Client ko dene wali delivery challan/invoice">🧾 Delivery Challan</button>
       </div>
     </div>
 
@@ -278,7 +279,7 @@ function fTabEntries() {
       <tbody>${dels.length?dels.map(d=>`<tr>
         <td>${escapeHtml(String(d.date||'').slice(0,10))}</td><td><b style="color:var(--success);">${fR1(d.kg)} kg</b></td><td>${+d.pieces||0}</td>
         <td style="font-size:12px;color:var(--text-soft);">${escapeHtml(d.note||'')}</td>
-        <td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" data-edit-d="${d.id}" title="Edit">✏️</button> <button class="btn btn-danger btn-sm" data-del-d="${d.id}">🗑️</button></td></tr>`).join(''):'<tr><td colspan="5"><div class="empty" style="padding:16px;"><div class="emoji">📦</div><h4>No deliveries yet — use the 📦 Deliver button</h4></div></td></tr>'}</tbody></table>
+        <td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" data-edit-d="${d.id}" title="Edit">✏️</button> <button class="btn btn-ghost btn-sm" data-print-d="${d.id}" title="Is delivery ki challan">🖨️</button> <button class="btn btn-danger btn-sm" data-del-d="${d.id}">🗑️</button></td></tr>`).join(''):'<tr><td colspan="5"><div class="empty" style="padding:16px;"><div class="emoji">📦</div><h4>No deliveries yet — use the 📦 Deliver button</h4></div></td></tr>'}</tbody></table>
     </div>
 
     <div class="card" style="padding:0;overflow:hidden;">
@@ -297,6 +298,8 @@ function fBindEntries() {
   const dv=$('#fDeliver'); if(dv) dv.onclick=()=>{ if(!factoryState.clientId){toast('Add a client first','error');return;} openFactoryDeliveryForm(); };
   const ap=$('#fAddPay'); if(ap) ap.onclick=()=>{ if(!factoryState.clientId){toast('Add a client first','error');return;} openFactoryPaymentForm(); };
   const pr=$('#fPrint'); if(pr) pr.onclick=()=>printFactoryStatement();
+  const pdc=$('#fPrintDC'); if(pdc) pdc.onclick=()=>printFactoryDeliveryChallan();
+  $$('[data-print-d]').forEach(b=>b.onclick=()=>printFactoryDeliveryChallan(b.dataset.printD));
   $$('[data-edit-e]').forEach(b=>b.onclick=()=>openFactoryEntryForm(DB.get('factoryEntries',b.dataset.editE)));
   $$('[data-del-e]').forEach(b=>b.onclick=()=>confirmDialog('Delete this entry?',()=>{DB.remove('factoryEntries',b.dataset.delE);toast('Deleted','success');renderFactoryTab();}));
   $$('[data-edit-d]').forEach(b=>b.onclick=()=>openFactoryDeliveryForm(DB.get('factoryDeliveries',b.dataset.editD)));
@@ -447,7 +450,7 @@ function openFactoryDeliveryForm(existing){
   {onOpen(m){$('#s',m).onclick=()=>{const k=fR1(+$('#vK',m).value||0);
     if(k<=0){toast('Enter KG','error');return;}
     if(k>maxKg){toast(`Zyada se zyada ${maxKg} kg deliver kar sakte hain (bache ${t.pending} kg se)`,'error');return;}
-    const data={clientId:cid,date:$('#vD',m).value||isoDay(),kg:k,pieces:+$('#vP',m).value||0,note:$('#vN',m).value.trim()};
+    const data={clientId:cid,date:$('#vD',m).value||isoDay(),kg:k,pieces:+$('#vP',m).value||0,note:$('#vN',m).value.trim(),rate:+ex.rate||+((DB.get('factoryClients',cid)||{}).rate)||factoryRate()};
     if(existing){DB.update('factoryDeliveries',existing.id,data);}
     else{DB.insert('factoryDeliveries',data);}
     if(typeof logAction==='function')logAction(existing?'factory.delivery.edit':'factory.delivery',`${client.name||''}: ${k}kg delivered`);
@@ -514,6 +517,50 @@ function openFactoryEmployeeForm(existing){
   {onOpen(m){$('#s',m).onclick=()=>{const name=$('#mN',m).value.trim();if(!name){toast('Name required','error');return;}
     const data={name,role:$('#mR',m).value.trim(),salary:+$('#mS',m).value||0,phone:$('#mP',m).value.trim(),active:$('#mA',m).checked};
     existing?DB.update('factoryEmployees',existing.id,data):DB.insert('factoryEmployees',data);closeModal();toast(existing?'Employee updated':'Saved','success');renderFactoryTab();};}});
+}
+
+/* ================= PRINT DELIVERY CHALLAN / INVOICE =================
+   Client company ko dene ke liye: "is date itne KG deliver kie, total
+   amount itna hua" — poora period (Today/Month/All) ya ek single delivery. */
+function printFactoryDeliveryChallan(deliveryId){
+  const client=DB.get('factoryClients',factoryState.clientId);
+  if(!client){toast('Select a client','error');return;}
+  const inScope=(d)=> (factoryState.range==='all')?true:(factoryState.range==='today'? String(d.date||d.createdAt).slice(0,10)===isoDay() : String(d.date||d.createdAt).slice(0,7)===factoryState.month);
+  const rateNow=+client.rate||factoryRate();
+  let dels;
+  if(deliveryId){ const d=DB.get('factoryDeliveries',deliveryId); dels=(d&&!d._deleted)?[d]:[]; }
+  else dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&inScope(d)).sort((a,b)=>String(a.date||a.createdAt).localeCompare(String(b.date||b.createdAt)));
+  if(!dels.length){ toast('Is period mein koi delivery record nahi mili — pehle 📦 Deliver se entry karein','error'); return; }
+  const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
+  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
+  const periodLbl = deliveryId ? 'Single Delivery' : (factoryState.range==='today'?'Today':factoryState.range==='all'?'All Deliveries':fMonthLbl(factoryState.month));
+  const ref='DC-'+isoDay().replace(/-/g,'')+(dels.length>1?'-'+dels.length:'');
+  const kgt=fKgTotals(client.id);
+  const s=DB.settings();
+  const rows=dels.map((d,i)=>{const r=+d.rate||rateNow; return `<tr><td>${i+1}</td><td>${escapeHtml(String(d.date||'').slice(0,10))}</td><td style="text-align:right;"><b>${fR1(+d.kg||0)} kg</b></td><td style="text-align:right;">${+d.pieces||0}</td><td style="text-align:right;">${fmtMoney(r)}</td><td style="text-align:right;"><b>${fmtMoney(Math.round((+d.kg||0)*r))}</b></td><td style="font-size:11px;">${escapeHtml(d.note||'')}</td></tr>`;}).join('');
+  const html=`<div class="invoice-page" style="max-width:720px;font-size:14px;">
+    <div style="text-align:center;margin-bottom:8px;">${s.logoImage?`<img src="${s.logoImage}" style="max-height:70px;object-fit:contain;background:#000;padding:6px;border-radius:6px;"/>`:''}
+    <h2 style="margin:6px 0 0;">${escapeHtml(s.shopName||'Mr Laundry')}</h2><div style="font-size:12px;">${escapeHtml(s.address||'')}${s.phone?' • '+escapeHtml(s.phone):''}</div></div>
+    <div style="text-align:center;font-weight:800;letter-spacing:1px;border-top:1px solid #000;border-bottom:1px solid #000;padding:6px 0;margin:8px 0;">DELIVERY CHALLAN / INVOICE</div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;">
+      <div><b>Client:</b> ${escapeHtml(client.name)}${client.phone?'<br>📞 '+escapeHtml(client.phone):''}</div>
+      <div style="text-align:right;"><b>Ref:</b> ${ref}<br><b>Date:</b> ${isoDay()}<br><b>Period:</b> ${escapeHtml(periodLbl)}</div></div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;" border="1" cellpadding="6">
+      <thead><tr style="background:#f0f0f0;"><th>#</th><th>Delivered On</th><th style="text-align:right;">KG</th><th style="text-align:right;">Pcs</th><th style="text-align:right;">Rate/KG</th><th style="text-align:right;">Amount</th><th>Note</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="font-weight:800;background:#f7f7f7;"><td colspan="2">TOTAL DELIVERED</td><td style="text-align:right;">${fR1(kg)} kg</td><td style="text-align:right;">${pcs}</td><td></td><td style="text-align:right;">${fmtMoney(amt)}</td><td></td></tr></tfoot>
+    </table>
+    <div style="margin-top:14px;font-size:15px;border:2px solid #000;border-radius:8px;padding:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span><b>Total Amount (${dels.length} delivery${dels.length>1?'ies':''} — ${fR1(kg)} KG):</b></span>
+      <b style="font-size:20px;">${fmtMoney(amt)}</b></div>
+    <div style="margin-top:6px;font-size:12px;color:#444;">Charged at ${deliveryId?`Rs. ${(+(dels[0].rate||rateNow)).toLocaleString()}/kg`:`client rate Rs. ${rateNow.toLocaleString()}/kg`}. ${kgt.pending>0?`Baqi: ${kgt.pending} kg abhi factory mein hai.`:'Sab deliver ho chuka ✅'}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:34px;font-size:13px;">
+      <div style="border-top:1px solid #000;padding-top:4px;width:210px;text-align:center;">Received By (Client)</div>
+      <div style="border-top:1px solid #000;padding-top:4px;width:180px;text-align:center;">For ${escapeHtml(s.shopName||'Mr Laundry')}</div></div>
+    <div style="text-align:center;margin-top:14px;font-size:12px;color:#555;">Thank you for your business — ${escapeHtml(s.shopName||'Mr Laundry')} • Generated ${new Date().toLocaleString()}</div></div>`;
+  const wrap=document.createElement('div');wrap.className='print-slip';wrap.innerHTML=html;
+  if(typeof printElement==='function')printElement(wrap,{title:'Delivery Challan',thermal:false});
+  if(typeof logAction==='function')logAction('factory.challan',`${client.name}: ${dels.length} deliveries, ${fR1(kg)}kg, ${fmtMoney(amt)}`);
 }
 
 /* ================= PRINT STATEMENT ================= */
