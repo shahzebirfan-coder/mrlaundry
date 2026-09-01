@@ -493,6 +493,27 @@ const CLOUD = {
     try {
       const db = await this.init();
       const shopId = this.getShopId();
+
+      // FRESHNESS GUARD: if the cloud holds a NEWER version than what this
+      // device last applied (realtime listener gap, weak wifi, another device
+      // pushed while this tab was asleep), pull+merge BEFORE we write our
+      // tables back. Without this, an auto-push from a device with a slightly
+      // stale local copy wholesale-overwrites cloud table docs and briefly
+      // "erases" records created elsewhere (seen 2026-09-01: invoices
+      // 2053-2055 vanished for ~8 min until their own device pushed again).
+      if (!options._preMerged && !options.manual && this._lastAppliedVersion) {
+        try {
+          const metaSnap = await db.collection('shops').doc(shopId).get();
+          const mv = metaSnap.exists ? (+metaSnap.data().version || 0) : 0;
+          if (mv && mv > (+this._lastAppliedVersion || 0)) {
+            console.log('[CloudSync] Cloud is ahead — merging before push (freshness guard)');
+            const prevSuppress = this._suppressPush;
+            this._suppressPush = true;
+            try { await this.pullAndMerge(); } finally { this._suppressPush = prevSuppress; }
+          }
+        } catch(e) { console.warn('[CloudSync] freshness guard skipped:', e); }
+      }
+
       const data = DB._data;
       const version = Date.now();
       const myDeviceId = getDeviceId();
