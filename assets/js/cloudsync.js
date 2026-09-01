@@ -544,10 +544,28 @@ const CLOUD = {
 
       // Write compact live dashboard doc for live.html. This makes the public
       // live dashboard load one tiny document instead of the full POS database.
+      // IMPORTANT: Firestore hard-caps ONE document at 1,048,576 bytes. As the
+      // shop history grew, this compact doc passed ~1MB and every write was
+      // silently rejected — live.html then froze on yesterday's data (the
+      // "since yesterday" bug). Fix: chunk it the same way tables are chunked.
       try {
         const liveData = JSON.stringify(buildLiveDashboardData(data));
-        await tablesRef.doc('_liveDashboard').set({
-          data: liveData,
+        const liveId = '_liveDashboard';
+        const n = Math.max(1, Math.ceil(liveData.length / MAX_DOC_SIZE));
+        for (let i = 1; i < n; i++) {
+          await tablesRef.doc(`${liveId}__x${i}`).set({
+            data: liveData.substr(i * MAX_DOC_SIZE, MAX_DOC_SIZE),
+            chunkIndex: i,
+            totalChunks: n,
+            version,
+            updatedAt: serverTs
+          });
+        }
+        // Main doc written LAST, so live.html's realtime listener only fires
+        // once all extension chunks are already in place.
+        await tablesRef.doc(liveId).set({
+          data: liveData.substr(0, MAX_DOC_SIZE),
+          chunks: n,
           version,
           deviceId: myDeviceId,
           updatedAt: serverTs,
@@ -783,9 +801,18 @@ const CLOUD = {
     try {
       const db = await this.init();
       const shopId = this.getShopId();
-      const doc = await db.collection('shops').doc(shopId).collection('tables').doc('_liveDashboard').get();
+      const tablesRef = db.collection('shops').doc(shopId).collection('tables');
+      const doc = await tablesRef.doc('_liveDashboard').get();
       if (!doc.exists || !doc.data().data) return null;
-      const compact = JSON.parse(doc.data().data);
+      // Assemble chunked compact doc (see chunked write in push()).
+      let liveRaw = doc.data().data;
+      const liveN = +doc.data().chunks || 1;
+      for (let i = 1; i < liveN; i++) {
+        const ex = await tablesRef.doc(`_liveDashboard__x${i}`).get();
+        if (!ex.exists) return null; // incomplete chunks — fall back to safety backup
+        liveRaw += ex.data().data;
+      }
+      const compact = JSON.parse(liveRaw);
       const recovered = {
         settings: compact.settings || {},
         customers: compact.customers || [],
