@@ -25,7 +25,7 @@
 function factoryRate() { return +DB.settings().factoryRatePerKg || 200; }
 const F_EXP_CATS = ['Salary','Fuel','Chemicals','Utilities','Maintenance','Rent','Other'];
 
-let factoryState = { tab:'dashboard', clientId:'', month:'', range:'month' };
+let factoryState = { tab:'dashboard', clientId:'', month:'', range:'month', from:'', to:'' };
 
 /* ---------- helpers ---------- */
 function fMonthList() {
@@ -42,8 +42,26 @@ function fInPeriod(dateStr){
   if (!d) return false;
   if (factoryState.range === 'today') return d === isoDay();
   if (factoryState.range === 'all') return true;
+  if (factoryState.range === 'custom'){
+    const f = factoryState.from || '0000-01-01';
+    const t = factoryState.to   || isoDay();
+    return d >= f && d <= t;
+  }
   return d.slice(0,7) === (factoryState.month || new Date().toISOString().slice(0,7));
 }
+function fPeriodLbl(){
+  if (factoryState.range==='today') return 'Today';
+  if (factoryState.range==='all')   return 'All Time';
+  if (factoryState.range==='custom')return `${factoryState.from||'…'} → ${factoryState.to||isoDay()}`;
+  return fMonthLbl(factoryState.month);
+}
+/* Latest recorded payment of a client — powers the "After Last Payment" view */
+function fLastPayment(cid){
+  if(!cid) return null;
+  const pays=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===cid).sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
+  return pays[0]||null;
+}
+function fNextDay(d){ const dt=new Date(String(d).slice(0,10)+'T00:00:00'); dt.setDate(dt.getDate()+1); return dt.toISOString().slice(0,10); }
 function fR1(n){ return Math.round((+n||0)*10)/10; } // 1-decimal kg rounding
 
 /* Received vs Delivered — all-time per client (for "in factory" balance) */
@@ -132,14 +150,18 @@ function fPeriodBar() {
         <button class="btn ${factoryState.range==='today'?'btn-primary':'btn-ghost'} btn-sm" data-frange="today">Today</button>
         <button class="btn ${factoryState.range==='month'?'btn-primary':'btn-ghost'} btn-sm" data-frange="month">This Month</button>
         <button class="btn ${factoryState.range==='all'?'btn-primary':'btn-ghost'} btn-sm" data-frange="all">All Time</button>
+        <button class="btn ${factoryState.range==='custom'?'btn-primary':'btn-ghost'} btn-sm" data-frange="custom" title="Custom date range">📅 Custom</button>
       </div>
       ${factoryState.range==='month'?`<select id="fMonthSel" style="font-weight:700;">${months.map(m=>`<option value="${m}" ${factoryState.month===m?'selected':''}>${fMonthLbl(m)}</option>`).join('')}</select>`:''}
+      ${factoryState.range==='custom'?`<span style="font-weight:700;">From</span><input type="date" id="fFrom" value="${factoryState.from||''}"/><span style="font-weight:700;">To</span><input type="date" id="fTo" value="${factoryState.to||isoDay()}"/>`:''}
     </div>
   </div>`;
 }
 function fBindPeriod() {
   $$('[data-frange]').forEach(b=> b.onclick = ()=>{ factoryState.range=b.dataset.frange; renderFactoryTab(); });
   const ms = $('#fMonthSel'); if (ms) ms.onchange = e=>{ factoryState.month=e.target.value; renderFactoryTab(); };
+  const ff = $('#fFrom'); if (ff) ff.onchange = e=>{ factoryState.from=e.target.value; factoryState.range='custom'; renderFactoryTab(); };
+  const ft = $('#fTo');   if (ft) ft.onchange = e=>{ factoryState.to=e.target.value; factoryState.range='custom'; renderFactoryTab(); };
 }
 
 /* ================= TAB: DASHBOARD ================= */
@@ -147,7 +169,7 @@ function fTabDashboard() {
   const p = fPeriod();
   const a = fAllTime();
   const inFactory = fTotalPendingKg();
-  const periodLbl = factoryState.range==='today'?'Today':factoryState.range==='all'?'All Time':fMonthLbl(factoryState.month);
+  const periodLbl = fPeriodLbl();
   const profitColor = p.profit>=0 ? 'var(--success)' : 'var(--danger)';
   const recoverPct = a.investment>0 ? Math.min(100, Math.round(a.recovered/a.investment*100)) : 100;
 
@@ -211,7 +233,7 @@ function fTabEntries() {
   const client = DB.get('factoryClients', cid);
   const months = fMonthList();
 
-  const inScope = (r)=> (factoryState.range==='all') ? true : (factoryState.range==='today' ? String(r.date||r.createdAt).slice(0,10)===isoDay() : String(r.date||r.createdAt).slice(0,7)===factoryState.month);
+  const inScope = (r)=> fInPeriod(r.date||r.createdAt);
   const entries = (DB.all('factoryEntries')||[]).filter(e=>!e._deleted && e.clientId===cid && inScope(e)).sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
   const pays = (DB.all('factoryPayments')||[]).filter(p=>!p._deleted && p.clientId===cid && inScope(p)).sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
   const dels = (DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted && d.clientId===cid && inScope(d)).sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
@@ -237,13 +259,16 @@ function fTabEntries() {
           <button class="btn ${factoryState.range==='today'?'btn-primary':'btn-ghost'} btn-sm" data-frange="today">Today</button>
           <button class="btn ${factoryState.range==='month'?'btn-primary':'btn-ghost'} btn-sm" data-frange="month">Month</button>
           <button class="btn ${factoryState.range==='all'?'btn-primary':'btn-ghost'} btn-sm" data-frange="all">All</button>
+          <button class="btn ${factoryState.range==='custom'?'btn-primary':'btn-ghost'} btn-sm" data-frange="custom" title="Custom date range">📅</button>
         </div>
         ${factoryState.range==='month'?`<select id="fMonthSel">${months.map(m=>`<option value="${m}" ${factoryState.month===m?'selected':''}>${fMonthLbl(m)}</option>`).join('')}</select>`:''}
+        ${factoryState.range==='custom'?`<span style="font-size:12px;font-weight:700;">From</span><input type="date" id="fFrom" value="${factoryState.from||''}"/><span style="font-size:12px;font-weight:700;">To</span><input type="date" id="fTo" value="${factoryState.to||isoDay()}"/>`:''}
         <button class="btn btn-primary" id="fAddEntry" style="margin-left:auto;">➕ Add Weight</button>
         <button class="btn btn-warning" id="fDeliver" ${cid?'':'disabled'} title="Delivered wazan record karein">📦 Deliver</button>
         <button class="btn btn-success" id="fAddPay">💰 Payment</button>
         <button class="btn btn-secondary btn-sm" id="fPrint">🖨️ Statement</button>
         <button class="btn btn-secondary btn-sm" id="fPrintDC" title="Client ko dene wali delivery challan/invoice">🧾 Delivery Challan</button>
+        <button class="btn btn-secondary btn-sm" id="fSincePay" title="Aakhri payment ke aglay din se aaj tak ka record">🕒 After Last Payment</button>
       </div>
     </div>
 
@@ -299,6 +324,15 @@ function fBindEntries() {
   const ap=$('#fAddPay'); if(ap) ap.onclick=()=>{ if(!factoryState.clientId){toast('Add a client first','error');return;} openFactoryPaymentForm(); };
   const pr=$('#fPrint'); if(pr) pr.onclick=()=>printFactoryStatement();
   const pdc=$('#fPrintDC'); if(pdc) pdc.onclick=()=>printFactoryDeliveryChallan();
+  const sp=$('#fSincePay'); if(sp) sp.onclick=()=>{
+    if(!factoryState.clientId){toast('Add a client first','error');return;}
+    const lp=fLastPayment(factoryState.clientId);
+    if(!lp){ toast('Is client ki koi payment record nahi mili — pehle 💰 Payment se record karein','error'); return; }
+    const lpDay=String(lp.date||lp.createdAt).slice(0,10);
+    factoryState.range='custom'; factoryState.from=fNextDay(lpDay); factoryState.to=isoDay();
+    renderFactoryTab();
+    toast(`📄 ${fmtMoney(+lp.amount||0)} payment (${lpDay}) ke baad ka record dikhaya ja raha hai`,'success');
+  };
   $$('[data-print-d]').forEach(b=>b.onclick=()=>printFactoryDeliveryChallan(b.dataset.printD));
   $$('[data-edit-e]').forEach(b=>b.onclick=()=>openFactoryEntryForm(DB.get('factoryEntries',b.dataset.editE)));
   $$('[data-del-e]').forEach(b=>b.onclick=()=>confirmDialog('Delete this entry?',()=>{DB.remove('factoryEntries',b.dataset.delE);toast('Deleted','success');renderFactoryTab();}));
@@ -310,7 +344,7 @@ function fBindEntries() {
 
 /* ================= TAB: EXPENSES ================= */
 function fTabExpenses() {
-  const inScope=(r)=> (factoryState.range==='all')?true:(factoryState.range==='today'?String(r.date||r.createdAt).slice(0,10)===isoDay():String(r.date||r.createdAt).slice(0,7)===factoryState.month);
+  const inScope=(r)=> fInPeriod(r.date||r.createdAt);
   const list=(DB.all('factoryExpenses')||[]).filter(e=>!e._deleted && inScope(e)).sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
   const total=list.reduce((s,e)=>s+(+e.amount||0),0);
   const byCat={}; list.forEach(e=>{byCat[e.category]=(byCat[e.category]||0)+(+e.amount||0);});
@@ -525,7 +559,7 @@ function openFactoryEmployeeForm(existing){
 function printFactoryDeliveryChallan(deliveryId){
   const client=DB.get('factoryClients',factoryState.clientId);
   if(!client){toast('Select a client','error');return;}
-  const inScope=(d)=> (factoryState.range==='all')?true:(factoryState.range==='today'? String(d.date||d.createdAt).slice(0,10)===isoDay() : String(d.date||d.createdAt).slice(0,7)===factoryState.month);
+  const inScope=(d)=> fInPeriod(d.date||d.createdAt);
   const rateNow=+client.rate||factoryRate();
   let dels;
   if(deliveryId){ const d=DB.get('factoryDeliveries',deliveryId); dels=(d&&!d._deleted)?[d]:[]; }
@@ -533,7 +567,14 @@ function printFactoryDeliveryChallan(deliveryId){
   if(!dels.length){ toast('Is period mein koi delivery record nahi mili — pehle 📦 Deliver se entry karein','error'); return; }
   const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
   const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
-  const periodLbl = deliveryId ? 'Single Delivery' : (factoryState.range==='today'?'Today':factoryState.range==='all'?'All Deliveries':fMonthLbl(factoryState.month));
+  const periodLbl = deliveryId ? 'Single Delivery' : (factoryState.range==='all' ? 'All Deliveries' : fPeriodLbl());
+  // Payment status for the client (all-time account position of this client)
+  const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id).reduce((x,e)=>x+(+e.amount||0),0);
+  const allP=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===client.id).reduce((x,p)=>x+(+p.amount||0),0);
+  const due=Math.round(allE-allP);
+  const stamp = due>0
+    ? `<div style="float:right;border:3px solid #c00;color:#c00;font-weight:900;padding:4px 14px;border-radius:8px;font-size:15px;text-align:center;line-height:1.3;">DUE<br><span style="font-size:18px;">${fmtMoney(due)}</span></div>`
+    : `<div style="float:right;border:3px solid #16a34a;color:#16a34a;font-weight:900;padding:4px 14px;border-radius:8px;font-size:15px;text-align:center;line-height:1.3;">PAID ✓</div>`;
   const ref='DC-'+isoDay().replace(/-/g,'')+(dels.length>1?'-'+dels.length:'');
   const kgt=fKgTotals(client.id);
   const s=DB.settings();
@@ -542,6 +583,7 @@ function printFactoryDeliveryChallan(deliveryId){
     <div style="text-align:center;margin-bottom:8px;">${s.logoImage?`<img src="${s.logoImage}" style="max-height:70px;object-fit:contain;background:#000;padding:6px;border-radius:6px;"/>`:''}
     <h2 style="margin:6px 0 0;">${escapeHtml(s.shopName||'Mr Laundry')}</h2><div style="font-size:12px;">${escapeHtml(s.address||'')}${s.phone?' • '+escapeHtml(s.phone):''}</div></div>
     <div style="text-align:center;font-weight:800;letter-spacing:1px;border-top:1px solid #000;border-bottom:1px solid #000;padding:6px 0;margin:8px 0;">DELIVERY CHALLAN / INVOICE</div>
+    ${stamp}
     <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;">
       <div><b>Client:</b> ${escapeHtml(client.name)}${client.phone?'<br>📞 '+escapeHtml(client.phone):''}</div>
       <div style="text-align:right;"><b>Ref:</b> ${ref}<br><b>Date:</b> ${isoDay()}<br><b>Period:</b> ${escapeHtml(periodLbl)}</div></div>
@@ -554,6 +596,13 @@ function printFactoryDeliveryChallan(deliveryId){
       <span><b>Total Amount (${dels.length} delivery${dels.length>1?'ies':''} — ${fR1(kg)} KG):</b></span>
       <b style="font-size:20px;">${fmtMoney(amt)}</b></div>
     <div style="margin-top:6px;font-size:12px;color:#444;">Charged at ${deliveryId?`Rs. ${(+(dels[0].rate||rateNow)).toLocaleString()}/kg`:`client rate Rs. ${rateNow.toLocaleString()}/kg`}. ${kgt.pending>0?`Baqi: ${kgt.pending} kg abhi factory mein hai.`:'Sab deliver ho chuka ✅'}</div>
+    <div style="margin-top:10px;font-size:13px;border:1px solid #000;border-radius:8px;padding:10px;">
+      <div style="font-weight:800;margin-bottom:4px;">💰 PAYMENT STATUS</div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;"><span>Total Billed (all deliveries):</span><b>${fmtMoney(allE)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:green;"><span>Received so far:</span><b>${fmtMoney(allP)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0 2px;border-top:1px solid #999;font-size:17px;"><span><b>BALANCE DUE:</b></span><b style="color:${due>0?'#c00':'#16a34a'};">${fmtMoney(Math.max(0,due))}</b></div>
+      ${due>0?'<div style="font-size:11px;color:#555;">Kindly arrange payment of the outstanding balance at your earliest convenience. Thank you.</div>':'<div style="font-size:11px;color:#16a34a;">All accounts settled — thank you for your business! ✅</div>'}
+    </div>
     <div style="display:flex;justify-content:space-between;margin-top:34px;font-size:13px;">
       <div style="border-top:1px solid #000;padding-top:4px;width:210px;text-align:center;">Received By (Client)</div>
       <div style="border-top:1px solid #000;padding-top:4px;width:180px;text-align:center;">For ${escapeHtml(s.shopName||'Mr Laundry')}</div></div>
@@ -567,8 +616,8 @@ function printFactoryDeliveryChallan(deliveryId){
 function printFactoryStatement(){
   const client=DB.get('factoryClients',factoryState.clientId);
   if(!client){toast('Select a client','error');return;}
-  const month=factoryState.range==='all'?'':factoryState.month;
-  const inScope=(r)=> month? String(r.date||r.createdAt).slice(0,7)===month : true;
+  const inScope=(r)=> fInPeriod(r.date||r.createdAt);
+  const lp=fLastPayment(client.id);
   const entries=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id&&inScope(e)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&inScope(d)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const pays=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===client.id&&inScope(p)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
@@ -580,7 +629,7 @@ function printFactoryStatement(){
   const kg=fR1(entries.reduce((x,e)=>x+(+e.kg||0),0)),pcs=entries.reduce((x,e)=>x+(+e.pieces||0),0),amt=entries.reduce((x,e)=>x+(+e.amount||0),0);
   const dkg=fR1(dels.reduce((x,d)=>x+(+d.kg||0),0)),dpcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
   const pAmtPeriod=pays.reduce((x,p)=>x+(+p.amount||0),0);
-  const lbl=month?fMonthLbl(month):'All Time';
+  const lbl=fPeriodLbl();
   const rows=entries.map(e=>`<tr><td>${escapeHtml(String(e.date||'').slice(0,10))}</td><td style="text-align:right;">${+e.kg||0}</td><td style="text-align:right;">${+e.pieces||0}</td><td style="text-align:right;">${fmtMoney(+e.rate||0)}</td><td style="text-align:right;"><b>${fmtMoney(+e.amount||0)}</b></td><td style="font-size:11px;">${escapeHtml(e.note||'')}</td></tr>`).join('');
   const dRows=dels.map(d=>`<tr><td>${escapeHtml(String(d.date||'').slice(0,10))}</td><td style="text-align:right;">${fR1(d.kg)}</td><td style="text-align:right;">${+d.pieces||0}</td><td style="font-size:11px;">${escapeHtml(d.note||'')}</td></tr>`).join('');
   const html=`<div class="invoice-page" style="max-width:720px;font-size:14px;">
@@ -612,6 +661,7 @@ function printFactoryStatement(){
       <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Paid/Received (period ${lbl}):</span><b style="color:green;">${fmtMoney(pAmtPeriod)}</b></div>
       <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #999;"><span>Total Bill (all-time):</span><b>${fmtMoney(allE)}</b></div>
       <div style="display:flex;justify-content:space-between;padding:4px 0;color:green;"><span>Total Received (all-time):</span><b>${fmtMoney(allP)}</b></div>
+      ${lp?`<div style="display:flex;justify-content:space-between;padding:4px 0;color:#555;font-size:12px;"><span>💳 Last payment received:</span><b>${fmtMoney(+lp.amount||0)} on ${escapeHtml(String(lp.date||'').slice(0,10))}</b></div>`:''}
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:2px solid #000;font-size:18px;"><span>PENDING BALANCE (Due):</span><b style="color:#c00;">${fmtMoney(allE-allP)}</b></div>
     </div>
     ${kgt.pending>0?`<div style="margin-top:8px;padding:8px;border:2px dashed #b45309;border-radius:8px;font-size:13px;text-align:center;"><b>⏳ Note:</b> ${kgt.pending} kg client ka maal abhi factory mein mojood hai — delivery baqi hai.</div>`:''}
