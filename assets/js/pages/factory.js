@@ -269,6 +269,8 @@ function fTabEntries() {
         <button class="btn btn-secondary btn-sm" id="fPrint">🖨️ Statement</button>
         <button class="btn btn-secondary btn-sm" id="fPrintDC" title="Client ko dene wali delivery challan/invoice">🧾 Delivery Challan</button>
         <button class="btn btn-secondary btn-sm" id="fSincePay" title="Aakhri payment ke aglay din se aaj tak ka record">🕒 After Last Payment</button>
+        <button class="btn btn-secondary btn-sm" id="fShare" title="Delivery summary WhatsApp par bhejein">📲 Share</button>
+        <button class="btn btn-secondary btn-sm" id="fCustom" title="Custom KG/rate wali invoice banayein">🧮 Custom Invoice</button>
       </div>
     </div>
 
@@ -324,6 +326,8 @@ function fBindEntries() {
   const ap=$('#fAddPay'); if(ap) ap.onclick=()=>{ if(!factoryState.clientId){toast('Add a client first','error');return;} openFactoryPaymentForm(); };
   const pr=$('#fPrint'); if(pr) pr.onclick=()=>printFactoryStatement();
   const pdc=$('#fPrintDC'); if(pdc) pdc.onclick=()=>printFactoryDeliveryChallan();
+  const sh=$('#fShare'); if(sh) sh.onclick=()=>shareFactoryDeliverySummary();
+  const cu=$('#fCustom'); if(cu) cu.onclick=()=>openFactoryCustomInvoice();
   const sp=$('#fSincePay'); if(sp) sp.onclick=()=>{
     if(!factoryState.clientId){toast('Add a client first','error');return;}
     const lp=fLastPayment(factoryState.clientId);
@@ -551,6 +555,315 @@ function openFactoryEmployeeForm(existing){
   {onOpen(m){$('#s',m).onclick=()=>{const name=$('#mN',m).value.trim();if(!name){toast('Name required','error');return;}
     const data={name,role:$('#mR',m).value.trim(),salary:+$('#mS',m).value||0,phone:$('#mP',m).value.trim(),active:$('#mA',m).checked};
     existing?DB.update('factoryEmployees',existing.id,data):DB.insert('factoryEmployees',data);closeModal();toast(existing?'Employee updated':'Saved','success');renderFactoryTab();};}});
+}
+
+/* ================= SHARE DELIVERY SUMMARY (WhatsApp / copy) =================
+   E.g. client company ko batana ho: "we delivered you total 589 kg" —
+   ready-made summary text with kg, amount, payments received & balance due. */
+function fShareText(){
+  const client=DB.get('factoryClients',factoryState.clientId); if(!client) return '';
+  const s=DB.settings(); const rateNow=+client.rate||factoryRate();
+  const inScope=(d)=> fInPeriod(d.date||d.createdAt);
+  const dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&inScope(d)).sort((a,b)=>String(a.date||a.createdAt).localeCompare(String(b.date||b.createdAt)));
+  const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
+  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
+  const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id).reduce((x,e)=>x+(+e.amount||0),0);
+  const allP=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===client.id).reduce((x,p)=>x+(+p.amount||0),0);
+  const due=Math.max(0,Math.round(allE-allP));
+  const lp=fLastPayment(client.id);
+  const kgt=fKgTotals(client.id);
+  const lines=[
+    `${s.shopName||'Mr Laundry'} — DELIVERY CONFIRMATION`,
+    `Client: ${client.name}`,
+    `Period: ${fPeriodLbl()}`,
+    `• Total delivered: ${fR1(kg)} kg${pcs?' / '+pcs+' pcs':''} (${dels.length} delivery${dels.length>1?'ies':''})`
+  ];
+  if(dels.length && dels.length<=8) lines.push(`• Break-up: ${dels.map(d=>`${String(d.date||'').slice(5,10)}: ${fR1(+d.kg||0)}kg`).join(', ')}`);
+  if(kgt.pending>0) lines.push(`• Balance with us (not yet delivered): ${kgt.pending} kg`);
+  lines.push(`• Total amount: ${fmtMoney(amt)}${dels.length && dels.every(d=>+d.rate)?'':` (at Rs. ${(+rateNow).toLocaleString()}/kg)`}`);
+  lines.push(`• Payments received: ${fmtMoney(allP)}${lp?` — last ${fmtMoney(+lp.amount||0)} on ${String(lp.date||lp.createdAt||'').slice(0,10)}`:''}`);
+  lines.push(due>0?`• Balance due: ${fmtMoney(due)}`:`• Balance: PAID ✅`);
+  lines.push('Kindly confirm the above. Thank you!');
+  lines.push(`— ${s.shopName||'Mr Laundry'}${s.phone?' ('+s.phone+')':''}`);
+  return lines.join('\n');
+}
+/* Renders a clean invoice card (PNG) — "Total delivery of 589 kg dated today
+   with total bill" — and shares it via Web Share (WhatsApp) or downloads it. */
+function fMakeShareImage(){
+  const client=DB.get('factoryClients',factoryState.clientId);
+  const s=DB.settings();
+  const rateNow=+client.rate||factoryRate();
+  const dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&fInPeriod(d.date||d.createdAt)).sort((a,b)=>String(a.date||a.createdAt).localeCompare(String(b.date||b.createdAt)));
+  if(!dels.length){toast('Is period mein koi delivery nahi mili','error');return;}
+  const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
+  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
+  const allP=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===client.id).reduce((x,p)=>x+(+p.amount||0),0);
+  const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id).reduce((x,e)=>x+(+e.amount||0),0);
+  const due=Math.max(0,Math.round(allE-allP));
+  const kgt=fKgTotals(client.id);
+  const rows=[
+    ['Client', client.name, ''],
+    ['Invoice Date', isoDay(), ''],
+    ['Period', fPeriodLbl(), '']
+  ];
+  dels.slice(0,6).forEach((d,i)=>rows.push(['Delivery '+(i+1), `${String(d.date||'').slice(0,10)} — ${fR1(+d.kg||0)} kg`, '']));
+  if(dels.length>6) rows.push(['','+ '+(dels.length-6)+' more deliveries','']);
+  rows.push(['Total Delivered', `${fR1(kg)} kg${pcs?' / '+pcs+' pcs':''}`, 'hl']);
+  rows.push(['Total Bill Amount', fmtMoney(amt), 'amt']);
+  rows.push(['Received to Date', fmtMoney(allP), 'grn']);
+  rows.push(['Balance Due', fmtMoney(due), due>0?'red':'grn']);
+  if(kgt.pending>0) rows.push(['With Us (to deliver)', kgt.pending+' kg','']);
+  const W=1080, HH=150+rows.length*70+190;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=HH;
+  const c=cv.getContext('2d');
+  const draw=(withLogo,logo)=>{
+    c.fillStyle='#f4f7fb'; c.fillRect(0,0,W,HH);
+    c.fillStyle='#ffffff'; c.fillRect(30,30,W-60,HH-60);
+    c.strokeStyle='#dbe3f3'; c.lineWidth=2; c.strokeRect(30,30,W-60,HH-60);
+    const g=c.createLinearGradient(30,30,W,30); g.addColorStop(0,'#4f7cff'); g.addColorStop(1,'#6a5cff');
+    c.fillStyle=g; c.fillRect(30,30,W-60,110);
+    if(withLogo&&logo) { try{ c.drawImage(logo,52,45,80,80); }catch(e){} }
+    c.fillStyle='#fff'; c.font='800 33px Arial'; c.textBaseline='middle';
+    c.fillText(`${s.shopName||'Mr Laundry'} — DELIVERY INVOICE`, (withLogo&&logo)?150:60, 85);
+    c.fillStyle='#d97706'; c.font='800 26px Arial'; c.textAlign='right';
+    c.fillText((due>0?'UNPAID DUE: '+fmtMoney(due):'PAID ✓'), W-60, 85);
+    c.textAlign='left';
+    let y=195;
+    rows.forEach(([k,v,st])=>{
+      if(st==='hl'){ c.fillStyle='#eff6ff'; c.fillRect(60,y-26,W-120,54); }
+      c.textBaseline='middle'; c.font='700 27px Arial'; c.fillStyle='#64748b'; c.fillText(k,76,y);
+      c.font='900 30px Arial';
+      c.fillStyle = st==='red'?'#dc2626' : st==='grn'?'#16a34a' : st==='amt'?'#4f7cff' : '#0f172a';
+      c.textAlign='right'; c.fillText(v, W-76, y); c.textAlign='left';
+      y+=70;
+    });
+    c.strokeStyle='#e2e8f0'; c.beginPath(); c.moveTo(76,y+8); c.lineTo(W-76,y+8); c.stroke();
+    c.fillStyle='#64748b'; c.font='600 22px Arial';
+    c.fillText(`Kindly confirm the above delivery. Thank you!   — ${s.shopName||'Mr Laundry'}${s.phone?' ('+s.phone+')':''}`, 76, y+42);
+    c.strokeStyle='#94a3b8'; c.beginPath(); c.moveTo(W-360,y+80); c.lineTo(W-90,y+80); c.stroke();
+    c.fillStyle='#334155'; c.font='700 20px Arial'; c.fillText('Authorised Signature', W-340, y+108);
+  };
+  const finish=()=>{
+    try{
+      cv.toBlob(b=>{
+        if(!b){toast('Image ban nahi saki','error');return;}
+        const file=new File([b],`Delivery-Invoice-${client.name.replace(/[^A-Za-z0-9]+/g,'-')}-${isoDay()}.png`,{type:'image/png'});
+        if(navigator.canShare&&navigator.canShare({files:[file]})){
+          navigator.share({files:[file],title:'Delivery Invoice',text:`Total delivery ${fR1(kg)} kg — ${fmtMoney(amt)} — ${client.name}`}).catch(()=>{});
+        } else {
+          const url=URL.createObjectURL(b); const a=document.createElement('a');
+          a.href=url; a.download=file.name; document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(()=>URL.revokeObjectURL(url),8000);
+          toast('🖼️ Image download ho gayi — WhatsApp par attach kar dein','success');
+        }
+      },'image/png');
+    }catch(e){ // tainted canvas (remote logo) — redraw without logo
+      try{ draw(false,null); cv.toBlob(nb=>{ if(nb){ const url=URL.createObjectURL(nb); const a=document.createElement('a'); a.href=url; a.download='delivery-invoice.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),8000);} },'image/png'); }catch(e2){ toast('Image export fail: '+e2.message,'error'); }
+    }
+  };
+  if(s.logoImage){ const img=new Image(); img.onload=()=>{ draw(true,img); finish(); }; img.onerror=()=>{ draw(false,null); finish(); }; img.src=s.logoImage; }
+  else { draw(false,null); finish(); }
+}
+
+/* ================= CUSTOM BILLING INVOICE =================
+   Ad-hoc / handmaiden invoice: aap khud total KG, rate, discount, date dein —
+   document turant print/PDF, image (WhatsApp) ya text ban jata hai. Records
+   ko chhedne ka option alag se checkbox par hai (default OFF). */
+function fCustomInvoiceData(v){
+  const client=DB.get('factoryClients',v.clientId)||{};
+  const kg=fR1(+v.kg||0), rate=+v.rate||0, disc=+v.disc||0, pcs=+v.pcs||0;
+  const gross=Math.round(kg*rate);
+  const net=Math.max(0,gross-disc);
+  const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===v.clientId).reduce((x,e)=>x+(+e.amount||0),0);
+  const allP=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===v.clientId).reduce((x,p)=>x+(+p.amount||0),0);
+  const due=Math.max(0,Math.round(allE-allP));
+  const d={...v, client, kg, rate, disc, pcs, gross, net, allE, allP, due,
+    ref:'CI-'+String(v.date||isoDay()).replace(/-/g,''), shop:DB.settings()};
+  return d;
+}
+function fCustomText(d){
+  const L=[`${d.shop.shopName||'Mr Laundry'} — ${d.title}`.toUpperCase(),
+    `Bill To: ${d.client.name||''}${d.client.phone?' ('+d.client.phone+')':''}`,
+    `Invoice: ${d.ref}  •  Date: ${d.date}`,
+    `• Total billed: ${d.kg} kg${d.pcs?' / '+d.pcs+' pcs':''} @ Rs. ${(+d.rate).toLocaleString()}/kg = ${fmtMoney(d.gross)}`];
+  if(d.disc>0) L.push(`• Discount: − ${fmtMoney(d.disc)}`);
+  L.push(`• TOTAL BILL AMOUNT: ${fmtMoney(d.net)}`);
+  if(d.includeAcct){ L.push(`• Payments received: ${fmtMoney(d.allP)}`); L.push(d.due>0?`• Balance due: ${fmtMoney(d.due)}`:`• Balance: PAID ✅`); }
+  if(d.note) L.push(`Note: ${d.note}`);
+  L.push('Kindly confirm and settle. Thank you!');
+  L.push(`— ${d.shop.shopName||'Mr Laundry'}${d.shop.phone?' ('+d.shop.phone+')':''}`);
+  return L.join('\n');
+}
+function fCustomHtml(d){
+  return `<div class="invoice-page" style="max-width:720px;font-size:14px;">
+    <div style="text-align:center;margin-bottom:8px;">${d.shop.logoImage?`<img src="${d.shop.logoImage}" style="max-height:70px;object-fit:contain;background:#000;padding:6px;border-radius:6px;"/>`:''}
+    <h2 style="margin:6px 0 0;">${escapeHtml(d.shop.shopName||'Mr Laundry')}</h2><div style="font-size:12px;">${escapeHtml(d.shop.address||'')}${d.shop.phone?' • '+escapeHtml(d.shop.phone):''}</div></div>
+    <div style="text-align:center;font-weight:800;letter-spacing:1px;border-top:1px solid #000;border-bottom:1px solid #000;padding:6px 0;margin:8px 0;">${escapeHtml(d.title.toUpperCase())}</div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;">
+      <div><b>Bill To:</b> ${escapeHtml(d.client.name||'')}<br>${d.client.phone?'📞 '+escapeHtml(d.client.phone):''}</div>
+      <div style="text-align:right;"><b>Invoice:</b> ${d.ref}<br><b>Date:</b> ${escapeHtml(d.date)}</div></div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;" border="1" cellpadding="6">
+      <thead><tr style="background:#f0f0f0;"><th>Description</th><th style="text-align:right;">KG</th><th style="text-align:right;">Pcs</th><th style="text-align:right;">Rate</th><th style="text-align:right;">Amount</th></tr></thead>
+      <tbody>
+        <tr><td>Laundry — total billed weight${d.note?'<br><small>'+escapeHtml(d.note)+'</small>':''}</td><td style="text-align:right;"><b>${d.kg}</b></td><td style="text-align:right;">${d.pcs||''}</td><td style="text-align:right;">${fmtMoney(d.rate)}</td><td style="text-align:right;"><b>${fmtMoney(d.gross)}</b></td></tr>
+        ${d.disc>0?`<tr><td>Discount</td><td></td><td></td><td></td><td style="text-align:right;">− ${fmtMoney(d.disc)}</td></tr>`:''}
+      </tbody>
+      <tfoot><tr style="font-weight:800;background:#f7f7f7;"><td colspan="4">TOTAL BILL AMOUNT</td><td style="text-align:right;font-size:16px;">${fmtMoney(d.net)}</td></tr></tfoot>
+    </table>
+    ${d.includeAcct?`<div style="margin-top:12px;font-size:14px;border:1px solid #000;border-radius:8px;padding:10px;">
+      <div style="font-weight:800;margin-bottom:4px;">💰 ACCOUNT SUMMARY</div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;"><span>Total billed (all-time):</span><b>${fmtMoney(d.allE)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:green;"><span>Received to date:</span><b>${fmtMoney(d.allP)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0 0;border-top:1px solid #999;font-size:17px;"><span><b>BALANCE DUE:</b></span><b style="color:${d.due>0?'#c00':'green'};">${fmtMoney(d.due)}</b></div></div>`:''}
+    <div style="display:flex;justify-content:space-between;margin-top:36px;font-size:13px;">
+      <div style="border-top:1px solid #000;padding-top:4px;width:210px;text-align:center;">Received By (Client)</div>
+      <div style="border-top:1px solid #000;padding-top:4px;width:180px;text-align:center;">For ${escapeHtml(d.shop.shopName||'Mr Laundry')}</div></div>
+    <div style="text-align:center;margin-top:14px;font-size:12px;color:#555;">Kindly confirm and settle • Thank you for your business</div></div>`;
+}
+function fCustomWrap(d){ const w=document.createElement('div'); w.className='print-slip'; w.innerHTML=fCustomHtml(d); return w; }
+function fCustomImage(d){
+  const rows=[['Bill To',d.client.name||'',''],['Invoice',d.ref,''],['Date',d.date,''],
+    [`Total billed @ Rs. ${(+d.rate).toLocaleString()}/kg`,`${d.kg} kg${d.pcs?' / '+d.pcs+' pcs':''}`,'hl']];
+  if(d.disc>0) rows.push(['Discount','− '+fmtMoney(d.disc),'']);
+  rows.push(['TOTAL BILL AMOUNT',fmtMoney(d.net),'amt']);
+  if(d.includeAcct){ rows.push(['Received to date',fmtMoney(d.allP),'grn']); rows.push(['Balance due',fmtMoney(d.due),d.due>0?'red':'grn']); }
+  if(d.note) rows.push(['Note',d.note,'']);
+  const W=1080, H=170+rows.length*70+150;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const c=cv.getContext('2d');
+  const draw=(withLogo,logo)=>{
+    c.fillStyle='#f4f7fb'; c.fillRect(0,0,W,H);
+    c.fillStyle='#ffffff'; c.fillRect(30,30,W-60,H-60);
+    c.strokeStyle='#dbe3f3'; c.lineWidth=2; c.strokeRect(30,30,W-60,H-60);
+    const g=c.createLinearGradient(30,30,W,30); g.addColorStop(0,'#4f7cff'); g.addColorStop(1,'#6a5cff');
+    c.fillStyle=g; c.fillRect(30,30,W-60,120);
+    if(withLogo&&logo){ try{ c.drawImage(logo,52,50,80,80); }catch(e){} }
+    c.fillStyle='#fff'; c.font='800 33px Arial'; c.textBaseline='middle';
+    c.fillText(`${d.shop.shopName||'Mr Laundry'} — ${d.title.toUpperCase()}`, (withLogo&&logo)?150:60, 90);
+    let y=215;
+    rows.forEach(([k,v,st])=>{
+      if(st==='hl'){ c.fillStyle='#eff6ff'; c.fillRect(60,y-26,W-120,54); }
+      if(st==='amt'){ c.fillStyle='#fff7ed'; c.fillRect(60,y-26,W-120,54); }
+      c.font='700 26px Arial'; c.fillStyle='#64748b'; c.fillText(String(k).slice(0,42),76,y);
+      c.font='900 30px Arial';
+      c.fillStyle = st==='red'?'#dc2626' : st==='grn'?'#16a34a' : st==='amt'?'#4f7cff' : '#0f172a';
+      c.textAlign='right'; c.fillText(String(v), W-76, y); c.textAlign='left';
+      y+=70;
+    });
+    c.strokeStyle='#94a3b8'; c.beginPath(); c.moveTo(W-360,y+40); c.lineTo(W-90,y+40); c.stroke();
+    c.fillStyle='#334155'; c.font='700 20px Arial'; c.fillText('Authorised Signature', W-340, y+66);
+  };
+  const finish=()=>{
+    try{
+      cv.toBlob(b=>{
+        if(!b){toast('Image ban nahi saki','error');return;}
+        const file=new File([b],`${d.ref}-${String(d.client.name||'').replace(/[^A-Za-z0-9]+/g,'-')}.png`,{type:'image/png'});
+        if(navigator.canShare&&navigator.canShare({files:[file]})){ navigator.share({files:[file],title:'Invoice',text:fCustomText(d)}).catch(()=>{}); }
+        else { const url=URL.createObjectURL(b); const a=document.createElement('a'); a.href=url; a.download=file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),8000); toast('🖼️ Image download ho gayi — WhatsApp par attach kar dein','success'); }
+      },'image/png');
+    }catch(e){
+      try{ draw(false,null); cv.toBlob(nb=>{ if(nb){ const url=URL.createObjectURL(nb); const a=document.createElement('a'); a.href=url; a.download=d.ref+'.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),8000); } },'image/png'); }catch(e2){ toast('Image export fail','error'); }
+    }
+  };
+  if(d.shop.logoImage){ const img=new Image(); img.onload=()=>{ draw(true,img); finish(); }; img.onerror=()=>{ draw(false,null); finish(); }; img.src=d.shop.logoImage; }
+  else { draw(false,null); finish(); }
+}
+function openFactoryCustomInvoice(){
+  const clients=DB.all('factoryClients')||[];
+  if(!clients.length){toast('Add a client first','error');return;}
+  const cur=factoryState.clientId;
+  const rate=+((DB.get('factoryClients',cur)||{}).rate)||factoryRate();
+  let addedId=null;
+  openModal(`<h3>🧮 Custom Billing Invoice</h3>
+    <p class="sub" style="font-size:12px;">Khud total KG / rate likhein — foran print, image ya WhatsApp text ban jayega.</p>
+    <div class="form-row">
+      <div class="field"><label>Client</label><select id="ciClient">${clients.map(c=>`<option value="${c.id}" ${c.id===cur?'selected':''}>🏭 ${escapeHtml(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Invoice Date</label><input type="date" id="ciDate" value="${isoDay()}"/></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Total KG *</label>
+        <div style="display:flex;gap:6px;"><input type="number" step="0.1" id="ciKg" style="flex:1" placeholder="589"/><button class="btn btn-secondary btn-sm" id="ciFill" title="Is client ki total delivered kg se bhar dein">📦 Auto</button></div></div>
+      <div class="field"><label>Rate / KG</label><input type="number" id="ciRate" value="${rate}"/></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Pieces (optional)</label><input type="number" id="ciPcs"/></div>
+      <div class="field"><label>Discount Rs. (optional)</label><input type="number" id="ciDisc" value="0"/></div>
+    </div>
+    <div class="form-row cols-1"><div class="field"><label>Title</label><input id="ciTitle" value="DELIVERY BILL / INVOICE"/></div></div>
+    <div class="form-row cols-1"><div class="field"><label>Note on invoice (optional)</label><input id="ciNote" placeholder="e.g. Monthly billing — September 2026"/></div></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:6px;">
+      <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ciAcct" checked/> Account summary dikhayein (received / balance due)</label>
+      <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ciAdd"/> Isko weight entry ke tor par records mein bhi add karein</label>
+    </div>
+    <div id="ciCalc" style="background:var(--primary-light);border-radius:10px;padding:10px;text-align:center;font-weight:800;font-size:15px;color:var(--primary);margin-bottom:10px;">Bill: Rs. 0</div>
+    <div class="modal-footer" style="flex-wrap:wrap;">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-secondary" id="ciCopy">📋 Copy Text</button>
+      <button class="btn btn-primary" id="ciImg">🖼️ Share Image</button>
+      <button class="btn btn-secondary" id="ciPrint">🧾 Print / PDF</button>
+      <button class="btn btn-success" id="ciWa">💚 WhatsApp</button>
+    </div>`,
+  {onOpen(m){
+    const g=id=>$(id,m);
+    const num=id=>{const el=g(id);return +String((el&&el.value)||0)||0;};
+    const calc=()=>{
+      const gross=Math.round(num('#ciKg')*num('#ciRate')), disc=num('#ciDisc'), net=Math.max(0,gross-disc);
+      const el=g('#ciCalc');
+      if(el) el.textContent=`Bill: ${fmtMoney(net)}  (${fR1(num('#ciKg'))} kg × ${fmtMoney(num('#ciRate'))}${disc?` − discount ${fmtMoney(disc)}`:''})`;
+    };
+    ['#ciKg','#ciRate','#ciDisc'].forEach(id=>{const e=g(id); if(e)e.oninput=calc;}); calc();
+    const fe=g('#ciFill');
+    if(fe) fe.onclick=()=>{ const cid=g('#ciClient').value; const t=fKgTotals(cid); const el=g('#ciKg'); if(el){ el.value=t.del||t.recv||0; } calc(); toast(t.del?`Total delivered ${t.del} kg bhar diya`:`Deliveries nahi mili — total received ${t.recv} kg bhar diya`,'success'); };
+    const build=()=>{
+      const v={ clientId:g('#ciClient').value, date:g('#ciDate').value||isoDay(), kg:fR1(num('#ciKg')), pcs:num('#ciPcs'), rate:num('#ciRate'), disc:num('#ciDisc'),
+        title:String((g('#ciTitle')||{}).value||'DELIVERY BILL / INVOICE').trim(), note:String((g('#ciNote')||{}).value||'').trim(),
+        includeAcct:!!(g('#ciAcct')||{}).checked };
+      if(!(v.kg>0)||!(v.rate>0)){ toast('Total KG aur rate likhein','error'); return null; }
+      if((g('#ciAdd')||{}).checked && !addedId){
+        const d0=fCustomInvoiceData(v);
+        const ins=DB.insert('factoryEntries',{clientId:v.clientId,date:v.date,kg:v.kg,pieces:v.pcs,rate:v.rate,amount:d0.net,note:`${v.title} ${d0.ref} — custom invoice${v.note?' — '+v.note:''}`,branchId:(typeof getActiveBranchId==='function')?getActiveBranchId():'main'});
+        addedId=ins.id;
+        toast('⚖️ Bill ki weight entry records mein add ho gayi','success');
+      }
+      return fCustomInvoiceData(v);
+    };
+    const wa=g('#ciWa'); if(wa) wa.onclick=()=>{ const d=build(); if(!d)return; let ph=String(d.client.phone||'').replace(/\D/g,''); if(ph.startsWith('0'))ph='92'+ph.slice(1); window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(fCustomText(d)),'_blank'); };
+    const pr=g('#ciPrint'); if(pr) pr.onclick=()=>{ const d=build(); if(!d)return; closeModal(); printElement(fCustomWrap(d),{title:'Invoice',thermal:false}); if(typeof logAction==='function')logAction('factory.custominvoice',`${d.client.name||''}: ${d.kg}kg ${fmtMoney(d.net)}`); };
+    const im=g('#ciImg'); if(im) im.onclick=()=>{ const d=build(); if(d) fCustomImage(d); };
+    const cp=g('#ciCopy'); if(cp) cp.onclick=()=>{ const d=build(); if(!d)return; const t=fCustomText(d);
+      if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(()=>toast('Invoice text copy ho gaya ✅','success')); }
+      else toast('Copy support nahi — WhatsApp button use karein','error'); };
+  }});
+}
+
+function shareFactoryDeliverySummary(){
+  if(!factoryState.clientId){toast('Add a client first','error');return;}
+  const client=DB.get('factoryClients',factoryState.clientId);
+  const dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&fInPeriod(d.date||d.createdAt));
+  if(!dels.length){toast('Is period mein koi delivery nahi mili','error');return;}
+  const text=fShareText();
+  let ph=String(client.phone||'').replace(/\D/g,'');
+  if(ph.startsWith('0')) ph='92'+ph.slice(1);
+  const waUrl='https://wa.me/'+ph+'?text='+encodeURIComponent(text);
+  openModal(`<h3>📲 Delivery Summary — ${escapeHtml(client.name)}</h3>
+    <p class="sub" style="font-size:12px;">WhatsApp par bhejne ke liye ready text — zaroorat ho to yahan edit bhi kar sakte hain.</p>
+    <textarea id="fsTxt" rows="12" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">${escapeHtml(text)}</textarea>
+    <div class="modal-footer" style="flex-wrap:wrap;">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-secondary" id="fsCopy">📋 Copy Text</button>
+      <button class="btn btn-secondary" id="fsPrint">🧾 Print Challan</button>
+      <button class="btn btn-primary" id="fsImg">🖼️ Share as Image</button>
+      <a class="btn btn-success" id="fsWa" href="${waUrl}" target="_blank" rel="noopener">💚 WhatsApp par bhejein</a>
+    </div>`,
+  {onOpen(m){
+    $('#fsCopy',m).onclick=()=>{
+      const el=$('#fsTxt',m);
+      if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(el.value).then(()=>toast('Text copy ho gaya ✅','success')); }
+      else { el.select(); try{document.execCommand('copy');toast('Copied','success');}catch(e){} }
+    };
+    $('#fsPrint',m).onclick=()=>{ closeModal(); printFactoryDeliveryChallan(); };
+    $('#fsImg',m).onclick=()=>{ fMakeShareImage(); };
+  }});
 }
 
 /* ================= PRINT DELIVERY CHALLAN / INVOICE =================
