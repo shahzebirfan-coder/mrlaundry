@@ -566,7 +566,7 @@ function fShareText(){
   const inScope=(d)=> fInPeriod(d.date||d.createdAt);
   const dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&inScope(d)).sort((a,b)=>String(a.date||a.createdAt).localeCompare(String(b.date||b.createdAt)));
   const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
-  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
+  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*rateNow),0); // uniform current rate
   const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id).reduce((x,e)=>x+(+e.amount||0),0);
   const allP=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===client.id).reduce((x,p)=>x+(+p.amount||0),0);
   const due=Math.max(0,Math.round(allE-allP));
@@ -579,8 +579,7 @@ function fShareText(){
     `• Total delivered: ${fR1(kg)} kg${pcs?' / '+pcs+' pcs':''} (${dels.length} delivery${dels.length>1?'ies':''})`
   ];
   if(dels.length && dels.length<=8) lines.push(`• Break-up: ${dels.map(d=>`${String(d.date||'').slice(5,10)}: ${fR1(+d.kg||0)}kg`).join(', ')}`);
-  if(kgt.pending>0) lines.push(`• Balance with us (not yet delivered): ${kgt.pending} kg`);
-  lines.push(`• Total amount: ${fmtMoney(amt)}${dels.length && dels.every(d=>+d.rate)?'':` (at Rs. ${(+rateNow).toLocaleString()}/kg)`}`);
+  lines.push(`• Total amount: ${fmtMoney(amt)} (at Rs. ${(+rateNow).toLocaleString()}/kg)`);
   lines.push(`• Payments received: ${fmtMoney(allP)}${lp?` — last ${fmtMoney(+lp.amount||0)} on ${String(lp.date||lp.createdAt||'').slice(0,10)}`:''}`);
   lines.push(due>0?`• Balance due: ${fmtMoney(due)}`:`• Balance: PAID ✅`);
   lines.push('Kindly confirm the above. Thank you!');
@@ -596,7 +595,7 @@ function fMakeShareImage(){
   const dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&fInPeriod(d.date||d.createdAt)).sort((a,b)=>String(a.date||a.createdAt).localeCompare(String(b.date||b.createdAt)));
   if(!dels.length){toast('Is period mein koi delivery nahi mili','error');return;}
   const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
-  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
+  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*rateNow),0); // uniform current rate
   const allP=(DB.all('factoryPayments')||[]).filter(p=>!p._deleted&&p.clientId===client.id).reduce((x,p)=>x+(+p.amount||0),0);
   const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id).reduce((x,e)=>x+(+e.amount||0),0);
   const due=Math.max(0,Math.round(allE-allP));
@@ -612,7 +611,6 @@ function fMakeShareImage(){
   rows.push(['Total Bill Amount', fmtMoney(amt), 'amt']);
   rows.push(['Received to Date', fmtMoney(allP), 'grn']);
   rows.push(['Balance Due', fmtMoney(due), due>0?'red':'grn']);
-  if(kgt.pending>0) rows.push(['With Us (to deliver)', kgt.pending+' kg','']);
   const W=1080, HH=150+rows.length*70+190;
   const cv=document.createElement('canvas'); cv.width=W; cv.height=HH;
   const c=cv.getContext('2d');
@@ -792,7 +790,7 @@ function openFactoryCustomInvoice(){
     <div class="form-row cols-1"><div class="field"><label>Title</label><input id="ciTitle" value="DELIVERY BILL / INVOICE"/></div></div>
     <div class="form-row cols-1"><div class="field"><label>Note on invoice (optional)</label><input id="ciNote" placeholder="e.g. Monthly billing — September 2026"/></div></div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:6px;">
-      <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ciAcct" checked/> Account summary dikhayein (received / balance due)</label>
+      <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ciAcct"/> Account summary dikhayein (received / balance due)</label>
       <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ciAdd"/> Isko weight entry ke tor par records mein bhi add karein</label>
     </div>
     <div id="ciCalc" style="background:var(--primary-light);border-radius:10px;padding:10px;text-align:center;font-weight:800;font-size:15px;color:var(--primary);margin-bottom:10px;">Bill: Rs. 0</div>
@@ -879,7 +877,7 @@ function printFactoryDeliveryChallan(deliveryId){
   else dels=(DB.all('factoryDeliveries')||[]).filter(d=>!d._deleted&&d.clientId===client.id&&inScope(d)).sort((a,b)=>String(a.date||a.createdAt).localeCompare(String(b.date||b.createdAt)));
   if(!dels.length){ toast('Is period mein koi delivery record nahi mili — pehle 📦 Deliver se entry karein','error'); return; }
   const kg=dels.reduce((x,d)=>x+fR1(+d.kg||0),0), pcs=dels.reduce((x,d)=>x+(+d.pieces||0),0);
-  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*(+d.rate||rateNow)),0);
+  const amt=dels.reduce((x,d)=>x+Math.round((+d.kg||0)*rateNow),0); // uniform current rate
   const periodLbl = deliveryId ? 'Single Delivery' : (factoryState.range==='all' ? 'All Deliveries' : fPeriodLbl());
   // Payment status for the client (all-time account position of this client)
   const allE=(DB.all('factoryEntries')||[]).filter(e=>!e._deleted&&e.clientId===client.id).reduce((x,e)=>x+(+e.amount||0),0);
@@ -891,7 +889,7 @@ function printFactoryDeliveryChallan(deliveryId){
   const ref='DC-'+isoDay().replace(/-/g,'')+(dels.length>1?'-'+dels.length:'');
   const kgt=fKgTotals(client.id);
   const s=DB.settings();
-  const rows=dels.map((d,i)=>{const r=+d.rate||rateNow; return `<tr><td>${i+1}</td><td>${escapeHtml(String(d.date||'').slice(0,10))}</td><td style="text-align:right;"><b>${fR1(+d.kg||0)} kg</b></td><td style="text-align:right;">${+d.pieces||0}</td><td style="text-align:right;">${fmtMoney(r)}</td><td style="text-align:right;"><b>${fmtMoney(Math.round((+d.kg||0)*r))}</b></td><td style="font-size:11px;">${escapeHtml(d.note||'')}</td></tr>`;}).join('');
+  const rows=dels.map((d,i)=>{const r=rateNow; return `<tr><td>${i+1}</td><td>${escapeHtml(String(d.date||'').slice(0,10))}</td><td style="text-align:right;"><b>${fR1(+d.kg||0)} kg</b></td><td style="text-align:right;">${+d.pieces||0}</td><td style="text-align:right;">${fmtMoney(r)}</td><td style="text-align:right;"><b>${fmtMoney(Math.round((+d.kg||0)*r))}</b></td><td style="font-size:11px;">${escapeHtml(d.note||'')}</td></tr>`;}).join('');
   const html=`<div class="invoice-page" style="max-width:720px;font-size:14px;">
     <div style="text-align:center;margin-bottom:8px;">${s.logoImage?`<img src="${s.logoImage}" style="max-height:70px;object-fit:contain;background:#000;padding:6px;border-radius:6px;"/>`:''}
     <h2 style="margin:6px 0 0;">${escapeHtml(s.shopName||'Mr Laundry')}</h2><div style="font-size:12px;">${escapeHtml(s.address||'')}${s.phone?' • '+escapeHtml(s.phone):''}</div></div>
@@ -908,7 +906,7 @@ function printFactoryDeliveryChallan(deliveryId){
     <div style="margin-top:14px;font-size:15px;border:2px solid #000;border-radius:8px;padding:10px;display:flex;justify-content:space-between;align-items:center;">
       <span><b>Total Amount (${dels.length} delivery${dels.length>1?'ies':''} — ${fR1(kg)} KG):</b></span>
       <b style="font-size:20px;">${fmtMoney(amt)}</b></div>
-    <div style="margin-top:6px;font-size:12px;color:#444;">Charged at ${deliveryId?`Rs. ${(+(dels[0].rate||rateNow)).toLocaleString()}/kg`:`client rate Rs. ${rateNow.toLocaleString()}/kg`}. ${kgt.pending>0?`Baqi: ${kgt.pending} kg abhi factory mein hai.`:'Sab deliver ho chuka ✅'}</div>
+    <div style="margin-top:6px;font-size:12px;color:#444;">Charged at client rate Rs. ${(+rateNow).toLocaleString()}/kg</div>
     <div style="margin-top:10px;font-size:13px;border:1px solid #000;border-radius:8px;padding:10px;">
       <div style="font-weight:800;margin-bottom:4px;">💰 PAYMENT STATUS</div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;"><span>Total Billed (all deliveries):</span><b>${fmtMoney(allE)}</b></div>
@@ -955,7 +953,6 @@ function printFactoryStatement(){
       <tr style="background:#f0f0f0;"><th colspan="2" style="text-align:center;">⚖️ WEIGHT ACCOUNTING (All Time)</th></tr>
       <tr><td>Total kg Received (wash ke liye lia)</td><td style="text-align:right;"><b>${kgt.recv} kg</b></td></tr>
       <tr><td>Total kg Delivered (client ko wapas dia)</td><td style="text-align:right;"><b style="color:green;">${kgt.del} kg</b></td></tr>
-      <tr><td>Balance kg — abhi factory mein</td><td style="text-align:right;"><b style="color:${kgt.pending>0?'#b45309':'green'};">${kgt.pending} kg</b></td></tr>
     </table>
 
     <div style="font-weight:800;margin:10px 0 4px;">📋 Wash Entries — ${lbl}</div>
@@ -977,7 +974,6 @@ function printFactoryStatement(){
       ${lp?`<div style="display:flex;justify-content:space-between;padding:4px 0;color:#555;font-size:12px;"><span>💳 Last payment received:</span><b>${fmtMoney(+lp.amount||0)} on ${escapeHtml(String(lp.date||'').slice(0,10))}</b></div>`:''}
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:2px solid #000;font-size:18px;"><span>PENDING BALANCE (Due):</span><b style="color:#c00;">${fmtMoney(allE-allP)}</b></div>
     </div>
-    ${kgt.pending>0?`<div style="margin-top:8px;padding:8px;border:2px dashed #b45309;border-radius:8px;font-size:13px;text-align:center;"><b>⏳ Note:</b> ${kgt.pending} kg client ka maal abhi factory mein mojood hai — delivery baqi hai.</div>`:''}
     <div style="text-align:center;margin-top:16px;font-size:12px;color:#555;">Generated ${new Date().toLocaleString()} — Thank you, ${escapeHtml(s.shopName||'Mr Laundry')}</div></div>`;
   const wrap=document.createElement('div');wrap.className='print-slip';wrap.innerHTML=html;
   if(typeof printElement==='function')printElement(wrap,{title:'Factory Statement',thermal:false});
