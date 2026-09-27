@@ -1,238 +1,165 @@
-/* ===================== USERS (Admin only) ===================== */
+/* ============================================================
+   USERS — staff logins, roles & permissions + audit log
+   ============================================================ */
+
+let UserUI = { tab: 'list' };
+
 function renderUsers() {
-  if (DB.currentUser().role !== 'admin') { app.go('dashboard'); return; }
-  const content = `
-    <h1 class="page-title">👥 Users & Permissions</h1>
-    <p class="page-sub">Manage who can access the system and what each cashier can see.</p>
-
-    <div class="filter-bar">
-      <button class="btn btn-primary" id="addUserBtn">+ Add User</button>
-    </div>
-
-    <div class="card" style="padding:0;overflow:hidden;">
-      <table class="tbl">
-        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Permissions</th><th>Joined</th><th>Actions</th></tr></thead>
-        <tbody id="usrBody"></tbody>
-      </table>
-    </div>
-  `;
-  $('#app').innerHTML = renderLayout('users', content);
-  bindLayout();
-  $('#addUserBtn').onclick = () => openUserForm();
-  renderUsersBody();
+  UI.renderLayout('users', `<div id="usrBody"></div>`);
+  usersPaint();
 }
 
-function renderUsersBody() {
-  const users = DB.all('users');
-  $('#usrBody').innerHTML = users.map(u => {
-    const permCount = u.role === 'admin' ? 'All access' :
-      (Array.isArray(u.permissions) ? u.permissions.length : 3) + ' permissions';
-    return `
-    <tr>
-      <td><b>${escapeHtml(u.name)}</b></td>
-      <td><code>${escapeHtml(u.username)}</code></td>
-      <td><span class="badge ${u.role}">${u.role === 'admin' ? '👑 Admin' : '🧑‍💼 Cashier'}</span></td>
-      <td>${u.role === 'admin'
-        ? '<span style="color:var(--success);font-weight:600;">✅ All access</span>'
-        : `<span style="font-size:12px;">${permCount}</span>`}</td>
-      <td>${fmtDateShort(u.createdAt)}</td>
-      <td style="white-space:nowrap;">
-        <button class="btn btn-secondary btn-sm" data-act="edit" data-id="${u.id}">✏️ Edit</button>
-        ${u.role !== 'admin' ? `<button class="btn btn-warning btn-sm" data-act="perms" data-id="${u.id}" title="Manage Permissions">🔐 Permissions</button>` : ''}
-        <button class="btn btn-primary btn-sm" data-act="reset" data-id="${u.id}" title="Reset Password (admin override)">🔑 Reset Pass</button>
-        ${u.id !== DB.currentUser().id ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${u.id}">🗑️</button>` : '<small style="color:var(--text-soft);">(you)</small>'}
-      </td>
-    </tr>
-  `;
-  }).join('');
-  $$('[data-act]').forEach(b => b.onclick = () => {
-    const id = b.dataset.id;
-    if (b.dataset.act === 'edit') openUserForm(DB.get('users', id));
-    else if (b.dataset.act === 'perms') openPermissionsDialog(id);
-    else if (b.dataset.act === 'reset') openAdminResetPassword(id);
-    else if (b.dataset.act === 'del') confirmDialog('Delete this user?', () => {
-      if (typeof logAction === 'function') logAction('user.delete', id);
-      DB.remove('users', id);
-      renderUsersBody();
-    });
-  });
-}
+const PERM_GROUPS = [
+  { g: 'Operations', ids: ['dashboard', 'newsales', 'sales', 'delivery'] },
+  { g: 'Clients & Money', ids: ['customers', 'ledger'] },
+  { g: 'Business', ids: ['products', 'expenses', 'purchases', 'vendorlist', 'employees', 'drawings', 'branches'] },
+  { g: 'Admin', ids: ['reports', 'users', 'settings'] }
+];
 
-function openUserForm(existing) {
-  const u = existing || { name:'', username:'', password:'', role:'cashier' };
-  openModal(`
-    <h3>${existing?'Edit':'Add'} User</h3>
-    <div class="form-row">
-      <div class="field"><label>Full Name *</label><input id="uName" value="${escapeHtml(u.name)}"/></div>
-      <div class="field"><label>Username *</label><input id="uUser" value="${escapeHtml(u.username)}"/></div>
-    </div>
-    <div class="form-row">
-      <div class="field"><label>Password ${existing?'(leave blank to keep)':'*'}</label><input type="text" id="uPass" placeholder="${existing?'••••••••':''}"/></div>
-      <div class="field"><label>Role</label>
-        <select id="uRole">
-          <option value="cashier" ${u.role==='cashier'?'selected':''}>🧑‍💼 Cashier</option>
-          <option value="admin" ${u.role==='admin'?'selected':''}>👑 Admin</option>
-        </select>
-      </div>
-    </div>
+function usersPaint() {
+  const el = $('#usrBody');
+  if (!el) return;
+  const users = DB.all('users').sort((a, b) => String(a.role).localeCompare(String(b.role)));
+  const me = DB.currentUser();
+  const log = DB.all('auditLog').slice(0, 200);
 
-    <div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:12px;border-radius:8px;margin-top:10px;margin-bottom:12px;">
-      <div style="font-weight:700;margin-bottom:6px;">🔐 Password Recovery (Optional but Recommended!)</div>
-      <small style="color:var(--text-soft);display:block;margin-bottom:8px;">If you forget your password, you can recover it using this security question. Set this for every user!</small>
-      <div class="form-row">
-        <div class="field"><label>Security Question</label>
-          <select id="uSecQ">
-            <option value="">-- Choose a question --</option>
-            <option value="mother" ${u.securityQuestion==='mother'?'selected':''}>👩 Mother's name?</option>
-            <option value="city" ${u.securityQuestion==='city'?'selected':''}>🏙️ City you were born in?</option>
-            <option value="school" ${u.securityQuestion==='school'?'selected':''}>🏫 First school name?</option>
-            <option value="pet" ${u.securityQuestion==='pet'?'selected':''}>🐾 First pet's name?</option>
-            <option value="favfood" ${u.securityQuestion==='favfood'?'selected':''}>🍔 Favorite food?</option>
-            <option value="phone" ${u.securityQuestion==='phone'?'selected':''}>📱 Your old phone number?</option>
-            <option value="custom" ${u.securityQuestion==='custom'?'selected':''}>✏️ Custom question</option>
-          </select>
+  el.innerHTML = `
+    <div class="tabs" id="uTabs">
+      <button class="tab ${UserUI.tab === 'list' ? 'on' : ''}" data-ut="list">🔐 Users (${users.length})</button>
+      <button class="tab ${UserUI.tab === 'log' ? 'on' : ''}" data-ut="log">📜 Activity Log (${DB.all('auditLog').length})</button>
+    </div>
+    <div id="uPane"></div>`;
+
+  $$('[data-ut]', el).forEach(b => b.onclick = () => { UserUI.tab = b.dataset.ut; usersPaint(); });
+  const pane = $('#uPane');
+
+  if (UserUI.tab === 'list') {
+    pane.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>🔐 Staff Accounts</h3><div class="sp"></div>
+          <button class="btn btn-primary btn-sm" id="uNew">➕ New User</button></div>
+        <div class="tbl-wrap">
+          <table class="tbl" style="min-width:880px">
+            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Permissions</th><th class="t-center">Status</th>
+              <th>Created</th><th class="t-center">Actions</th></tr></thead>
+            <tbody>${users.map(u => `<tr>
+              <td class="t-strong">${esc(u.name)} ${me && me.id === u.id ? '<span class="pill pill-info">You</span>' : ''}</td>
+              <td class="mono">${esc(u.username)}</td>
+              <td><span class="tag">${esc(titleCase(u.role))}</span></td>
+              <td class="tiny">${DB.isOwner(u) ? 'Sab pages (full access)' : (u.permissions || []).map(p => esc(friendlyPage(p))).join(', ') || '—'}</td>
+              <td class="t-center">${u.active === false ? '<span class="pill pill-muted">Inactive</span>' : '<span class="pill pill-ok">Active</span>'}</td>
+              <td class="tiny t-nowrap">${fmtDate(u.createdAt)}</td>
+              <td class="t-center t-nowrap">
+                <button class="icon-btn" style="width:28px;height:28px;font-size:11px" data-uedit="${u.id}" title="Edit">✏️</button>
+                ${me && me.id === u.id ? '' : `<button class="icon-btn" style="width:28px;height:28px;font-size:11px" data-udel="${u.id}" title="Delete">🗑️</button>`}
+              </td>
+            </tr>`).join('')}</tbody>
+          </table>
         </div>
-        <div class="field"><label>Your Answer ${u.securityAnswer?'(already set)':''}</label><input type="text" id="uSecA" placeholder="${u.securityAnswer?'(leave blank to keep current)':'e.g. Fatima'}"/></div>
       </div>
-      <div class="field" id="uSecCustomWrap" style="display:${u.securityQuestion==='custom'?'block':'none'};margin-top:8px;">
-        <label>Your Custom Question</label>
-        <input type="text" id="uSecCustom" value="${escapeHtml(u.securityQuestionCustom||'')}" placeholder="e.g. My favorite cricketer?"/>
-      </div>
-    </div>
-    ${existing && u.role !== 'admin' ? `
-      <div style="background:var(--surface-alt);padding:10px;border-radius:8px;font-size:12px;margin-top:10px;">
-        💡 To manage what this cashier can see, click <b>"🔐 Permissions"</b> button in the users list.
-      </div>
-    ` : ''}
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="saveBtn">Save</button>
-    </div>
-  `, { onOpen(m){
-    const secQSel = $('#uSecQ', m);
-    const customWrap = $('#uSecCustomWrap', m);
-    if (secQSel) secQSel.onchange = () => { customWrap.style.display = secQSel.value === 'custom' ? 'block' : 'none'; };
-    $('#saveBtn', m).onclick = () => {
-      const name = $('#uName', m).value.trim();
-      const username = $('#uUser', m).value.trim();
-      const password = $('#uPass', m).value;
-      const role = $('#uRole', m).value;
-      if (!name || !username || (!existing && !password)) { toast('All fields required','error'); return; }
-      const dup = DB.all('users').find(x => x.username === username && x.id !== (existing?existing.id:null));
-      if (dup) { toast('Username already exists','error'); return; }
-      const data = { name, username, role };
-      if (password) data.password = password;
-      // Security question
-      const secQ = $('#uSecQ', m).value;
-      const secA = $('#uSecA', m).value.trim();
-      const secCustom = $('#uSecCustom', m).value.trim();
-      if (secQ) data.securityQuestion = secQ;
-      if (secQ === 'custom') data.securityQuestionCustom = secCustom;
-      if (secA) data.securityAnswer = secA.toLowerCase(); // store lowercase for case-insensitive match
-      // New cashiers get default permissions
-      if (!existing && role === 'cashier') {
-        data.permissions = (typeof ALL_PERMISSIONS !== 'undefined')
-          ? ALL_PERMISSIONS.filter(p => p.defaultCashier).map(p => p.id)
-          : ['pos','orders','customers'];
-      }
-      if (existing) DB.update('users', existing.id, data);
-      else DB.insert('users', { ...data, password });
-      closeModal(); toast('Saved','success'); renderUsersBody();
-      if (typeof logAction === 'function') logAction(existing?'user.edit':'user.add', name);
-      // Immediately push the new/updated user to cloud so it can never be lost
-      // to a sync race (this was causing new cashier IDs to disappear and fail
-      // to log in on other devices / after refresh).
-      try {
-        if (typeof CLOUD !== 'undefined' && CLOUD.isEnabled && CLOUD.isEnabled() && CLOUD.isReady && CLOUD.isReady()) {
-          CLOUD.push({ manual: true }).catch(e => console.warn('User push failed:', e));
-        }
-      } catch(e) { console.warn('User cloud push error:', e); }
+
+      <div class="card"><div class="card-body">
+        <div class="grid g3">
+          <div class="note-box info tiny"><b>👑 Owner</b><br>Sab kuch — settings, users, reports, cloud, backup.</div>
+          <div class="note-box tiny"><b>🧑‍💼 Manager</b><br>Operations + business pages, lekin users/settings nahi. Permissions custom set kar sakte hain.</div>
+          <div class="note-box tiny"><b>🧾 Cashier</b><br>Sirf New Sales, Sales, Customers, Ledger — daily entry ke liye.</div>
+        </div>
+      </div></div>`;
+    $('#uNew').onclick = () => userForm();
+    $$('[data-uedit]', pane).forEach(b => b.onclick = () => userForm(b.dataset.uedit));
+    $$('[data-udel]', pane).forEach(b => b.onclick = async () => {
+      const u = DB.get('users', b.dataset.udel);
+      const yes = await confirmDialog('“' + u.name + '” ka account delete karein?', { danger: true, yes: 'Delete' });
+      if (!yes) return;
+      DB.remove('users', u.id);
+      DB.audit('user-delete', 'User delete: ' + u.name);
+      toast('User delete ho gaya', 'warn');
+      usersPaint();
+    });
+  } else {
+    pane.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>📜 Activity Log (latest 200)</h3><div class="sp"></div>
+          <button class="btn btn-ghost btn-sm" id="logCsv">⬇️ CSV</button>
+          <button class="btn btn-ghost btn-sm" id="logClear">🗑️ Clear</button></div>
+        <div class="tbl-wrap">
+          <table class="tbl" style="min-width:760px">
+            <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th><th>Ref</th></tr></thead>
+            <tbody>${log.length ? log.map(l => `<tr>
+              <td class="tiny t-nowrap">${new Date(l.at).toLocaleString()}</td>
+              <td class="tiny">${esc(l.userName || '')}</td>
+              <td><span class="tag">${esc(l.action || '')}</span></td>
+              <td class="tiny">${esc(l.detail || '')}</td>
+              <td class="tiny">${esc(l.ref || '')}</td>
+            </tr>`).join('') : emptyRow(5, 'Koi activity nahi', '📜')}</tbody>
+          </table>
+        </div>
+      </div>`;
+    $('#logCsv').onclick = () => exportCSV('activity-log.csv', ['When', 'User', 'Action', 'Detail', 'Ref'],
+      log.map(l => [new Date(l.at).toLocaleString(), l.userName, l.action, l.detail, l.ref]));
+    $('#logClear').onclick = async () => {
+      const yes = await confirmDialog('Poora activity log clear karein?', { danger: true, yes: 'Clear log' });
+      if (!yes) return;
+      DB._data.auditLog = [];
+      DB.save();
+      usersPaint();
     };
-  }});
+  }
 }
 
-/* ===== Permissions dialog ===== */
-function openPermissionsDialog(userId) {
-  const u = DB.get('users', userId);
-  if (!u) return;
-  if (u.role === 'admin') { toast('Admin already has all access','warning'); return; }
+function friendlyPage(id) { const n = NAV.find(x => x.id === id); return n ? n.label : id; }
 
-  const current = Array.isArray(u.permissions)
-    ? u.permissions
-    : (typeof ALL_PERMISSIONS !== 'undefined' ? ALL_PERMISSIONS.filter(p => p.defaultCashier).map(p => p.id) : ['pos','orders','customers']);
-
-  // Group permissions
-  const pageGroup = ALL_PERMISSIONS.filter(p => !p.sensitive);
-  const sensitiveGroup = ALL_PERMISSIONS.filter(p => p.sensitive);
-
-  const renderRow = (p) => `
-    <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:${current.includes(p.id)?'var(--primary-light)':'var(--surface)'};margin-bottom:6px;">
-      <input type="checkbox" data-perm="${p.id}" ${current.includes(p.id)?'checked':''} style="margin-top:3px;width:18px;height:18px;"/>
-      <div style="flex:1;">
-        <div style="font-weight:700;font-size:13px;">${p.label}</div>
-        <div style="font-size:11px;color:var(--text-soft);margin-top:2px;">${escapeHtml(p.desc)}</div>
-      </div>
-    </label>
-  `;
-
-  openModal(`
-    <h3>🔐 Permissions — ${escapeHtml(u.name)}</h3>
-    <p class="sub">Choose what this cashier can access. Uncheck to hide.</p>
-
-    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
-      <button class="btn btn-secondary btn-sm" id="presetMin">📋 Minimum (POS only)</button>
-      <button class="btn btn-secondary btn-sm" id="presetTeller">💵 Cashier + Daily Performance</button>
-      <button class="btn btn-secondary btn-sm" id="presetSr">⭐ Senior Cashier</button>
-      <button class="btn btn-secondary btn-sm" id="presetMgr">👔 Manager (almost admin)</button>
+function userForm(id) {
+  const u = id ? DB.get('users', id) : null;
+  const isOwnerUser = u && DB.isOwner(u);
+  const body = `
+    <div class="grid g2">
+      <label class="fld"><span>Full Name <b class="req">*</b></span><input class="inp" id="ufName" value="${esc(u ? u.name : '')}"/></label>
+      <label class="fld"><span>Role</span>
+        <select class="inp" id="ufRole" ${isOwnerUser ? 'disabled' : ''}>
+          <option value="cashier" ${u && u.role === 'cashier' ? 'selected' : ''}>Cashier</option>
+          <option value="manager" ${u && u.role === 'manager' ? 'selected' : ''}>Manager</option>
+          <option value="owner" ${!u || (u && u.role === 'owner') ? 'selected' : ''}>Owner (full access)</option>
+        </select></label>
     </div>
-
-    <div style="background:var(--surface-alt);padding:12px;border-radius:8px;margin-bottom:14px;">
-      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📄 Page Access</div>
-      ${pageGroup.map(renderRow).join('')}
+    <div class="grid g3">
+      <label class="fld"><span>Username <b class="req">*</b></span><input class="inp" id="ufUser" value="${esc(u ? u.username : '')}" autocomplete="off"/></label>
+      <label class="fld"><span>Password <b class="req">*</b></span><input class="inp" id="ufPass" value="${esc(u ? u.password : '')}" autocomplete="new-password"/></label>
+      <label class="fld"><span>Phone</span><input class="inp" id="ufPhone" value="${esc(u ? u.phone : '')}"/></label>
     </div>
+    <label class="fld"><span>Status</span>
+      <select class="inp" id="ufActive"><option value="1" ${!u || u.active !== false ? 'selected' : ''}>Active</option>
+        <option value="0" ${u && u.active === false ? 'selected' : ''}>Inactive</option></select></label>
+    <div class="fld"><span>Permissions (Owner ke liye zaroori nahi)</span>
+      ${PERM_GROUPS.map(gr => `<div class="note-box tiny mb6">
+        <b>${gr.g}</b><div class="row" style="gap:12px;margin-top:6px">
+          ${gr.ids.map(pid => `<label class="row tiny" style="gap:5px;font-weight:700">
+            <input type="checkbox" data-perm="${pid}" ${u && (u.permissions || []).indexOf(pid) >= 0 ? 'checked' : ''}/> ${esc(friendlyPage(pid))}</label>`).join('')}
+        </div></div>`).join('')}
+    </div>`;
 
-    <div style="background:#fef3c7;padding:12px;border-radius:8px;border-left:4px solid #f59e0b;">
-      <div style="font-weight:700;font-size:13px;margin-bottom:4px;">⚠️ Sensitive Operations</div>
-      <div style="font-size:11px;color:#92400e;margin-bottom:8px;">Grant carefully — these allow editing/deleting data.</div>
-      ${sensitiveGroup.map(renderRow).join('')}
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-danger" id="revokeAllBtn">⛔ Revoke All</button>
-      <button class="btn btn-primary" id="savePermsBtn">💾 Save Permissions</button>
-    </div>
-  `, { large: true, onOpen(m) {
-    // Live update background color on toggle
-    m.querySelectorAll('input[data-perm]').forEach(cb => {
-      cb.onchange = () => {
-        const lbl = cb.closest('label');
-        lbl.style.background = cb.checked ? 'var(--primary-light)' : 'var(--surface)';
-      };
-    });
-
-    const applyPreset = (perms) => {
-      m.querySelectorAll('input[data-perm]').forEach(cb => {
-        cb.checked = perms.includes(cb.dataset.perm);
-        cb.closest('label').style.background = cb.checked ? 'var(--primary-light)' : 'var(--surface)';
-      });
+  const w = openModal({
+    title: u ? '✏️ Edit User' : '➕ New User', size: 'lg', body,
+    footer: `<button class="btn btn-ghost" data-close="1">Cancel</button><button class="btn btn-primary" id="ufSave">💾 Save</button>`
+  });
+  $('#ufSave', w).onclick = () => {
+    const name = $('#ufName', w).value.trim();
+    const username = $('#ufUser', w).value.trim().toLowerCase();
+    const pass = $('#ufPass', w).value;
+    if (!name || !username || !pass) return toast('Name, username aur password zaroori hain', 'error');
+    const dup = DB.all('users').find(x => x.username.toLowerCase() === username && (!u || x.id !== u.id));
+    if (dup) return toast('Yeh username pehle se maujood hai', 'error');
+    const perms = $$('[data-perm]', w).filter(c => c.checked).map(c => c.dataset.perm);
+    const rec = {
+      id: u ? u.id : uid('u'), name, username, password: pass,
+      role: u ? (u.role === 'owner' ? 'owner' : $('#ufRole', w).value) : $('#ufRole', w).value,
+      phone: $('#ufPhone', w).value, active: $('#ufActive', w).value === '1',
+      permissions: perms, createdAt: u ? u.createdAt : new Date().toISOString()
     };
-
-    $('#presetMin', m).onclick = () => applyPreset(['pos','orders','customers']);
-    $('#presetTeller', m).onclick = () => applyPreset(['pos','orders','customers','dashboard','cashbook']);
-    $('#presetSr', m).onclick = () => applyPreset(['pos','orders','customers','dashboard','cashbook','ledger','expenses','viewPhotos']);
-    $('#presetMgr', m).onclick = () => applyPreset(['pos','orders','customers','dashboard','cashbook','ledger','expenses','reports','products','inventory','vendors','purchaseOrders','viewPhotos','editInvoice','editProducts']);
-    $('#revokeAllBtn', m).onclick = () => {
-      confirmDialog('Revoke ALL permissions? This cashier won\u2019t see ANY pages.', () => applyPreset([]));
-    };
-
-    $('#savePermsBtn', m).onclick = () => {
-      const perms = Array.from(m.querySelectorAll('input[data-perm]:checked')).map(cb => cb.dataset.perm);
-      setUserPermissions(userId, perms);
-      closeModal();
-      toast(`Permissions updated for ${u.name}`, 'success');
-      if (typeof logAction === 'function') logAction('user.permissions', `${u.username}: ${perms.length} perms`);
-      renderUsersBody();
-    };
-  }});
+    DB.upsert('users', rec);
+    DB.audit(u ? 'user-edit' : 'user', (u ? 'User edit: ' : 'Naya user: ') + name + ' (' + rec.role + ')');
+    toast('✔ User save ho gaya', 'success');
+    closeModal(w);
+    usersPaint();
+  };
 }

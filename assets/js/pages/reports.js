@@ -1,326 +1,281 @@
-/* ===================== REPORTS (with PDF export + brand logo) ===================== */
-let reportRange = { from: '', to: '', preset: 'last30' };
+/* ============================================================
+   REPORTS — Profit/Loss, KG, customer, expense, delivery
+   Period: Today / Month / Custom / All  ·  Print + CSV export
+   ============================================================ */
 
-function applyReportRange(preset) {
-  const today = new Date();
-  const iso = (d) => isoDay(d);
-  let from = '', to = iso(today);
-  switch (preset) {
-    case 'today':       from = to; break;
-    case 'yesterday': { const y = new Date(); y.setDate(y.getDate()-1); from = to = iso(y); break; }
-    case 'last7':     { const d = new Date(); d.setDate(d.getDate()-6); from = iso(d); break; }
-    case 'last30':    { const d = new Date(); d.setDate(d.getDate()-29); from = iso(d); break; }
-    case 'thismonth': { from = iso(new Date(today.getFullYear(), today.getMonth(), 1)); break; }
-    case 'lastmonth': {
-      const fm = new Date(today.getFullYear(), today.getMonth()-1, 1);
-      const lm = new Date(today.getFullYear(), today.getMonth(), 0);
-      from = iso(fm); to = iso(lm); break;
-    }
-    case 'thisyear':  { from = iso(new Date(today.getFullYear(), 0, 1)); break; }
-    case 'lastyear':  {
-      from = iso(new Date(today.getFullYear()-1, 0, 1));
-      to = iso(new Date(today.getFullYear()-1, 11, 31)); break;
-    }
-    case 'all':       from = '1970-01-01'; break;
-    default: return;
-  }
-  reportRange.from = from;
-  reportRange.to = to;
-  reportRange.preset = preset;
-}
+let RepUI = { tab: 'pl', customerId: '' };
 
 function renderReports() {
-  if (!reportRange.from) applyReportRange('last30');
+  UI.renderLayout('reports', `<div id="repBody"></div>`);
+  reportsPaint();
+}
 
-  const content = `
-    <h1 class="page-title">📈 Reports</h1>
-    <p class="page-sub">Sales, profit, top items — drill into any date range.</p>
+function reportsPaint() {
+  const el = $('#repBody');
+  if (!el) return;
+  const m = Biz.metrics(Period);
+  const tabs = [
+    ['pl', '🧮 Profit &amp; Loss'],
+    ['kg', '⚖️ KG / Item'],
+    ['cust', '👥 Customer-wise'],
+    ['exp', '💸 Expenses'],
+    ['del', '🚚 Delivery & Pending'],
+    ['pay', '💵 Collections']
+  ];
+  el.innerHTML = `
+    ${Period.bar()}
+    <div class="tabs" id="repTabs">
+      ${tabs.map(t => `<button class="tab ${RepUI.tab === t[0] ? 'on' : ''}" data-rtab="${t[0]}">${t[1]}</button>`).join('')}
+    </div>
+    <div id="repPane"></div>`;
 
-    <!-- Date Range Filters -->
-    <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px;border:1px solid var(--border);">
-      <div style="font-weight:700;font-size:13px;margin-bottom:10px;">📅 Date Range</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-        ${[
-          ['today','Today'],['yesterday','Yesterday'],['last7','Last 7 Days'],
-          ['last30','Last 30 Days'],['thismonth','This Month'],['lastmonth','Last Month'],
-          ['thisyear','This Year'],['lastyear','Last Year'],['all','All Time']
-        ].map(([id,label]) => `
-          <button class="r-range-btn ${reportRange.preset===id?'active':''}" data-range="${id}" style="padding:8px 14px;border:2px solid ${reportRange.preset===id?'var(--primary)':'var(--border)'};background:${reportRange.preset===id?'var(--primary)':'var(--surface)'};color:${reportRange.preset===id?'#fff':'var(--text)'};border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;transition:all .2s ease;">${label}</button>
-        `).join('')}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;">From <input type="date" id="rFrom" value="${reportRange.from}"/></label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;">To <input type="date" id="rTo" value="${reportRange.to}"/></label>
-        <button class="btn btn-primary btn-sm" id="rApply">Apply Custom</button>
-        <div style="margin-left:auto;display:flex;gap:6px;">
-          <button class="btn btn-secondary btn-sm" id="rExportCSV">📥 Export CSV</button>
-          <button class="btn btn-warning btn-sm" id="rExportPDF">📄 Export PDF</button>
+  Period.bind(el, reportsPaint);
+  $$('[data-rtab]', el).forEach(b => b.onclick = () => { RepUI.tab = b.dataset.rtab; reportsPaint(); });
+
+  const pane = $('#repPane');
+  const sumCards = `
+    <div class="stats">
+      ${UI.statCard({ icon: '⚖️', label: 'Received KG', value: fmtKg(m.receivedKg), foot: m.newEntries + ' entries', tone: 'info' })}
+      ${UI.statCard({ icon: '📦', label: 'Delivered KG', value: fmtKg(m.deliveredKg), foot: m.deliveredCount + ' orders', tone: 'good' })}
+      ${UI.statCard({ icon: '💰', label: 'Income', value: fmtMoney(m.income), tone: 'good' })}
+      ${UI.statCard({ icon: '💸', label: 'Total Expenses', value: fmtMoney(m.totalExpenses), tone: 'bad' })}
+      ${UI.statCard({ icon: m.profit >= 0 ? '📈' : '📉', label: 'Profit / Loss', value: fmtMoney(m.profit), tone: m.profit >= 0 ? 'good' : 'bad' })}
+      ${UI.statCard({ icon: '💵', label: 'Collected', value: fmtMoney(m.collected), tone: 'purple' })}
+    </div>`;
+
+  if (RepUI.tab === 'pl') {
+    const series = Biz.dailySeries(Period);
+    pane.innerHTML = `${sumCards}
+      <div class="grid g-2-1">
+        <div class="card">
+          <div class="card-head"><h3>🧮 Profit &amp; Loss — ${esc(Period.label())}</h3><div class="sp"></div>
+            <button class="btn btn-ghost btn-sm" id="plPrint">🖨️ Print</button>
+            <button class="btn btn-ghost btn-sm" id="plCsv">⬇️ CSV</button></div>
+          <div class="card-body">
+            <div class="kv"><span>Wash Income (billed KG × rate)</span><b class="t-ok">${fmtMoney(m.income)}</b></div>
+            <div class="kv"><span>Avg rate realised</span><b>${fmtMoney(m.avgRate)} / kg</b></div>
+            <div class="kv"><span>− Factory Expenses</span><b class="t-bad">${fmtMoney(m.expenses)}</b></div>
+            <div class="kv"><span>− Purchases</span><b class="t-bad">${fmtMoney(m.purchases)}</b></div>
+            <div class="kv"><span>− Salaries</span><b class="t-bad">${fmtMoney(m.salaries)}</b></div>
+            <div class="kv total"><span>Net ${m.profit >= 0 ? 'Profit' : 'Loss'}</span><b class="${m.profit >= 0 ? 't-ok' : 't-bad'}">${fmtMoney(m.profit)}</b></div>
+            <div class="kv"><span>Profit per KG</span><b>${fmtMoney(m.receivedKg ? round2(m.profit / m.receivedKg) : 0)}</b></div>
+            <div class="kv"><span>Owner Drawings (cash out, not expense)</span><b>${fmtMoney(m.drawings)}</b></div>
+            <div class="kv"><span>Cash in hand (period movement)</span><b class="${m.cashInHand >= 0 ? 't-ok' : 't-bad'}">${fmtMoney(m.cashInHand)}</b></div>
+          </div>
         </div>
-      </div>
-    </div>
-
-    <div id="reportBody"></div>
-  `;
-  $('#app').innerHTML = renderLayout('reports', content);
-  bindLayout();
-
-  $$('.r-range-btn').forEach(b => b.onclick = () => {
-    applyReportRange(b.dataset.range);
-    renderReports();
-  });
-  $('#rApply').onclick = () => {
-    reportRange.from = $('#rFrom').value;
-    reportRange.to = $('#rTo').value;
-    reportRange.preset = 'custom';
-    renderReportBody();
-  };
-  $('#rExportCSV').onclick = exportReportCSV;
-  $('#rExportPDF').onclick = exportReportPDF;
-  renderReportBody();
-}
-
-function rangeOrders() {
-  return DB.all('orders').filter(o => {
-    const d = (o.createdAt||'').slice(0,10);
-    return d >= reportRange.from && d <= reportRange.to;
-  });
-}
-function rangeExpenses() {
-  return DB.all('expenses').filter(e => {
-    const d = e.date || (e.createdAt||'').slice(0,10);
-    return d >= reportRange.from && d <= reportRange.to;
-  });
-}
-
-function renderReportBody() {
-  const orders = rangeOrders();
-  const expenses = rangeExpenses();
-  const revenue = orders.reduce((s,o)=>s+(o.total||0),0);
-  const collected = orders.reduce((s,o)=>s+(o.paid||0),0);
-  const due = orders.reduce((s,o)=>s+(o.due||0),0);
-  const expTotal = expenses.reduce((s,e)=>s+(e.amount||0),0);
-  const profit = collected - expTotal;
-
-  // Top products (using productImageHTML for proper rendering!)
-  const itemMap = {};
-  orders.forEach(o => (o.items||[]).forEach(it => {
-    if (!itemMap[it.name]) itemMap[it.name] = { name: it.name, qty: 0, total: 0, image: it.image, productId: it.productId };
-    itemMap[it.name].qty += it.qty;
-    itemMap[it.name].total += it.qty * it.price;
-  }));
-  const top = Object.values(itemMap).sort((a,b)=>b.qty-a.qty).slice(0,10);
-
-  // Daily breakdown
-  const dailyMap = {};
-  orders.forEach(o => {
-    const k = (o.createdAt||'').slice(0,10);
-    dailyMap[k] = (dailyMap[k]||0) + (o.total||0);
-  });
-  const dailyRows = Object.entries(dailyMap).sort().map(([k,v]) =>
-    `<tr><td>${k}</td><td style="text-align:right;"><b>${fmtMoney(v)}</b></td></tr>`
-  ).join('') || `<tr><td colspan="2" class="empty">No data</td></tr>`;
-
-  // Expense category breakdown
-  const expCatMap = {};
-  expenses.forEach(e => {
-    const cid = e.category || 'other';
-    expCatMap[cid] = (expCatMap[cid] || 0) + (e.amount || 0);
-  });
-  const expCatRows = Object.entries(expCatMap).sort((a,b)=>b[1]-a[1]).map(([cid, amt]) => {
-    const cat = (typeof getExpCategory === 'function') ? getExpCategory(cid) : { label: cid, color: '#6b7280' };
-    const pct = expTotal > 0 ? (amt/expTotal*100).toFixed(1) : 0;
-    return `<tr>
-      <td><span style="background:${cat.color}20;color:${cat.color};padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700;">${cat.label}</span></td>
-      <td style="text-align:right;"><b>${fmtMoney(amt)}</b></td>
-      <td style="text-align:right;color:var(--text-soft);">${pct}%</td>
-    </tr>`;
-  }).join('') || `<tr><td colspan="3" class="empty">No expenses</td></tr>`;
-
-  $('#reportBody').innerHTML = `
-    <div class="grid-stats" style="margin-bottom:18px;">
-      <div class="stat-card"><div class="ic b1">💰</div><div><div class="lbl">Revenue (Billed)</div><div class="val">${fmtMoney(revenue)}</div></div></div>
-      <div class="stat-card"><div class="ic b2">✅</div><div><div class="lbl">Collected (Received)</div><div class="val" style="color:var(--success);">${fmtMoney(collected)}</div></div></div>
-      <div class="stat-card"><div class="ic b3">⏰</div><div><div class="lbl">Outstanding Due</div><div class="val" style="color:var(--warning);">${fmtMoney(due)}</div></div></div>
-      <div class="stat-card"><div class="ic b4">💸</div><div><div class="lbl">Expenses</div><div class="val" style="color:var(--danger);">${fmtMoney(expTotal)}</div></div></div>
-      <div class="stat-card"><div class="ic ${profit>=0?'b2':'b3'}"">📊</div><div><div class="lbl">Net Profit</div><div class="val" style="color:${profit>=0?'var(--success)':'var(--danger)'}">${fmtMoney(profit)}</div></div></div>
-      <div class="stat-card"><div class="ic b5">🛒</div><div><div class="lbl">Orders</div><div class="val">${orders.length}</div></div></div>
-    </div>
-
-    <div style="display:grid;gap:20px;grid-template-columns:1fr 1fr;">
-      <div class="card">
-        <div class="card-header"><h3>🏆 Top Selling Items</h3></div>
-        <table class="tbl">
-          <thead><tr><th></th><th>Item</th><th>Qty</th><th style="text-align:right;">Revenue</th></tr></thead>
-          <tbody>
-            ${top.length ? top.map(t => `<tr>
-              <td style="width:56px;padding:6px;">
-                <div style="width:44px;height:44px;border-radius:8px;background:linear-gradient(135deg,#e0e7ff,#fff);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid #eef1f7;margin:0 auto;">
-                  ${typeof productImageHTML === 'function' ? productImageHTML(t.image, 44) : '🧺'}
-                </div>
-              </td>
-              <td><b>${escapeHtml(t.name)}</b></td>
-              <td>${t.qty}</td>
-              <td style="text-align:right;"><b>${fmtMoney(t.total)}</b></td>
-            </tr>`).join('') : `<tr><td colspan="4" class="empty">No data</td></tr>`}
-          </tbody>
-        </table>
+        <div class="card">
+          <div class="card-head"><h3>📈 Last 6 months</h3></div>
+          <div class="card-body">${UI.barChart(Biz.monthlySeries(6), { height: 150 })}
+            <div class="divider"></div>
+            ${UI.progressRows(Biz.monthlySeries(6).slice().reverse().map(r => ({
+      label: r.label, value: r.kg, color: '#4f7cff', note: fmtKg(r.kg) + ' · ' + fmtMoneyShort(r.profit)
+    })))}
+          </div>
+        </div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>📂 Expense Categories</h3></div>
-        <table class="tbl">
-          <thead><tr><th>Category</th><th style="text-align:right;">Amount</th><th style="text-align:right;">%</th></tr></thead>
-          <tbody>${expCatRows}</tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:20px;">
-      <div class="card-header"><h3>📅 Daily Sales Breakdown</h3></div>
-      <table class="tbl">
-        <thead><tr><th>Date</th><th style="text-align:right;">Total</th></tr></thead>
-        <tbody>${dailyRows}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-/* ===================== EXPORTS ===================== */
-function exportReportCSV() {
-  const orders = rangeOrders();
-  const rows = [['OrderID','Date','Customer','Items','Subtotal','Discount','Tax','Total','Paid','Due','Status','PaymentMethod']];
-  orders.forEach(o => {
-    const c = DB.get('customers', o.customerId) || { name:'' };
-    rows.push([
-      o.invoiceNo ? 'INV-'+o.invoiceNo : o.id,
-      o.createdAt, c.name,
-      (o.items||[]).map(i => `${i.qty}x ${i.name}`).join(' | '),
-      o.subtotal, o.discount, o.tax, o.total, o.paid, o.due, o.status, o.paymentMethod||''
-    ]);
-  });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  downloadFile(`report-orders_${reportRange.from}_to_${reportRange.to}.csv`, csv, 'text/csv');
-  toast('✅ CSV exported','success');
-}
-
-async function exportReportPDF() {
-  const orders = rangeOrders();
-  const expenses = rangeExpenses();
-  const s = DB.settings();
-  if (!orders.length && !expenses.length) { toast('No data to export', 'warning'); return; }
-
-  const revenue = orders.reduce((s,o)=>s+(o.total||0),0);
-  const collected = orders.reduce((s,o)=>s+(o.paid||0),0);
-  const due = orders.reduce((s,o)=>s+(o.due||0),0);
-  const expTotal = expenses.reduce((s,e)=>s+(e.amount||0),0);
-  const profit = collected - expTotal;
-
-  // Top items
-  const itemMap = {};
-  orders.forEach(o => (o.items||[]).forEach(it => {
-    if (!itemMap[it.name]) itemMap[it.name] = { name: it.name, qty: 0, total: 0 };
-    itemMap[it.name].qty += it.qty;
-    itemMap[it.name].total += it.qty * it.price;
-  }));
-  const top = Object.values(itemMap).sort((a,b)=>b.qty-a.qty).slice(0,15);
-
-  // Expense categories
-  const expCatMap = {};
-  expenses.forEach(e => {
-    const cid = e.category || 'other';
-    expCatMap[cid] = (expCatMap[cid] || 0) + (e.amount || 0);
-  });
-
-  const logoHtml = s.logoImage
-    ? `<img src="${s.logoImage}" style="max-width:80px;max-height:80px;object-fit:contain;background:#000;padding:6px;border-radius:8px;" alt="logo"/>`
-    : `<div style="font-size:50px;">${s.logo||'🧺'}</div>`;
-
-  const topRows = top.map(t => `<tr>
-    <td style="padding:6px 10px;border-bottom:1px solid #eee;"><b>${escapeHtml(t.name)}</b></td>
-    <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">${t.qty}</td>
-    <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">${fmtMoney(t.total)}</td>
-  </tr>`).join('') || '<tr><td colspan="3" style="padding:10px;text-align:center;color:#999;">No sales data</td></tr>';
-
-  const expCatRows = Object.entries(expCatMap).sort((a,b)=>b[1]-a[1]).map(([cid, amt]) => {
-    const cat = getExpCategory(cid);
-    const pct = expTotal > 0 ? (amt/expTotal*100).toFixed(1) : 0;
-    return `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;">${cat.label}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">${fmtMoney(amt)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;color:#666;">${pct}%</td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="3" style="padding:10px;text-align:center;color:#999;">No expenses</td></tr>';
-
-  const html = `
-    <!DOCTYPE html>
-    <html><head>
-      <meta charset="utf-8">
-      <title>Business Report — ${escapeHtml(s.shopName||'Mr Laundry')}</title>
-      <style>
-        body { font-family: Arial, sans-serif; color: #000; padding: 20px; margin: 0; }
-        h1 { margin: 8px 0; font-size: 24px; }
-        h2 { font-size: 15px; margin: 18px 0 8px; color: #4f7cff; border-bottom: 2px solid #4f7cff; padding-bottom: 4px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12px; }
-        th { background: #4f7cff; color: #fff; padding: 8px; font-size: 11px; text-align: left; }
-        th:nth-child(2), th:nth-child(3) { text-align: right; }
-        .header { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #4f7cff; padding-bottom: 14px; margin-bottom: 16px; }
-        .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
-        .summary-card { background: #f8fafc; border: 1px solid #e5e9f2; border-radius: 8px; padding: 12px; }
-        .summary-card .lbl { font-size: 10px; color: #666; text-transform: uppercase; font-weight: 700; }
-        .summary-card .val { font-size: 18px; font-weight: 900; margin-top: 4px; }
-        .profit { background: ${profit>=0?'#dcfce7':'#fee2e2'}; border-color: ${profit>=0?'#22c55e':'#ef4444'}; }
-        .footer { text-align: center; font-size: 10px; color: #666; margin-top: 30px; border-top: 1px dashed #ccc; padding-top: 10px; }
-        @media print { body { padding: 10px; } .summary-grid { grid-template-columns: repeat(3, 1fr); } }
-      </style>
-    </head><body>
-      <div class="header">
-        ${logoHtml}
-        <div style="flex:1;">
-          <h1>${escapeHtml(s.shopName||'Mr Laundry')}</h1>
-          <div style="font-size:12px;color:#666;">${escapeHtml(s.address||'')}</div>
-          <div style="font-size:12px;color:#666;">${escapeHtml(s.phone||'')}</div>
+        <div class="card-head"><h3>📅 Daily Breakdown — ${esc(Period.label())}</h3></div>
+        <div class="tbl-wrap">
+          <table class="tbl" style="min-width:640px">
+            <thead><tr><th>Date</th><th class="t-right">KG Received</th><th class="t-right">Income</th>
+              <th class="t-right">Expenses</th><th class="t-right">Net</th></tr></thead>
+            <tbody>${series.length ? series.map(d => `<tr>
+              <td class="t-nowrap">${fmtDate(d.date)}</td>
+              <td class="t-right">${fmtKg(d.kg)}</td>
+              <td class="t-right t-ok">${fmtMoney(d.income)}</td>
+              <td class="t-right t-bad">${fmtMoney(d.expenses)}</td>
+              <td class="t-right ${d.income - d.expenses >= 0 ? 't-ok' : 't-bad'}">${fmtMoney(round2(d.income - d.expenses))}</td>
+            </tr>`).join('') : emptyRow(5, 'Is period mein koi activity nahi', '📭')}</tbody>
+            ${series.length ? `<tfoot><tr><td>TOTAL</td><td class="t-right">${fmtKg(series.reduce((a, d) => a + d.kg, 0))}</td>
+              <td class="t-right">${fmtMoney(round2(series.reduce((a, d) => a + d.income, 0)))}</td>
+              <td class="t-right">${fmtMoney(round2(series.reduce((a, d) => a + d.expenses, 0)))}</td>
+              <td class="t-right">${fmtMoney(round2(series.reduce((a, d) => a + d.income - d.expenses, 0)))}</td></tr></tfoot>` : ''}
+          </table>
         </div>
-        <div style="text-align:right;font-size:11px;color:#666;">
-          <div><b>Generated:</b> ${new Date().toLocaleString()}</div>
-          <div><b>Period:</b> ${reportRange.from} to ${reportRange.to}</div>
-          <div><b>By:</b> ${escapeHtml(DB.currentUser()?.name||'Admin')}</div>
+      </div>`;
+    $('#plPrint').onclick = () => printMonthReport();
+    $('#plCsv').onclick = () => exportCSV('profit-loss-' + Period.shortLabel().replace(/\s/g, '') + '.csv',
+      ['Date', 'KG', 'Income', 'Expenses', 'Net'], series.map(d => [d.date, d.kg, d.income, d.expenses, round2(d.income - d.expenses)]));
+  }
+
+  if (RepUI.tab === 'kg') {
+    const sales = Biz.salesIn(Period);
+    const byProduct = {};
+    sales.forEach(s => (s.lines || []).forEach(l => {
+      const key = Biz.lineName(l);   // "SHOES — Junior Shoes" (type ho to)
+      byProduct[key] = byProduct[key] || { kg: 0, amount: 0, count: 0 };
+      byProduct[key].kg = round1(byProduct[key].kg + num(l.qtyKg));
+      byProduct[key].amount = round2(byProduct[key].amount + num(l.qtyKg) * Biz.saleRate(s));
+      byProduct[key].count++;
+    }));
+    const keys = Object.keys(byProduct).sort((a, b) => byProduct[b].kg - byProduct[a].kg);
+    pane.innerHTML = `${sumCards}
+      <div class="grid g-2-1">
+        <div class="card">
+          <div class="card-head"><h3>⚖️ Item-wise KG Report</h3><div class="sp"></div>
+            <button class="btn btn-ghost btn-sm" id="kgCsv">⬇️ CSV</button></div>
+          <div class="tbl-wrap">
+            <table class="tbl" style="min-width:640px">
+              <thead><tr><th>Item</th><th class="t-right">KG</th><th class="t-center">Times</th><th class="t-right">Amount</th></tr></thead>
+              <tbody>${keys.length ? keys.map(k => `<tr><td class="t-strong">${esc(k)}</td><td class="t-right">${fmtKg(byProduct[k].kg)}</td>
+                <td class="t-center">${fmtNum(byProduct[k].count)}</td>
+                <td class="t-right">${fmtMoney(byProduct[k].amount)}</td></tr>`).join('') : emptyRow(4, 'Koi data nahi', '📭')}</tbody>
+              <tfoot><tr><td>TOTAL</td><td class="t-right">${fmtKg(m.receivedKg)}</td>
+                <td></td><td class="t-right">${fmtMoney(m.income)}</td></tr></tfoot>
+            </table>
+          </div>
         </div>
-      </div>
+      </div>`;
+    $('#kgCsv').onclick = () => exportCSV('kg-report-' + Period.shortLabel().replace(/\s/g, '') + '.csv',
+      ['Item', 'KG', 'Times', 'Amount'], keys.map(k => [k, byProduct[k].kg, byProduct[k].count, byProduct[k].amount]));
+  }
 
-      <h1 style="text-align:center;margin:20px 0;color:#4f7cff;">📈 BUSINESS REPORT</h1>
+  if (RepUI.tab === 'cust') {
+    const rows = DB.all('customers').map(c => {
+      const a = Biz.customerAccount(c.id);
+      const period = Biz.salesIn(Period).filter(s => s.customerId === c.id);
+      return {
+        c, a, pKg: round1(period.reduce((x, s) => x + Biz.saleKg(s), 0)),
+        pAmt: round2(period.reduce((x, s) => x + Biz.saleAmount(s), 0)),
+        pPaid: round2(Biz.paymentsIn(Period).filter(p => p.customerId === c.id).reduce((x, p) => x + num(p.amount), 0))
+      };
+    }).sort((a, b) => b.pKg - a.pKg);
+    const withActivity = rows.filter(r => r.pKg > 0 || r.pPaid > 0 || r.a.balance > 0);
+    pane.innerHTML = `${sumCards}
+      <div class="card">
+        <div class="card-head"><h3>👥 Customer-wise Report — ${esc(Period.label())}</h3><div class="sp"></div>
+          <button class="btn btn-ghost btn-sm" id="cuCsv">⬇️ CSV</button></div>
+        <div class="tbl-wrap">
+          <table class="tbl" style="min-width:960px">
+            <thead><tr><th>Customer</th><th class="t-right">KG (period)</th><th class="t-right">Billed (period)</th><th class="t-right">Paid (period)</th>
+              <th class="t-right">Total KG</th><th class="t-right">Total Billed</th><th class="t-right">Total Paid</th>
+              <th class="t-right">Balance</th><th class="t-right">Bal KG</th><th class="t-center">Actions</th></tr></thead>
+            <tbody>${withActivity.length ? withActivity.map(r => `<tr>
+              <td class="t-strong">${esc(r.c.name)}</td>
+              <td class="t-right">${fmtKg(r.pKg)}</td>
+              <td class="t-right">${fmtMoney(r.pAmt)}</td>
+              <td class="t-right t-ok">${fmtMoney(r.pPaid)}</td>
+              <td class="t-right">${fmtKg(r.a.kgTotal)}</td>
+              <td class="t-right">${fmtMoney(r.a.amount)}</td>
+              <td class="t-right">${fmtMoney(r.a.paid)}</td>
+              <td class="t-right ${r.a.balance > 0.009 ? 't-bad' : 't-ok'}"><b>${fmtMoney(r.a.balance)}</b></td>
+              <td class="t-right">${fmtKg(r.a.kgBalance)}</td>
+              <td class="t-center"><button class="icon-btn" style="width:28px;height:28px;font-size:11px" data-rled="${r.c.id}">📒</button></td>
+            </tr>`).join('') : emptyRow(10, 'Koi activity nahi', '📭')}</tbody>
+          </table>
+        </div>
+      </div>`;
+    $('#cuCsv').onclick = () => exportCSV('customer-report-' + Period.shortLabel().replace(/\s/g, '') + '.csv',
+      ['Customer', 'KG (period)', 'Billed (period)', 'Paid (period)', 'Total KG', 'Total Billed', 'Total Paid', 'Balance', 'Balance KG'],
+      withActivity.map(r => [r.c.name, r.pKg, r.pAmt, r.pPaid, r.a.kgTotal, r.a.amount, r.a.paid, r.a.balance, r.a.kgBalance]));
+    $$('[data-rled]', pane).forEach(b => b.onclick = () => app.go('ledger?customer=' + b.dataset.rled));
+  }
 
-      <h2>💰 Financial Summary</h2>
-      <div class="summary-grid">
-        <div class="summary-card"><div class="lbl">Revenue (Billed)</div><div class="val">${fmtMoney(revenue)}</div></div>
-        <div class="summary-card"><div class="lbl">Cash Collected</div><div class="val" style="color:#16a34a;">${fmtMoney(collected)}</div></div>
-        <div class="summary-card"><div class="lbl">Outstanding Due</div><div class="val" style="color:#d97706;">${fmtMoney(due)}</div></div>
-        <div class="summary-card"><div class="lbl">Total Expenses</div><div class="val" style="color:#dc2626;">${fmtMoney(expTotal)}</div></div>
-        <div class="summary-card profit"><div class="lbl">Net Profit</div><div class="val" style="color:${profit>=0?'#16a34a':'#dc2626'};">${fmtMoney(profit)}</div></div>
-        <div class="summary-card"><div class="lbl">Total Orders</div><div class="val">${orders.length}</div></div>
-      </div>
+  if (RepUI.tab === 'exp') {
+    const exps = Biz.expensesIn(Period).concat(
+      Biz.salariesIn(Period).map(s => ({ date: s.date, category: 'Salary — ' + s.employeeName, amount: s.amount, paidTo: s.employeeName, mode: s.mode, note: s.note, _t: 'salary' })),
+      Biz.purchasesIn(Period).map(p => ({ date: p.date, category: 'Purchase — ' + (p.category || ''), amount: p.amount, paidTo: p.vendorName, mode: p.mode, note: p.details, _t: 'purchase' })
+      )).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const total = round2(exps.reduce((a, e) => a + num(e.amount), 0));
+    pane.innerHTML = `${sumCards}
+      <div class="card">
+        <div class="card-head"><h3>💸 Combined Expense Report (Expenses + Salary + Purchases)</h3><div class="sp"></div>
+          <button class="btn btn-ghost btn-sm" id="exCsv">⬇️ CSV</button></div>
+        <div class="tbl-wrap">
+          <table class="tbl" style="min-width:760px">
+            <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Paid To</th><th>Mode</th><th>Note</th><th class="t-right">Amount</th></tr></thead>
+            <tbody>${exps.length ? exps.map(e => `<tr>
+              <td class="t-nowrap">${fmtDate(e.date)}</td>
+              <td><span class="tag">${e._t ? titleCase(e._t) : 'Expense'}</span></td>
+              <td>${esc(e.category || '')}</td><td class="tiny">${esc(e.paidTo || '—')}</td>
+              <td class="tiny">${esc(e.mode || '')}</td><td class="tiny">${esc(e.note || '')}</td>
+              <td class="t-right t-bad">${fmtMoney(e.amount)}</td></tr>`).join('') : emptyRow(7, 'Koi kharcha nahi', '💤')}</tbody>
+            <tfoot><tr><td colspan="6">TOTAL</td><td class="t-right">${fmtMoney(total)}</td></tr></tfoot>
+          </table>
+        </div>
+      </div>`;
+    $('#exCsv').onclick = () => exportCSV('expense-report-' + Period.shortLabel().replace(/\s/g, '') + '.csv',
+      ['Date', 'Type', 'Category', 'Paid To', 'Mode', 'Note', 'Amount'],
+      exps.map(e => [e.date, e._t || 'expense', e.category, e.paidTo, e.mode, e.note, e.amount]));
+  }
 
-      <h2>🏆 Top Selling Items (Top 15)</h2>
-      <table>
-        <thead><tr><th>Item Name</th><th>Quantity Sold</th><th>Revenue</th></tr></thead>
-        <tbody>${topRows}</tbody>
-      </table>
+  if (RepUI.tab === 'del') {
+    const pend = Biz.pendingWithAge();
+    const del = Biz.deliveredIn(Period);
+    pane.innerHTML = `${sumCards}
+      <div class="grid g-2-1">
+        <div class="card">
+          <div class="card-head"><h3>🚚 Deliveries in ${esc(Period.shortLabel())}</h3><div class="sp"></div>
+            <button class="btn btn-ghost btn-sm" id="dlCsv">⬇️ CSV</button></div>
+          <div class="tbl-wrap">
+            <table class="tbl" style="min-width:620px">
+              <thead><tr><th>Invoice</th><th>Customer</th><th>Received</th><th>Delivered</th><th class="t-right">KG</th><th class="t-center">Days</th></tr></thead>
+              <tbody>${del.length ? del.map(s => `<tr>
+                <td class="t-strong">${esc(s.invoiceNo)}</td><td>${esc(Biz.customerName(s.customerId))}</td>
+                <td class="t-nowrap">${fmtDate(s.entryDate)}</td><td class="t-nowrap">${fmtDate(s.deliveryDate)}</td>
+                <td class="t-right">${fmtKg(s.deliveredKg || s.kgTotal)}</td>
+                <td class="t-center">${daysBetween(s.entryDate, s.deliveryDate)}</td></tr>`).join('') : emptyRow(6, 'Is period mein koi delivery nahi', '📭')}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>🏭 Currently Pending (${pend.length})</h3></div>
+          <div class="tbl-wrap">
+            <table class="tbl" style="min-width:420px">
+              <thead><tr><th>Invoice</th><th>Customer</th><th class="t-right">Pending KG</th><th class="t-center">Age</th></tr></thead>
+              <tbody>${pend.length ? pend.map(s => `<tr><td class="t-strong">${esc(s.invoiceNo)}</td><td class="tiny">${esc(Biz.customerName(s.customerId))}</td>
+                <td class="t-right">${fmtKg(Biz.pendingKg(s))}</td>
+                <td class="t-center"><span class="pill ${s.ageDays > 7 ? 'pill-due' : 'pill-muted'}">${s.ageDays}d</span></td></tr>`).join('')
+        : emptyRow(4, 'Factory khali hai 🎉', '🎉')}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+    $('#dlCsv').onclick = () => exportCSV('deliveries-' + Period.shortLabel().replace(/\s/g, '') + '.csv',
+      ['Invoice', 'Customer', 'Received', 'Delivered', 'KG', 'Days'],
+      del.map(s => [s.invoiceNo, Biz.customerName(s.customerId), s.entryDate, s.deliveryDate, s.deliveredKg || s.kgTotal, daysBetween(s.entryDate, s.deliveryDate)]));
+  }
 
-      <h2>📂 Expense Breakdown by Category</h2>
-      <table>
-        <thead><tr><th>Category</th><th>Amount</th><th>% of Total</th></tr></thead>
-        <tbody>${expCatRows}</tbody>
-      </table>
-
-      <div class="footer">
-        ${escapeHtml(s.shopName||'Mr Laundry')} — Confidential Business Report<br>
-        Generated by Mr Laundry POS • ${new Date().toLocaleString()}
-      </div>
-    </body></html>
-  `;
-
-  const win = window.open('', '_blank', 'width=900,height=700');
-  if (!win) { toast('Pop-up blocked! Allow pop-ups to export PDF.', 'error'); return; }
-  win.document.write(html);
-  win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 800);
-  toast('📄 Print dialog opened — choose "Save as PDF"', 'success');
+  if (RepUI.tab === 'pay') {
+    const pays = Biz.paymentsIn(Period).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const total = round2(pays.reduce((a, p) => a + num(p.amount), 0));
+    const byMode = {};
+    pays.forEach(p => { byMode[p.mode || 'Cash'] = round2((byMode[p.mode || 'Cash'] || 0) + num(p.amount)); });
+    pane.innerHTML = `${sumCards}
+      <div class="grid g-2-1">
+        <div class="card">
+          <div class="card-head"><h3>💵 Collection Report — ${esc(Period.label())}</h3><div class="sp"></div>
+            <button class="btn btn-ghost btn-sm" id="pyCsv">⬇️ CSV</button></div>
+          <div class="tbl-wrap">
+            <table class="tbl" style="min-width:720px">
+              <thead><tr><th>Date</th><th>Voucher</th><th>Customer</th><th>Against</th><th>Mode</th>
+                <th class="t-right">Amount</th><th class="t-right">KG Covered</th><th>Note</th></tr></thead>
+              <tbody>${pays.length ? pays.map(p => `<tr>
+                <td class="t-nowrap">${fmtDate(p.date)}</td><td class="tiny">${esc(p.no || '')}</td>
+                <td>${esc(Biz.customerName(p.customerId))}</td>
+                <td class="tiny">${p.saleId ? esc((DB.get('sales', p.saleId) || {}).invoiceNo || '') : (p.isAdvance ? '<span class="pill pill-info">Advance</span>' : '—')}</td>
+                <td class="tiny">${esc(p.mode || '')}</td>
+                <td class="t-right t-ok"><b>${fmtMoney(p.amount)}</b></td>
+                <td class="t-right">${fmtKg(p.kgCovered)}</td>
+                <td class="tiny">${esc(p.note || '')}</td></tr>`).join('') : emptyRow(8, 'Is period mein koi payment nahi', '💤')}</tbody>
+              <tfoot><tr><td colspan="5">TOTAL</td><td class="t-right">${fmtMoney(total)}</td>
+                <td class="t-right">${fmtKg(round1(pays.reduce((a, p) => a + num(p.kgCovered), 0)))}</td><td></td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>🏦 Mode-wise Collection</h3></div>
+          <div class="card-body">${Object.keys(byMode).length ? UI.progressRows(Object.keys(byMode).sort((a, b) => byMode[b] - byMode[a]).map(k => ({
+      label: k, value: byMode[k], color: '#16a34a', note: fmtMoney(byMode[k])
+    }))) : '<div class="empty"><div class="empty-ico">💵</div><div>Koi collection nahi</div></div>'}
+          <div class="divider"></div>
+          <div class="kv"><span>Total Collected</span><b class="t-ok">${fmtMoney(total)}</b></div>
+          <div class="kv"><span>Equivalent KG (payments ke record se)</span><b>${fmtKg(round1(pays.reduce((a, p) => a + num(p.kgCovered), 0)))}</b></div>
+          </div>
+        </div>
+      </div>`;
+    $('#pyCsv').onclick = () => exportCSV('collections-' + Period.shortLabel().replace(/\s/g, '') + '.csv',
+      ['Date', 'Voucher', 'Customer', 'Against Invoice', 'Mode', 'Amount', 'KG Covered', 'Note'],
+      pays.map(p => [p.date, p.no, Biz.customerName(p.customerId), p.saleId ? (DB.get('sales', p.saleId) || {}).invoiceNo : 'Advance', p.mode, p.amount, p.kgCovered, p.note]));
+  }
 }
