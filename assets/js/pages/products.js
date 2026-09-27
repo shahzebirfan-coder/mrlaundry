@@ -1,195 +1,443 @@
-/* ============================================================
-   PRODUCTS — wash items (New Sales mein yeh list click hoti hai)
-   ============================================================ */
+/* ===================== PRODUCTS & CATEGORIES ===================== */
+let prodFilter = { search:'', category:'all' };
 
-const ProdUI = { cat: 'all', q: '', showInactive: false };
+/* ---------------------------------------------------------------
+   Image URL validator.
+   Google Images "thumbnail" links (encrypted-tbnX.gstatic.com,
+   or ...google.com/imgres / /url?...) are TEMPORARY and only load
+   on the device that searched. They break on other devices (e.g.
+   the cashier's) and expire over time. This helper flags those so
+   the shop only saves permanent, cross-device image links.
+   Returns { ok:boolean, reason:string }.
+---------------------------------------------------------------- */
+function checkProductImageUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return { ok:false, reason:'Link khaali hai.' };
+  if (!/^https?:\/\//i.test(u)) return { ok:false, reason:'Link http:// ya https:// se shuru hona chahiye.' };
+  const bad = [
+    /encrypted-tbn\d*\.gstatic\.com/i,        // Google thumbnail (temporary)
+    /gstatic\.com\/images\?q=tbn/i,           // Google thumbnail (temporary)
+    /google\.[a-z.]+\/imgres/i,               // Google image viewer page (not the image)
+    /google\.[a-z.]+\/url\?/i,                // Google redirect link
+    /google\.[a-z.]+\/search/i,               // Google search page
+    /lh3\.googleusercontent\.com\/proxy/i     // Google proxy thumbnail
+  ];
+  if (bad.some(re => re.test(u))) {
+    return { ok:false, reason:'Yeh Google ka TEMPORARY thumbnail link hai — yeh cashier ke device par nahi khulega aur baad mein toot jayega. Image ko full-size kholein, phir right-click → "Copy image address" (link .jpg/.png/.webp par khatam ho).' };
+  }
+  return { ok:true, reason:'' };
+}
+window.checkProductImageUrl = checkProductImageUrl;
+
+/* Nudge the normal (light, debounced) background sync so a newly-set image
+   reaches the cloud quickly, WITHOUT blocking the POS. We deliberately avoid
+   the heavy { manual:true } push (which does a full pull+merge+full upload on
+   every save and makes the POS lag). DB.save() already triggers the debounced
+   auto-push; this is just a safety no-op wrapper kept for clarity. */
+function pushProductsNow() {
+  // DB.save() (called inside DB.update/insert) already schedules the debounced
+  // background push. Nothing heavy needed here — keep the UI snappy.
+  return;
+}
 
 function renderProducts() {
-  UI.renderLayout('products', `<div id="prodBody"></div>`);
-  productsPaint();
-}
+  const content = `
+    <h1 class="page-title">🧺 Products & Rate List</h1>
+    <p class="page-sub">Add, edit, or quickly update prices for all your laundry services.</p>
 
-/** 🧩 Types editor — kisi bhi item ke types yahan se manage karein */
-function productTypesForm(pid) {
-  const p = DB.get('products', pid);
-  if (!p) return;
-  const body = `
-    <div class="note-box info tiny mb10">
-      <b>${esc(p.name)}</b> ke types — jaise <i>Junior Shoes, Sports Shoes, Man Shoes, CH Shoes</i>.<br>
-      New Sales ke <b>Step 03</b> mein yeh types KG ke sath dikhte hain (aur cashier wahin se naye type bhi add kar sakta hai).
-    </div>
-    <label class="fld"><span>Types (comma se alag, ya har type nayi line mein)</span>
-      <textarea class="inp" id="ptList" style="min-height:110px" placeholder="Junior Shoes, Sports Shoes, Man Shoes, CH Shoes">${esc(((p.types) || []).join(', '))}</textarea></label>
-    <div class="row" style="gap:6px;flex-wrap:wrap">
-      ${['Junior', 'Sports', 'Man', 'CH', 'Kids', 'Ladies', 'Gents'].map(t => `<button class="btn btn-ghost btn-xs" data-ptquick="${t}">+ ${t}</button>`).join('')}
-    </div>
-    <div class="fld-hint">Buttons se naam add ho jata hai — phir apne hisaab se badal sakte hain.</div>`;
-  const w = openModal({
-    title: '🧩 Types — ' + p.name, size: 'sm', body,
-    footer: `<button class="btn btn-ghost" data-close="1">Cancel</button>
-             <button class="btn btn-primary" id="ptSave">💾 Save Types</button>`
-  });
-  const ta = $('#ptList', w);
-  $$('[data-ptquick]', w).forEach(b => b.onclick = () => {
-    const cur = ta.value.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
-    if (cur.indexOf(b.dataset.ptquick) < 0) cur.push(b.dataset.ptquick);
-    ta.value = cur.join(', ');
-    ta.focus();
-  });
-  $('#ptSave', w).onclick = () => {
-    const out = [];
-    ta.value.split(/[,\n]/).map(x => x.trim()).filter(Boolean).forEach(x => { if (out.indexOf(x) < 0) out.push(x); });
-    DB.upsert('products', Object.assign({}, p, { types: out }));
-    DB.audit('product', 'Types update: ' + p.name + ' → ' + out.join(', '));
-    toast('✔ ' + p.name + ' ke types save ho gaye (' + out.length + ')', 'success');
-    closeModal(w);
-    productsPaint();
-  };
-}
-
-function productsPaint() {
-  const el = $('#prodBody');
-  if (!el) return;
-  let rows = DB.all('products').filter(p => ProdUI.showInactive || p.active !== false);
-  const q = ProdUI.q.trim().toLowerCase();
-  if (q) rows = rows.filter(p => (p.name || '').toLowerCase().includes(q));
-  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
-
-  const sales = Biz.sales();
-  const usage = {};
-  sales.forEach(s => (s.lines || []).forEach(l => {
-    usage[l.productId] = usage[l.productId] || { kg: 0, count: 0 };
-    usage[l.productId].kg = round1(usage[l.productId].kg + num(l.qtyKg));
-    usage[l.productId].count++;
-  }));
-
-  el.innerHTML = `
-    <div class="stats">
-      ${UI.statCard({ icon: '🧺', label: 'Total Products', value: fmtNum(rows.length), tone: 'info' })}
-      ${UI.statCard({ icon: '⚖️', label: 'Rate / KG (sab items)', value: fmtMoney(Biz.rate()), tone: 'purple', foot: 'Settings se change karein' })}
-      ${UI.statCard({ icon: '✅', label: 'Active Items', value: fmtNum(rows.filter(p => p.active !== false).length), tone: 'good' })}
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <h3>🧺 Product List — New Sales mein yahi items click hote hain</h3><div class="sp"></div>
-        <button class="btn btn-warn btn-sm" id="pRateBtn" title="Per KG rate edit karein">⚖️ Rate: ${fmtMoney(Biz.rate())}/kg ✏️ Edit</button>
-        <input class="inp inp-sm" id="pSearch" placeholder="🔍 Item ka naam" value="${esc(ProdUI.q)}" style="width:190px"/>
-        <label class="row small dim" style="gap:6px;font-weight:700"><input type="checkbox" id="pInact" ${ProdUI.showInactive ? 'checked' : ''}/> Inactive bhi</label>
-        <button class="btn btn-ghost btn-sm" id="pExport">⬇️ CSV</button>
-        <button class="btn btn-primary btn-sm" id="pNew">➕ New Product</button>
-      </div>
-      <div class="tbl-wrap">
-        <table class="tbl" style="min-width:820px">
-          <thead><tr>
-            <th>Item Name</th><th>Types (Step 03)</th><th class="t-right">Rate</th>
-            <th class="t-right">Wash KG (all time)</th><th class="t-center">Times Used</th><th class="t-center">Status</th>
-            <th class="t-center">Actions</th>
-          </tr></thead>
-          <tbody>${rows.length ? rows.map(p => `<tr>
-            <td class="t-strong">${esc(p.name)}${p.note ? '<div class="tiny muted">' + esc(p.note) + '</div>' : ''}</td>
-            <td class="tiny">${(p.types && p.types.length)
-      ? p.types.map(t => `<span class="tag" style="margin:1px 2px">${esc(t)}</span>`).join('')
-      : '<span class="muted">—</span>'}
-              <button class="icon-btn" style="width:24px;height:24px;font-size:10px;vertical-align:middle" data-ptypes="${p.id}" title="Types edit karein">🧩</button></td>
-            <td class="t-right">${fmtMoney(Biz.rate())}</td>
-            <td class="t-right">${fmtKg((usage[p.id] || {}).kg || 0)}</td>
-            <td class="t-center">${fmtNum((usage[p.id] || {}).count || 0)}</td>
-            <td class="t-center">${p.active === false ? '<span class="pill pill-muted">Inactive</span>' : '<span class="pill pill-ok">Active</span>'}</td>
-            <td class="t-center t-nowrap">
-              <button class="icon-btn" style="width:28px;height:28px;font-size:11px" data-pedit="${p.id}" title="Edit">✏️</button>
-              <button class="icon-btn" style="width:28px;height:28px;font-size:11px" data-ptoggle="${p.id}" title="Active/Inactive">${p.active === false ? '✅' : '🚫'}</button>
-              <button class="icon-btn" style="width:28px;height:28px;font-size:11px" data-pdel="${p.id}" title="Delete">🗑️</button>
-            </td>
-          </tr>`).join('') : emptyRow(7, 'Koi product nahi — “New Product” se add karein', '🧺')}</tbody>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;align-items:start;">
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div class="card-header" style="padding:16px 20px;">
+          <h3>Rate List</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input id="prodSearch" placeholder="🔍 Search..." style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;" value="${escapeHtml(prodFilter.search)}"/>
+            <select id="prodCat" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;">
+              <option value="all">All Categories</option>
+              ${DB.all('categories').map(c => `<option value="${c.id}" ${prodFilter.category===c.id?'selected':''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary btn-sm" id="addProdBtn">+ Add Product</button>
+            <button class="btn btn-success btn-sm" id="bulkImgBtn" title="Upload images for many products quickly">📷 Bulk Image Manager</button>
+            ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" id="importRateBtn" title="Replace all products with Mr Laundry official rate list">📋 Import Rate List</button>`:''}
+          </div>
+        </div>
+        <div style="padding:8px 16px;font-size:12px;color:var(--text-soft);border-bottom:1px solid var(--border);background:var(--surface-alt);">
+          💡 Tip: Click any price below to edit it instantly. Press Enter to save.
+        </div>
+        <table class="tbl">
+          <thead><tr><th></th><th>Name</th><th>Category</th><th style="width:140px;">Price</th><th style="width:140px;">Max (range)</th><th>Status</th><th style="width:160px;">Actions</th></tr></thead>
+          <tbody id="prodBody"></tbody>
         </table>
       </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Categories</h3><button class="btn btn-primary btn-sm" id="addCatBtn">+ Add</button></div>
+        <div id="catList"></div>
+      </div>
     </div>
+  `;
+  $('#app').innerHTML = renderLayout('products', content);
+  bindLayout();
+  $('#addProdBtn').onclick = () => openProductForm();
+  $('#bulkImgBtn').onclick = () => openBulkImageManager();
+  $('#addCatBtn').onclick = () => openCategoryForm();
+  $('#prodSearch').oninput = e => { prodFilter.search = e.target.value; renderProductsBody(); };
+  $('#prodCat').onchange = e => { prodFilter.category = e.target.value; renderProductsBody(); };
+  const importBtn = $('#importRateBtn');
+  if (importBtn) importBtn.onclick = importRateList;
+  renderProductsBody();
+  renderCategoriesList();
+}
 
-    <div class="card"><div class="card-body">
-      <div class="note-box info tiny">
-        <b>Types (Step 03):</b> har item ke chhote types (jaise Shoes → <i>Junior / Sports / Man / CH</i>) yahan se set karein —
-        New Sales ke <b>Step 03</b> mein yeh KG ke sath khud nazar aayenge. Cashier wahin naya type bhi add kar sakta hai
-        (khud isi list mein save ho jata hai).<br>
-        <b>Kaise kaam karta hai:</b> New Sales page par in tamam items ke chips ek hi jagah dikhte hain.
-        Cashier item par click karta hai aur KG enter karke “Add to Slip” dabata hai — item invoice mein aa jata hai.
-        Billing sab ka <b>ek hi rate</b> (${fmtMoney(Biz.rate())} per KG) hota hai, jo Settings se change karein.
-      </div>
-    </div></div>`;
-
-  const sq = $('#pSearch'); if (sq) sq.oninput = debounce(e => { ProdUI.q = e.target.value; productsPaint(); }, 250);
-  const si = $('#pInact'); if (si) si.onchange = e => { ProdUI.showInactive = e.target.checked; productsPaint(); };
-  const rb = $('#pRateBtn'); if (rb) rb.onclick = () => openRateForm();
-  $('#pNew').onclick = () => productForm();
-  $('#pExport').onclick = () => exportCSV('products.csv', ['Name', 'Types', 'Rate', 'Total KG', 'Times Used', 'Active'],
-    rows.map(p => [p.name, (p.types || []).join(' | '), Biz.rate(), (usage[p.id] || {}).kg || 0, (usage[p.id] || {}).count || 0, p.active !== false]));
-
-  $$('[data-pedit]', el).forEach(b => b.onclick = () => productForm(b.dataset.pedit));
-  $$('[data-ptypes]', el).forEach(b => b.onclick = () => productTypesForm(b.dataset.ptypes));
-  $$('[data-ptoggle]', el).forEach(b => b.onclick = () => {
-    const p = DB.get('products', b.dataset.ptoggle);
-    DB.upsert('products', Object.assign({}, p, { active: p.active === false }));
-    productsPaint();
-  });
-  $$('[data-pdel]', el).forEach(b => b.onclick = async () => {
-    const p = DB.get('products', b.dataset.pdel);
-    const yes = await confirmDialog('“' + p.name + '” delete karein? Purane invoices par asar nahi hoga.', { danger: true, yes: 'Delete' });
-    if (!yes) return;
-    DB.remove('products', p.id);
-    DB.audit('product-delete', 'Product delete: ' + p.name);
-    toast('Product delete ho gaya', 'warn');
-    productsPaint();
+function importRateList() {
+  confirmDialog('⚠️ This will REPLACE all products with the official Mr Laundry rate list (Gents, Ladies, Others). Your customers, orders, and expenses will NOT be affected. Continue?', () => {
+    DB._data.products = getMrLaundryRateList();
+    DB._data.categories = [
+      { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },
+      { id: 'cladies', name: 'Ladies Wear', icon: '🥻' },
+      { id: 'cothers', name: 'Others',      icon: '🧺' },
+      { id: 'cpress',  name: 'Press / Ironing', icon: '♨️' }
+    ];
+    DB.save();
+    toast('Rate list imported! '+DB.all('products').length+' items loaded.','success');
+    renderProductsBody();
+    renderCategoriesList();
   });
 }
 
-/* productForm(existingIdOrProduct) → Promise<product|null> */
-function productForm(idOrProd) {
-  return new Promise(resolve => {
-    const p = (idOrProd && typeof idOrProd === 'object') ? idOrProd : (idOrProd ? DB.get('products', idOrProd) : null);
-    const body = `
-      <div class="grid g2">
-        <label class="fld"><span>Item Name <b class="req">*</b></span>
-          <input class="inp" id="prName" value="${esc(p ? p.name : '')}" placeholder="e.g. Wash & Fold / Bedsheet Wash"/></label>
-        <label class="fld"><span>Status</span>
-          <select class="inp" id="prActive">
-            <option value="1" ${!p || p.active !== false ? 'selected' : ''}>Active (New Sales mein dikhega)</option>
-            <option value="0" ${p && p.active === false ? 'selected' : ''}>Inactive</option>
-          </select></label>
-      </div>
-      <label class="fld"><span>Types / Breakup (comma se alag — optional)</span>
-        <input class="inp" id="prTypes" value="${esc(((p && p.types) || []).join(', '))}" placeholder="Junior Shoes, Sports Shoes, Man Shoes, CH Shoes"/>
-        <div class="fld-hint">New Sales ke <b>Step 03</b> mein yeh types KG ke sath dikhte hain. Cashier wahin se bhi naya type add kar sakta hai.</div></label>
-      <label class="fld"><span>Note (optional)</span><input class="inp" id="prNote" value="${esc(p ? p.note : '')}" placeholder="e.g. sirf heavy kapron ke liye"/></label>
-      <div class="note-box info tiny">Billing rate sab items ke liye ek hi hai — <b>${fmtMoney(Biz.rate())} / KG</b> (Settings → Per KG Rate).</div>`;
+function renderProductsBody() {
+  const q = (prodFilter.search || '').toLowerCase();
+  const cats = Object.fromEntries(DB.all('categories').map(c => [c.id, c]));
+  let products = DB.all('products');
+  if (prodFilter.category !== 'all') products = products.filter(p => p.category === prodFilter.category);
+  if (q) products = products.filter(p => p.name.toLowerCase().includes(q));
 
-    const w = openModal({
-      title: p ? '✏️ Edit Product' : '➕ New Product', size: 'sm', body,
-      footer: `<button class="btn btn-ghost" data-close="1">Cancel</button>
-               <button class="btn btn-primary" id="prSave">💾 ${p ? 'Save' : 'Add Product'}</button>`,
-      onMount: m => m.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => setTimeout(() => resolve(null), 10)))
-    });
-    setTimeout(() => { const n = $('#prName', w); if (n) n.focus(); }, 120);
+  if (!products.length) {
+    $('#prodBody').innerHTML = `<tr><td colspan="7"><div class="empty"><div class="emoji">🧺</div><h4>No products</h4></div></td></tr>`;
+    return;
+  }
+  $('#prodBody').innerHTML = products.map(p => {
+    const cat = cats[p.category] || { name:'-', icon:'' };
+    return `<tr data-id="${p.id}">
+      <td style="width:60px;text-align:center;padding:6px;"><div style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#e0e7ff,#fff);display:flex;align-items:center;justify-content:center;margin:0 auto;overflow:hidden;">${productImageHTML(p.image, 48)}</div></td>
+      <td><b>${escapeHtml(p.name)}</b></td>
+      <td>${cat.icon} ${escapeHtml(cat.name)}</td>
+      <td><input class="rate-edit" data-fld="price" type="number" value="${p.price}" min="0" style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-weight:700;color:var(--primary);background:var(--surface);"/></td>
+      <td><input class="rate-edit" data-fld="priceMax" type="number" value="${p.priceMax||''}" min="0" placeholder="—" style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);"/></td>
+      <td>${p.active===false ? '<span class="badge cancelled">Hidden</span>' : '<span class="badge paid">Active</span>'}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" data-act="edit" data-id="${p.id}">✏️</button>
+        <button class="btn btn-secondary btn-sm" data-act="toggle" data-id="${p.id}">${p.active===false?'👁️':'🙈'}</button>
+        ${DB.currentUser().role==='admin' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${p.id}">🗑️</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
 
-    $('#prSave', w).onclick = () => {
-      const name = $('#prName', w).value.trim();
-      if (!name) return toast('Item ka naam likhein', 'error');
-      const rec = {
-        id: p ? p.id : uid('prd'),
-        name, category: (p && p.category) || '', inputType: 'kg',
-        types: (function (v) {
-          const out = [];
-          String(v || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean).forEach(x => { if (out.indexOf(x) < 0) out.push(x); });
-          return out;
-        })($('#prTypes', w).value),
-        active: $('#prActive', w).value === '1', note: $('#prNote', w).value,
-        createdAt: p ? p.createdAt : new Date().toISOString()
-      };
-      DB.upsert('products', rec);
-      DB.audit(p ? 'product-edit' : 'product', (p ? 'Product edit: ' : 'Naya product: ') + name);
-      toast('✔ ' + name + ' ' + (p ? 'update' : 'add') + ' ho gaya', 'success');
-      closeModal(w);
-      resolve(rec);
-      if (app.current === 'products') productsPaint();
+  // Inline edit
+  $$('.rate-edit').forEach(inp => {
+    const save = () => {
+      const tr = inp.closest('tr');
+      const id = tr.dataset.id;
+      const fld = inp.dataset.fld;
+      let val = inp.value === '' ? null : Math.max(0, parseFloat(inp.value) || 0);
+      const patch = {};
+      patch[fld] = val;
+      DB.update('products', id, patch);
+      inp.style.boxShadow = '0 0 0 3px rgba(34,197,94,.3)';
+      setTimeout(()=>inp.style.boxShadow='', 600);
     };
+    inp.onblur = save;
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { save(); inp.blur(); toast('Price saved','success'); } };
+  });
+
+  $$('[data-act]').forEach(b => b.onclick = () => {
+    const id = b.dataset.id;
+    if (b.dataset.act === 'edit') openProductForm(DB.get('products', id));
+    else if (b.dataset.act === 'toggle') { const p = DB.get('products', id); DB.update('products', id, { active: p.active===false }); renderProductsBody(); }
+    else if (b.dataset.act === 'del') confirmDialog('Delete this product?', () => { if (typeof logAction === 'function') logAction('product.delete', id);
+      DB.remove('products', id); toast('Deleted','success'); renderProductsBody(); });
   });
 }
+
+function renderCategoriesList() {
+  const cats = DB.all('categories');
+  $('#catList').innerHTML = cats.length ? cats.map(c => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--border);">
+      <div><span style="font-size:18px;">${c.icon}</span> <b>${escapeHtml(c.name)}</b></div>
+      <div>
+        <button class="btn btn-ghost btn-sm" data-act="cedit" data-id="${c.id}">✏️</button>
+        ${DB.currentUser().role==='admin' ? `<button class="btn btn-ghost btn-sm" data-act="cdel" data-id="${c.id}">🗑️</button>` : ''}
+      </div>
+    </div>
+  `).join('') : `<div class="empty"><p>No categories</p></div>`;
+  $$('[data-act="cedit"]').forEach(b => b.onclick = () => openCategoryForm(DB.get('categories', b.dataset.id)));
+  $$('[data-act="cdel"]').forEach(b => b.onclick = () => confirmDialog('Delete this category? Products in it will remain.', () => { DB.remove('categories', b.dataset.id); renderCategoriesList(); }));
+}
+
+function openProductForm(existing) {
+  const p = existing || { name:'', category:'', price:0, priceMax:null, image:'🧺', active:true };
+  const cats = DB.all('categories');
+  const html = `
+    <h3>${existing?'Edit':'Add'} Product</h3>
+    <div class="form-row">
+      <div class="field"><label>Name *</label><input id="pName" value="${escapeHtml(p.name)}"/></div>
+      <div class="field" style="grid-column:span 2;">
+        <label>📸 Product Image</label>
+        <div style="display:flex;gap:14px;align-items:flex-start;">
+          <div id="pImgPreview" style="width:100px;height:100px;border-radius:12px;background:linear-gradient(135deg,#e0e7ff,#fff);border:2px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+            ${productImageHTML(p.image, 100)}
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary btn-sm" id="pImgUrlBtn">🔗 Paste Image URL</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="pImgUploadBtn">📤 Upload Photo</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="pImgEmojiBtn">😀 Use Emoji</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="pImgClearBtn" title="Remove image">🗑️</button>
+            </div>
+            <input type="file" id="pImgFile" accept="image/*" style="display:none;"/>
+            <input type="text" id="pImg" value="${escapeHtml(p.image||'🧺')}" placeholder="Paste image link (https://...) or emoji" style="font-size:13px;font-family:monospace;"/>
+            <small style="color:var(--text-soft);">✅ Recommended: paste an image <b>link (URL)</b> — it stays light and never disappears. Upload also works (auto-resized), or use an emoji.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Price (Rs.) *</label><input type="number" id="pPrice" value="${p.price}"/></div>
+      <div class="field"><label>Max Price (for ranges, optional)</label><input type="number" id="pPriceMax" value="${p.priceMax||''}" placeholder="e.g. 1000 for 800-1000"/></div>
+    </div>
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>Category</label>
+        <select id="pCat">${cats.map(c => `<option value="${c.id}" ${p.category===c.id?'selected':''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>
+      </div>
+    </div>
+    
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save</button>
+    </div>
+  `;
+  openModal(html, { large: true, onOpen(m){
+    // Image controls
+    const fileInput = $('#pImgFile', m);
+    const imgInput = $('#pImg', m);
+    const preview = $('#pImgPreview', m);
+    const refreshPreview = () => { preview.innerHTML = productImageHTML(imgInput.value || '🧺', 100); };
+    $('#pImgUrlBtn', m).onclick = () => {
+      const url = prompt('Paste the image link (URL) — e.g. from Google Images (must start with https://):', imgInput.value.startsWith('http') ? imgInput.value : 'https://');
+      if (url == null) return;
+      const clean = url.trim();
+      if (!clean || clean === 'https://') return;
+      const chk = checkProductImageUrl(clean);
+      if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link — dekhein warning','error'); return; }
+      imgInput.value = clean; refreshPreview();
+      toast('✅ Image link set — click Save','success');
+    };
+    $('#pImgUploadBtn', m).onclick = () => fileInput.click();
+    $('#pImgEmojiBtn', m).onclick = () => openEmojiPicker((emoji) => { imgInput.value = emoji; refreshPreview(); });
+    $('#pImgClearBtn', m).onclick = () => { imgInput.value = '🧺'; refreshPreview(); };
+    imgInput.oninput = refreshPreview;
+    fileInput.onchange = async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
+      try {
+        const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
+        imgInput.value = dataUrl;
+        refreshPreview();
+        toast('✅ Image uploaded — click Save. Tip: image links (URL) are lighter.','success');
+      } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
+    };
+
+    $('#cancelBtn', m).onclick = closeModal;
+    $('#saveBtn', m).onclick = () => {
+      const name = $('#pName', m).value.trim();
+      const price = +$('#pPrice', m).value;
+      if (!name || price < 0) { toast('Enter name & price','error'); return; }
+      const maxV = $('#pPriceMax', m).value;
+      const imgVal = $('#pImg', m).value || '🧺';
+      // Block temporary Google thumbnail links (they break on other devices).
+      if (/^https?:\/\//i.test(imgVal)) {
+        const chk = checkProductImageUrl(imgVal);
+        if (!chk.ok) { alert('⚠️ Image link theek nahi, is liye save nahi kiya:\n\n' + chk.reason + '\n\nAap emoji rakh sakte hain ya sahi image link daal sakte hain.'); return; }
+      }
+      const data = {
+        name, price,
+        priceMax: maxV === '' ? null : Math.max(0, +maxV || 0),
+        category: $('#pCat', m).value,
+        image: imgVal,
+        active: true
+      };
+      if (existing) DB.update('products', existing.id, data);
+      else DB.insert('products', data);
+      pushProductsNow();
+      closeModal(); toast('Saved','success'); renderProductsBody();
+    };
+  }});
+}
+
+function openCategoryForm(existing) {
+  const c = existing || { name:'', icon:'🧺', image:'' };
+  openModal(`
+    <h3>${existing?'Edit':'Add'} Category</h3>
+    <div class="form-row">
+      <div class="field"><label>Name *</label><input id="cName" value="${escapeHtml(c.name)}"/></div>
+      <div class="field"><label>Emoji (fallback)</label><input id="cIcon" value="${escapeHtml(c.icon||'')}" maxlength="4" style="font-size:20px;text-align:center;"/></div>
+    </div>
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>📸 Category Image (optional)</label>
+        <div style="display:flex;gap:14px;align-items:flex-start;">
+          <div id="cImgPreview" style="width:90px;height:90px;border-radius:14px;background:linear-gradient(135deg,#e0e7ff,#fff);border:2px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+            ${productImageHTML(c.image || c.icon, 90)}
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary btn-sm" id="cImgUploadBtn">📤 Upload</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="cImgClearBtn">🗑️ Use Emoji</button>
+            </div>
+            <input type="file" id="cImgFile" accept="image/*" style="display:none;"/>
+            <input type="hidden" id="cImg" value="${escapeHtml(c.image||'')}"/>
+            <small style="color:var(--text-soft);">Upload a small icon photo. Shows in category chips.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save</button>
+    </div>
+  `, { onOpen(m){
+    const fileInput = $('#cImgFile', m);
+    const imgInput = $('#cImg', m);
+    const preview = $('#cImgPreview', m);
+    const refresh = () => { preview.innerHTML = productImageHTML(imgInput.value || $('#cIcon', m).value || '🧺', 90); };
+    $('#cImgUploadBtn', m).onclick = () => fileInput.click();
+    $('#cImgClearBtn', m).onclick = () => { imgInput.value = ''; refresh(); };
+    $('#cIcon', m).oninput = refresh;
+    fileInput.onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
+      try {
+        const dataUrl = await resizeImageToDataURL(f, 200, 200, 0.85);
+        imgInput.value = dataUrl; refresh();
+        toast('✅ Category image uploaded','success');
+      } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
+    };
+    $('#saveBtn', m).onclick = () => {
+      const name = $('#cName', m).value.trim();
+      if (!name) { toast('Name required','error'); return; }
+      const data = {
+        name,
+        icon: $('#cIcon', m).value || '🏷️',
+        image: $('#cImg', m).value || ''
+      };
+      if (existing) DB.update('categories', existing.id, data); else DB.insert('categories', data);
+      closeModal(); renderCategoriesList();
+      // Refresh POS if open
+      if (typeof renderPosCats === 'function' && document.getElementById('posCats')) renderPosCats();
+    };
+  }});
+}
+
+/* ===================== BULK IMAGE MANAGER =====================
+   Grid of all products. Click any product → instant image upload.
+   Super fast for setting up all 125 items.
+*/
+function openBulkImageManager() {
+  const cats = DB.all('categories');
+  let activeCat = 'all';
+  let searchQ = '';
+
+  const buildHtml = () => `
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+      <input id="bimSearch" placeholder="🔍 Search products..." value="${escapeHtml(searchQ)}" style="flex:1;min-width:200px;padding:10px;border:1px solid var(--border);border-radius:8px;"/>
+      <select id="bimCat" style="padding:10px;border:1px solid var(--border);border-radius:8px;">
+        <option value="all" ${activeCat==='all'?'selected':''}>All Categories</option>
+        ${cats.map(c => `<option value="${c.id}" ${activeCat===c.id?'selected':''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="bimStats" style="background:#f0f9ff;border-left:4px solid #0ea5e9;padding:10px;border-radius:8px;font-size:13px;margin-bottom:14px;"></div>
+    <div id="bimGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;max-height:500px;overflow-y:auto;padding:4px;"></div>
+    <input type="file" id="bimFile" accept="image/*" style="display:none;"/>
+  `;
+
+  openModal(`
+    <h3>📷 Bulk Image Manager — Set product images quickly</h3>
+    <p class="sub">Click a tile to upload a photo, or click <b>🔗 URL</b> on a tile to paste an image link (recommended — stays light, never disappears).</p>
+    ${buildHtml()}
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+    </div>
+  `, { large: true, onOpen(m) {
+    let pendingProductId = null;
+
+    const renderGrid = () => {
+      const all = DB.all('products');
+      const filtered = all.filter(p => {
+        if (activeCat !== 'all' && p.category !== activeCat) return false;
+        if (searchQ && !p.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
+        return true;
+      });
+      const withImg = all.filter(p => p.image && (p.image.startsWith('data:') || p.image.startsWith('http'))).length;
+      const badLinks = all.filter(p => typeof p.image === 'string' && /^https?:\/\//i.test(p.image) && !checkProductImageUrl(p.image).ok);
+      const badWarn = badLinks.length
+        ? `<div style="margin-top:8px;background:#fef2f2;border-left:4px solid #dc2626;padding:8px 10px;border-radius:8px;color:#991b1b;font-weight:700;">⚠️ ${badLinks.length} product(s) par TEMPORARY Google link hai jo cashier ke device par nahi khulega. Neeche tile par 🔗 URL se sahi link lagayein.</div>`
+        : '';
+      $('#bimStats', m).innerHTML = `📊 <b>${withImg}</b> of <b>${all.length}</b> products have real images (${Math.round(withImg/all.length*100)}%). Click any tile to upload!` + badWarn;
+      $('#bimGrid', m).innerHTML = filtered.map(p => {
+        const hasImg = p.image && (p.image.startsWith('data:') || p.image.startsWith('http'));
+        const isBad = typeof p.image === 'string' && /^https?:\/\//i.test(p.image) && !checkProductImageUrl(p.image).ok;
+        const borderColor = isBad ? '#dc2626' : (hasImg ? '#10b981' : '#e5e9f2');
+        return `<div class="bim-tile" data-id="${p.id}" style="background:#fff;border:2px solid ${borderColor};border-radius:12px;padding:10px;text-align:center;cursor:pointer;transition:.15s;position:relative;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+          ${isBad ? '<div style="position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:12px;" title="Temporary link — cashier ke device par nahi khulega">⚠️</div>' : (hasImg ? '<div style="position:absolute;top:4px;right:4px;background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;">✓</div>' : '')}
+          <div style="width:80px;height:80px;margin:0 auto 6px;border-radius:10px;background:linear-gradient(135deg,#e0e7ff,#fff);display:flex;align-items:center;justify-content:center;overflow:hidden;">${productImageHTML(p.image, 80)}</div>
+          <div style="font-weight:700;font-size:12px;line-height:1.2;height:30px;overflow:hidden;">${escapeHtml(p.name)}</div>
+          <div style="font-size:11px;color:#4f7cff;font-weight:700;">Rs. ${p.price}</div>
+          <button type="button" class="bim-url" data-id="${p.id}" style="margin-top:6px;font-size:10px;padding:3px 8px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer;font-weight:700;color:#334155;">🔗 URL</button>
+        </div>`;
+      }).join('') || '<div class="empty" style="grid-column:1/-1;padding:30px;"><div class="emoji">🔍</div><h4>No products match</h4></div>';
+
+      m.querySelectorAll('.bim-tile').forEach(t => t.onclick = (ev) => {
+        if (ev.target.classList.contains('bim-url')) return; // handled below
+        pendingProductId = t.dataset.id;
+        $('#bimFile', m).value = ''; // reset
+        $('#bimFile', m).click();
+      });
+      m.querySelectorAll('.bim-url').forEach(btn => btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const id = btn.dataset.id;
+        const cur = DB.get('products', id);
+        const url = prompt(`Paste image link (URL) for "${cur?.name||''}" — must start with https://`, (cur?.image||'').startsWith('http') ? cur.image : 'https://');
+        if (url == null) return;
+        const clean = url.trim();
+        if (!clean || clean === 'https://') return;
+        const chk = checkProductImageUrl(clean);
+        if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link','error'); return; }
+        DB.update('products', id, { image: clean });
+        pushProductsNow();
+        toast(`✅ Image link set for ${cur?.name||'product'}`,'success');
+        renderGrid();
+      });
+    };
+
+    $('#bimSearch', m).oninput = (e) => { searchQ = e.target.value; renderGrid(); };
+    $('#bimCat', m).onchange = (e) => { activeCat = e.target.value; renderGrid(); };
+
+    $('#bimFile', m).onchange = async (e) => {
+      const f = e.target.files[0];
+      if (!f || !pendingProductId) return;
+      if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
+      try {
+        const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
+        DB.update('products', pendingProductId, { image: dataUrl });
+        pushProductsNow();
+        const p = DB.get('products', pendingProductId);
+        toast(`✅ Image set for ${p.name}`, 'success');
+        renderGrid();
+      } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
+    };
+
+    renderGrid();
+  }});
+}
+window.openBulkImageManager = openBulkImageManager;

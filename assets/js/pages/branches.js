@@ -1,111 +1,187 @@
-/* ============================================================
-   BRANCHES — factory / shop / unit
-   ============================================================ */
+/* ===================== MULTI-BRANCH SUPPORT ===================== */
+/* Each branch has its own ID; orders/expenses tagged with branchId.
+   "All Branches" view aggregates everything for the owner. */
 
 function renderBranches() {
-  UI.renderLayout('branches', `<div id="brBody"></div>`);
-  branchesPaint();
-}
+  if (DB.currentUser().role !== 'admin') { app.go('dashboard'); return; }
 
-function branchesPaint() {
-  const el = $('#brBody');
-  if (!el) return;
-  const rows = DB.all('branches').sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  const stats = rows.map(b => {
-    const sales = Biz.sales().filter(s => s.branchId === b.id);
-    const exp = DB.all('expenses').filter(e => e.branchId === b.id);
-    return {
-      b, count: sales.length,
-      kg: round1(sales.reduce((a, s) => a + Biz.saleKg(s), 0)),
-      income: round2(sales.reduce((a, s) => a + Biz.saleAmount(s), 0)),
-      inFactory: round1(sales.reduce((a, s) => a + Biz.pendingKg(s), 0)),
-      expenses: round2(exp.reduce((a, e) => a + num(e.amount), 0))
-    };
-  });
+  const branches = DB.all('branches');
+  const orders = DB.all('orders');
+  const expenses = DB.all('expenses');
 
-  el.innerHTML = `
-    <div class="stats">
-      ${UI.statCard({ icon: '🏢', label: 'Total Branches', value: fmtNum(rows.length), tone: 'info' })}
-      ${UI.statCard({ icon: '✅', label: 'Active', value: fmtNum(rows.filter(b => b.isActive !== false).length), tone: 'good' })}
-      ${UI.statCard({ icon: '⚖️', label: 'Total KG (all branches)', value: fmtKg(round1(stats.reduce((a, s) => a + s.kg, 0))), tone: 'purple' })}
-      ${UI.statCard({ icon: '💰', label: 'Total Income', value: fmtMoney(round2(stats.reduce((a, s) => a + s.income, 0))), tone: 'good' })}
+  const content = `
+    <h1 class="page-title">🏢 Branches</h1>
+    <p class="page-sub">Manage all your shop locations. Orders & expenses can be tagged per branch.</p>
+
+    <div class="filter-bar">
+      <button class="btn btn-primary" id="addBranchBtn">+ Add Branch</button>
+      <div style="margin-left:auto;font-size:13px;color:var(--text-soft);">
+        Active branch: <b style="color:var(--primary);">${getActiveBranchName()}</b>
+        <button class="btn btn-secondary btn-sm" id="switchBtn" style="margin-left:8px;">🔄 Switch</button>
+      </div>
     </div>
 
-    <div class="grid g3">
-      ${stats.length ? stats.map(s => `
-        <div class="card">
-          <div class="card-head">
-            <span class="cat-dot" style="background:${esc(s.b.color || '#4f7cff')}"></span>
-            <h3>${esc(s.b.name)}</h3><div class="sp"></div>
-            <span class="pill ${s.b.isActive === false ? 'pill-muted' : 'pill-ok'}">${s.b.isActive === false ? 'Inactive' : 'Active'}</span>
-          </div>
-          <div class="card-body">
-            <div class="tiny muted mb10">${esc(titleCase(s.b.type || 'factory'))} · ${esc(s.b.phone || 'no phone')}<br>${esc(s.b.address || '')}</div>
-            <div class="kv"><span>Entries</span><b>${fmtNum(s.count)}</b></div>
-            <div class="kv"><span>Total KG received</span><b>${fmtKg(s.kg)}</b></div>
-            <div class="kv"><span>In factory now</span><b class="t-warn">${fmtKg(s.inFactory)}</b></div>
-            <div class="kv"><span>Income (billed)</span><b class="t-ok">${fmtMoney(s.income)}</b></div>
-            <div class="kv"><span>Expenses</span><b class="t-bad">${fmtMoney(s.expenses)}</b></div>
-            <div class="row mt10" style="gap:8px">
-              <button class="btn btn-ghost btn-sm" data-bedit="${s.b.id}">✏️ Edit</button>
-              <button class="btn btn-ghost btn-sm" data-bsales="${s.b.id}">🧾 Sales</button>
-              <button class="btn btn-ghost btn-sm" data-bdel="${s.b.id}">🗑️</button>
+    <div class="grid-stats" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
+      ${branches.map(b => {
+        const bo = orders.filter(o => (o.branchId||'main') === b.id);
+        const rev = bo.reduce((s,o)=>s+(o.total||0),0);
+        const exp = expenses.filter(e => (e.branchId||'main') === b.id).reduce((s,e)=>s+(e.amount||0),0);
+        return `
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+              <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,${b.color||'#4f7cff'},#6a5cff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;">🏢</div>
+              <div style="flex:1;">
+                <div style="font-weight:800;font-size:15px;">${escapeHtml(b.name)}</div>
+                <div style="font-size:11px;color:var(--text-soft);">${escapeHtml(b.address||'-')}</div>
+              </div>
+              ${b.isActive ? '<span class="badge paid">ACTIVE</span>' : ''}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;font-size:12px;">
+              <div style="background:var(--surface-alt);padding:8px;border-radius:6px;text-align:center;">
+                <div style="color:var(--text-soft);">Orders</div>
+                <div style="font-weight:800;">${bo.length}</div>
+              </div>
+              <div style="background:var(--surface-alt);padding:8px;border-radius:6px;text-align:center;">
+                <div style="color:var(--text-soft);">Revenue</div>
+                <div style="font-weight:800;color:var(--success);">${fmtMoney(rev)}</div>
+              </div>
+              <div style="background:var(--surface-alt);padding:8px;border-radius:6px;text-align:center;">
+                <div style="color:var(--text-soft);">Expenses</div>
+                <div style="font-weight:800;color:var(--danger);">${fmtMoney(exp)}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:10px;">
+              <button class="btn btn-secondary btn-sm" data-act="switch" data-id="${b.id}" style="flex:1;">🔄 Use This</button>
+              <button class="btn btn-secondary btn-sm" data-act="edit" data-id="${b.id}">✏️</button>
+              ${b.id !== 'main' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${b.id}">🗑️</button>` : ''}
             </div>
           </div>
-        </div>`).join('') : `<div class="card"><div class="card-body"><div class="empty"><div class="empty-ico">🏢</div><div>Koi branch nahi</div></div></div></div>`}
+        `;
+      }).join('')}
     </div>
 
-    <div class="card mt14"><div class="card-body row" style="justify-content:space-between">
-      <div class="small dim">Factory ke sath shop ya doosri unit barh rahi ho to nayi branch add karein — sales aur expenses branch-wise track honge.</div>
-      <button class="btn btn-primary btn-sm" id="bNew">➕ New Branch</button>
-    </div></div>`;
+    <div class="card" style="margin-top:20px;">
+      <div class="card-header"><h3>📊 Branch Comparison</h3></div>
+      <table class="tbl">
+        <thead><tr><th>Branch</th><th>Orders</th><th>Revenue</th><th>Collected</th><th>Outstanding</th><th>Expenses</th><th>Net Profit</th></tr></thead>
+        <tbody>
+          ${branches.map(b => {
+            const bo = orders.filter(o => (o.branchId||'main') === b.id);
+            const rev = bo.reduce((s,o)=>s+(o.total||0),0);
+            const paid = bo.reduce((s,o)=>s+(o.paid||0),0);
+            const due = bo.reduce((s,o)=>s+(o.due||0),0);
+            const exp = expenses.filter(e => (e.branchId||'main') === b.id).reduce((s,e)=>s+(e.amount||0),0);
+            const profit = paid - exp;
+            return `<tr>
+              <td><b>🏢 ${escapeHtml(b.name)}</b></td>
+              <td>${bo.length}</td>
+              <td><b>${fmtMoney(rev)}</b></td>
+              <td style="color:var(--success);">${fmtMoney(paid)}</td>
+              <td style="color:var(--danger);">${fmtMoney(due)}</td>
+              <td>${fmtMoney(exp)}</td>
+              <td><b style="color:${profit>=0?'var(--success)':'var(--danger)'};">${fmtMoney(profit)}</b></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $('#app').innerHTML = renderLayout('branches', content);
+  bindLayout();
 
-  $('#bNew').onclick = () => branchForm();
-  $$('[data-bedit]', el).forEach(b => b.onclick = () => branchForm(b.dataset.bedit));
-  $$('[data-bsales]', el).forEach(b => b.onclick = () => { SalesUI.branch = b.dataset.bsales; app.go('sales'); });
-  $$('[data-bdel]', el).forEach(b => b.onclick = async () => {
-    const br = DB.get('branches', b.dataset.bdel);
-    const used = Biz.sales().filter(s => s.branchId === br.id).length + DB.all('expenses').filter(e => e.branchId === br.id).length;
-    if (used) return toast('Yeh branch ' + used + ' records mein use ho rahi hai — delete nahi ho sakti. Inactive kar dein.', 'error', 4500);
-    const yes = await confirmDialog('Branch “' + br.name + '” delete karein?', { danger: true, yes: 'Delete' });
-    if (!yes) return;
-    DB.remove('branches', br.id);
-    branchesPaint();
+  $('#addBranchBtn').onclick = () => openBranchForm();
+  $('#switchBtn').onclick = openBranchSwitcher;
+  $$('[data-act]').forEach(b => b.onclick = () => {
+    const id = b.dataset.id;
+    if (b.dataset.act === 'switch') { setActiveBranch(id); toast(`Switched to ${DB.get('branches', id).name}`, 'success'); renderBranches(); }
+    else if (b.dataset.act === 'edit') openBranchForm(DB.get('branches', id));
+    else if (b.dataset.act === 'del') confirmDialog('Delete this branch? Its orders will remain in records.', () => { DB.remove('branches', id); renderBranches(); });
   });
 }
 
-function branchForm(id) {
-  const b = id ? DB.get('branches', id) : null;
-  const body = `
-    <div class="grid g2">
-      <label class="fld"><span>Branch Name <b class="req">*</b></span><input class="inp" id="bfName" value="${esc(b ? b.name : '')}" placeholder="e.g. Main Factory"/></label>
-      <label class="fld"><span>Type</span>
-        <select class="inp" id="bfType">${['factory', 'shop', 'unit', 'warehouse', 'office'].map(t => `<option ${b && b.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+function openBranchForm(existing) {
+  const b = existing || { name:'', address:'', phone:'', color:'#4f7cff' };
+  openModal(`
+    <h3>${existing?'Edit':'Add'} Branch</h3>
+    <div class="form-row">
+      <div class="field"><label>Branch Name *</label><input id="bName" value="${escapeHtml(b.name)}" placeholder="e.g. Main Branch, Gulshan, DHA"/></div>
+      <div class="field"><label>Phone</label><input id="bPhone" value="${escapeHtml(b.phone||'')}"/></div>
     </div>
-    <div class="grid g2">
-      <label class="fld"><span>Phone</span><input class="inp" id="bfPhone" value="${esc(b ? b.phone : '')}"/></label>
-      <label class="fld"><span>Colour</span><input type="color" class="inp" id="bfColor" value="${esc(b && b.color ? b.color : '#4f7cff')}" style="height:42px;padding:4px"/></label>
+    <div class="form-row cols-1">
+      <div class="field"><label>Address</label><input id="bAddr" value="${escapeHtml(b.address||'')}"/></div>
     </div>
-    <label class="fld"><span>Address</span><input class="inp" id="bfAddr" value="${esc(b ? b.address : '')}"/></label>
-    <label class="fld"><span>Status</span>
-      <select class="inp" id="bfActive"><option value="1" ${!b || b.isActive !== false ? 'selected' : ''}>Active</option>
-        <option value="0" ${b && b.isActive === false ? 'selected' : ''}>Inactive</option></select></label>`;
-  const w = openModal({
-    title: b ? '✏️ Edit Branch' : '➕ New Branch', size: 'sm', body,
-    footer: `<button class="btn btn-ghost" data-close="1">Cancel</button><button class="btn btn-primary" id="bfSave">💾 Save</button>`
-  });
-  $('#bfSave', w).onclick = () => {
-    const name = $('#bfName', w).value.trim();
-    if (!name) return toast('Branch ka naam likhein', 'error');
-    const rec = {
-      id: b ? b.id : uid('br'), name, type: $('#bfType', w).value, phone: $('#bfPhone', w).value,
-      color: $('#bfColor', w).value, address: $('#bfAddr', w).value,
-      isActive: $('#bfActive', w).value === '1', createdAt: b ? b.createdAt : new Date().toISOString()
+    <div class="form-row">
+      <div class="field"><label>Color (for charts)</label><input type="color" id="bColor" value="${b.color||'#4f7cff'}"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn">Save</button>
+    </div>
+  `, { onOpen(m){
+    $('#saveBtn', m).onclick = () => {
+      const name = $('#bName', m).value.trim();
+      if (!name) { toast('Name required','error'); return; }
+      const data = {
+        name,
+        address: $('#bAddr', m).value.trim(),
+        phone: $('#bPhone', m).value.trim(),
+        color: $('#bColor', m).value
+      };
+      if (existing) DB.update('branches', existing.id, data);
+      else DB.insert('branches', data);
+      closeModal(); toast('Saved','success'); renderBranches();
+      if (typeof logAction === 'function') logAction(existing?'branch.edit':'branch.add', name);
     };
-    DB.upsert('branches', rec);
-    DB.audit(b ? 'branch-edit' : 'branch', (b ? 'Branch edit: ' : 'Nayi branch: ') + name);
-    toast('✔ Branch save ho gayi', 'success');
-    closeModal(w);
-    branchesPaint();
-  };
+  }});
+}
+
+function openBranchSwitcher() {
+  const branches = DB.all('branches');
+  const active = getActiveBranchId();
+  openModal(`
+    <h3>🔄 Switch Active Branch</h3>
+    <p class="sub">All new orders will be tagged to the selected branch.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${branches.map(b => `
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;border:2px solid ${active===b.id?'var(--primary)':'var(--border)'};border-radius:10px;cursor:pointer;background:${active===b.id?'var(--primary-light)':'var(--surface)'};">
+          <input type="radio" name="br" value="${b.id}" ${active===b.id?'checked':''}/>
+          <div style="flex:1;">
+            <div style="font-weight:700;">🏢 ${escapeHtml(b.name)}</div>
+            <div style="font-size:11px;color:var(--text-soft);">${escapeHtml(b.address||'-')}</div>
+          </div>
+        </label>
+      `).join('')}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="okBtn">✅ Switch</button>
+    </div>
+  `, { onOpen(m){
+    $('#okBtn', m).onclick = () => {
+      const sel = m.querySelector('input[name="br"]:checked');
+      if (sel) {
+        setActiveBranch(sel.value);
+        toast(`Switched to ${DB.get('branches', sel.value).name}`, 'success');
+        if (typeof logAction === 'function') logAction('branch.switch', sel.value);
+      }
+      closeModal();
+      if (typeof app !== 'undefined') app.go(app.current);
+    };
+  }});
+}
+
+/* ===== Helper functions ===== */
+function getActiveBranchId() {
+  const stored = sessionStorage.getItem('mrLaundryActiveBranch');
+  if (stored && DB.get('branches', stored)) return stored;
+  // Default to first branch
+  const branches = DB.all('branches');
+  return branches[0]?.id || 'main';
+}
+function setActiveBranch(id) {
+  sessionStorage.setItem('mrLaundryActiveBranch', id);
+}
+function getActiveBranchName() {
+  const b = DB.get('branches', getActiveBranchId());
+  return b ? b.name : 'Main Branch';
 }
