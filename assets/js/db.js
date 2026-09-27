@@ -1,294 +1,689 @@
 /* ============================================================
-   MR LAUNDRY FACTORY PORTAL — DATA LAYER
-   ------------------------------------------------------------
-   Storage  : localStorage (offline-first, always works)
-   Cloud    : optional Firebase Realtime Database sync (Settings
-              mein apna config paste karein → "Cloud Sync ON")
-   ------------------------------------------------------------
-   Tables:
-     users[]       staff logins + permissions
-     branches[]    factory / shop / unit branches
-     customers[]   B2B clients (vendors) jin ko per-kg wash dete hain
-     products[]    wash items (Wash & Fold, Iron, Dry Clean...) — category wise
-     sales[]       wash slips  { invoiceNo, branchId, customerId, entryDate,
-                                 deliveryDate(null until delivered), status,
-                                 lines:[{productId, category, qtyKg, pcs, note}],
-                                 kgTotal, piecesTotal, rate, amount, paymentMode,
-                                 amountPaidAtEntry }
-     payments[]    ledger payments { customerId, date, amount, kgCovered,
-                                     allocated:[{saleId, amount}], saleItems[], note }
-     expenses[]    factory expenses
-     purchases[]   items bought from outside vendors
-     vendors[]     vendors (jin se purchase karte hain)
-     employees[]   factory staff + monthly salary
-     salaries[]    salary payments
-     drawings[]    owner drawings / nikaal
-     settings{}    shop profile, rate per kg, category labels, cloud config
-     auditLog[]    har action ka record
+   Mr Laundry POS — Database (localStorage abstraction)
+   Swap functions in this file later to use real backend (PHP/MySQL).
    ============================================================ */
 
-const DB_KEY = 'mlfFactoryDB';
-const SESSION_KEY = 'mlfSession';
+const DB_KEY = 'mrLaundryDB';
+const SESSION_KEY = 'mrLaundrySession';
 
-const SHOP_DEFAULTS = {
-  shopName: 'Mr Laundry Factory',
-  tagline: 'Wash · Dry · Iron · Fold (Per KG Basis)',
-  phone: '',
-  address: '',
-  currency: 'Rs.'
+// Locked shop profile for this installation. Keep these values as the
+// permanent defaults so a new browser/device shows correct shop details
+// immediately and accidental edits cannot overwrite them.
+const LOCKED_SHOP_PROFILE = {
+  shopName: 'Mr Laundry',
+  phone: '+923343691210',
+  address: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan',
+  shopLocation: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan'
 };
-
-const DEFAULT_CATEGORIES = [
-  { key: 'A', label: 'A Category', color: '#2563eb', desc: 'Premium / Heavy wash' },
-  { key: 'B', label: 'B Category', color: '#16a34a', desc: 'Normal wash' },
-  { key: 'C', label: 'C Category', color: '#d97706', desc: 'Light / Quick wash' }
-];
 
 const DB = {
   _data: null,
 
-  /* ---------------- LOAD / SAVE ---------------- */
   load() {
-    let raw = null;
-    try { raw = SafeStore.get(DB_KEY); } catch (e) { raw = null; }
+    const raw = localStorage.getItem(DB_KEY);
     if (raw) {
-      try { this._data = JSON.parse(raw); } catch (e) { this._data = null; }
+      try { this._data = JSON.parse(raw); }
+      catch(e){ this._data = this._seed(); this.save(); }
+      // Migration: ensure all required top-level tables exist. Important:
+      // cloud/live safety recovery can restore only orders/customers/expenses,
+      // so missing core tables (users/products/categories) must be re-seeded
+      // instead of leaving the app blank on next load.
+      const seed = this._seed();
+      ['users','categories','products','customers','orders','expenses','ownerDrawings','vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates','factoryClients','factoryEntries','factoryDeliveries','factoryPayments','factoryEmployees','factoryExpenses','factoryInvestments'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+      if (!Array.isArray(this._data.users) || !this._data.users.length) this._data.users = seed.users;
+      // Guarantee the built-in staff accounts always exist on every device,
+      // even if a cloud merge/reset ever dropped them. Existing accounts (and
+      // any password changes made in the app) are left untouched.
+      (seed.users || []).forEach(su => {
+        const exists = this._data.users.some(u => u && (u.id === su.id || (u.username && su.username && u.username.toLowerCase() === su.username.toLowerCase())));
+        if (!exists) this._data.users.push({ ...su });
+      });
+      if (!Array.isArray(this._data.categories) || !this._data.categories.length) this._data.categories = seed.categories;
+      if (!Array.isArray(this._data.products) || !this._data.products.length) this._data.products = seed.products;
+      if (!Array.isArray(this._data.customers) || !this._data.customers.length) this._data.customers = seed.customers;
+      if (!Array.isArray(this._data.orders)) this._data.orders = [];
+      if (!Array.isArray(this._data.expenses)) this._data.expenses = [];
+      if (!Array.isArray(this._data.vendors) || !this._data.vendors.length) this._data.vendors = seed.vendors;
+      if (!Array.isArray(this._data.purchaseOrders)) this._data.purchaseOrders = [];
+      // Ensure default Hanger & Shopper inventory items exist (auto-add if missing)
+      const inv = this._data.inventory;
+      if (!inv.find(i => i.autoDeduct === 'hanger')) {
+        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: new Date().toISOString() });
+      }
+      if (!inv.find(i => i.autoDeduct === 'shopper')) {
+        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() });
+      }
+      ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
+      this._data.settings = Object.assign({}, seed.settings, this._data.settings, LOCKED_SHOP_PROFILE);
+      // Smart fill: if payment fields are empty/missing, copy defaults from seed
+      ['jazzcashName','jazzcashNumber','easypaisaName','easypaisaNumber','portalTerms'].forEach(k => {
+        if (!this._data.settings[k] || this._data.settings[k] === '') {
+          this._data.settings[k] = seed.settings[k];
+        }
+      });
+      this._data._counters = this._data._counters || { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+      if (!this._data.branches || !this._data.branches.length) {
+        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }];
+      }
+      if (this._data._counters.po == null) this._data._counters.po = 1000;
+    } else {
+      this._data = this._seed();
+      this.save();
     }
-    if (!this._data) this._data = this._seed();
-    this._migrate();
+    if (this._data && this._data.settings) {
+      this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
+    }
+    // Repair serial counters after backup restore/cloud merge so invoice numbers
+    // always continue from the highest existing invoice.
+    this.repairCounters();
+    // Immediately compact old offline/local photo-heavy DB after update.
     this.save();
     return this._data;
+  },
+
+  _storageSafeCopy(data, aggressive = false) {
+    const copy = JSON.parse(JSON.stringify(data || {}));
+
+    // Online-only build: never put heavy base64 files into browser localStorage.
+    // They are the main reason Chrome shows QUOTA_EXCEEDED / critical storage errors.
+    (copy.orders || []).forEach(o => {
+      if (o.photos && o.photos.length) {
+        o.photos = [];
+        o.photosStoredInCloudOnly = true;
+      }
+    });
+    (copy.paymentProofs || []).forEach(p => {
+      if (p.screenshot && String(p.screenshot).startsWith('data:')) {
+        p.screenshot = '';
+        p.screenshotStoredInCloudOnly = true;
+      }
+    });
+    (copy.claims || []).forEach(c => {
+      if (c.slipPhoto && String(c.slipPhoto).startsWith('data:')) {
+        c.slipPhoto = '';
+        c.slipPhotoStoredInCloudOnly = true;
+      }
+    });
+
+    if (copy.settings && copy.settings.logoImage && String(copy.settings.logoImage).startsWith('data:')) {
+      copy.settings.logoImage = 'assets/img/logo.jpeg';
+      copy.settings.logoImageStoredInCloudOnly = true;
+    }
+
+    if (aggressive) {
+      // If quota is still full, remove heavy embedded base64 images from the
+      // LOCAL cache only — but NOT from products/categories. Product & category
+      // reference images are core to the POS (cashiers rely on them to book
+      // orders) and must never be silently dropped, otherwise every device ends
+      // up showing only emojis. Recommended usage is to store product images as
+      // URLs (tiny), which are never stripped anyway. Customers/vendors/drivers
+      // avatars are non-critical, so those may still be trimmed locally.
+      ['customers', 'vendors', 'drivers'].forEach(tbl => {
+        (copy[tbl] || []).forEach(r => {
+          ['image', 'photo', 'avatar', 'logo', 'signature'].forEach(k => {
+            if (r[k] && String(r[k]).startsWith('data:')) r[k] = '';
+          });
+        });
+      });
+    }
+    return copy;
+  },
+
+  _freeLocalStorageSpace() {
+    // Remove old/offline-only caches. Session/login remains untouched.
+    [
+      'mrLaundryLastBackup',
+      'mrLaundryLastPhotoCleanup',
+      'mrLaundryLocalVersion',
+      'mrLaundryGDriveToken',
+      'mrLaundryGDriveFolderId',
+      'mrLaundryDB'
+    ].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
+
+    // If browser quota is still blocked, clear old app keys except locked cloud
+    // config/session. Firebase is source of truth, so this is safe for online POS.
+    try {
+      const keep = new Set(['mrLaundryFirebaseCfg','mrLaundryShopId','mrLaundryCloudEnabled','mrLaundryTheme','mrLaundryLang','mrLaundryPortalLang']);
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('mrLaundry') && !keep.has(k)) localStorage.removeItem(k);
+      });
+    } catch(_) {}
+  },
+
+  save() {
+    // Keep DB._data complete in memory for immediate Firebase push, but only keep
+    // a lightweight cache in localStorage. This fixes the storage error and makes
+    // the POS effectively online-first instead of offline-photo-heavy.
+    const writePayload = (payload) => {
+      try { localStorage.removeItem(DB_KEY); } catch(_){}
+      localStorage.setItem(DB_KEY, JSON.stringify(payload));
+    };
+
+    try {
+      writePayload(this._storageSafeCopy(this._data, false));
+      return true;
+    } catch (e) {
+      console.warn('[DB] localStorage quota hit; retrying with aggressive online-only cache:', e);
+      try {
+        this._freeLocalStorageSpace();
+        writePayload(this._storageSafeCopy(this._data, true));
+        try { if (typeof toast === 'function') toast('Browser storage cleaned — invoice data saved safely', 'success'); } catch(_){}
+        return true;
+      } catch (e2) {
+        console.warn('[DB] Could not write local cache. Continuing online-only; Firebase sync will still be attempted.', e2);
+        // Do NOT block cashier and do NOT show repeated cache-full popups.
+        // The live in-memory data will still be pushed by Cloud Sync after DB.save returns.
+        try { localStorage.removeItem(DB_KEY); } catch(_){}
+        return false;
+      }
+    }
+  },
+
+  reset() {
+    this._data = this._seed();
+    this.save();
   },
 
   _seed() {
     const now = new Date().toISOString();
     return {
+      _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
-        { id: 'u_owner', name: 'Owner', username: 'owner', password: 'owner123', role: 'owner', active: true, createdAt: now },
-        { id: 'u_manager', name: 'Manager', username: 'manager', password: 'manager123', role: 'manager', active: true, permissions: ['dashboard', 'newsales', 'sales', 'customers', 'ledger', 'products', 'expenses', 'purchases', 'vendors', 'employees', 'reports', 'drawings', 'branches'], createdAt: now },
-        { id: 'u_cashier', name: 'Cashier', username: 'cashier', password: 'cashier123', role: 'cashier', active: true, permissions: ['dashboard', 'newsales', 'sales', 'customers', 'ledger'], createdAt: now }
+        { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
+        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now },
+        { id: 'u3', name: 'Kashif', username: 'kashif', password: '123456', role: 'cashier', createdAt: now }
+      ],
+      categories: [
+        { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },
+        { id: 'cladies', name: 'Ladies Wear', icon: '🥻' },
+        { id: 'cothers', name: 'Others',      icon: '🧺' },
+        { id: 'cpress',  name: 'Press / Ironing', icon: '♨️' }
+      ],
+      products: getMrLaundryRateList(),
+      customers: [
+        { id: 'cu1', name: 'Walk-in Customer', phone: '', address: '', loyaltyNo: '', loyaltyDiscountPercent: 0, loyaltyActive: false, createdAt: now }
+      ],
+      orders: [],
+      expenses: [],
+      ownerDrawings: [],     // Owner's personal withdrawals from shop money
+      vendors: [
+        { id: 'v1', name: 'Sample Laundry Vendor', contactPerson: '', phone: '', address: '', openingBalance: 0, createdAt: now }
       ],
       branches: [
-        { id: 'b_factory', name: 'Main Factory', type: 'factory', phone: '', address: '', color: '#4f7cff', isActive: true, createdAt: now }
+        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }
       ],
-      customers: [],
-      products: [
-        { id: 'p_washfold', name: 'Wash & Fold', category: 'A', inputType: 'kg', unitPrice: 200, active: true, createdAt: now },
-        { id: 'p_machinewash', name: 'Machine Wash + Dry', category: 'A', inputType: 'kg', unitPrice: 200, active: true, createdAt: now },
-        { id: 'p_irononly', name: 'Iron / Press Only', category: 'B', inputType: 'kg', unitPrice: 200, active: true, createdAt: now },
-        { id: 'p_dryclean', name: 'Dry Clean', category: 'B', inputType: 'kg', unitPrice: 200, active: true, createdAt: now },
-        { id: 'p_stain', name: 'Stain Removal / Special Treatment', category: 'C', inputType: 'kg', unitPrice: 200, active: true, createdAt: now },
-        { id: 'p_shoes', name: 'SHOES', category: 'A', inputType: 'kg', unitPrice: 320, active: true, createdAt: now,
-          types: ['Junior Shoes', 'Sports Shoes', 'Man Shoes', 'CH Shoes'] }
+      purchaseOrders: [],
+      inventory: [
+        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: new Date().toISOString() },
+        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() }
       ],
-      sales: [], payments: [], expenses: [], purchases: [], vendors: [], vendorRequests: [],
-      employees: [], salaries: [], drawings: [], deliveries: [], auditLog: [],
-      settings: Object.assign({
-        shopName: 'Mr Laundry Factory',
-        tagline: 'Wash · Dry · Iron · Fold (Per KG Basis)',
-        phone: '', email: '', address: '', ntn: '',
-        logoImage: 'assets/img/logo.jpeg',          // app / screen logo
-        logoColorImage: 'assets/img/logo.jpeg',     // A4 invoice logo
-        logoMonoImage: 'assets/img/logo-thermal.png', // black-only thermal logo
-        logoMono: true,
+      inventoryMovements: [],
+      dayClosures: [],
+      auditLog: [],
+      messages: [],
+      paymentProofs: [],
+      promoCodes: [],
+      reviews: [],
+      pushSubs: [],
+      claims: [],
+      vouchers: [],
+      drivers: [],
+      pickupRequests: [],
+      refundReasons: [],
+      autoReplyRules: [
+        { id:'ar1', trigger:'order|status|where', reply:'Thank you for contacting us! Please share your invoice number and we will check the status immediately.', active:true },
+        { id:'ar2', trigger:'price|rate|cost|kitna', reply:'For pricing, please visit our portal or send us the item name. Standard rates: Shirt Rs.150, Pant Rs.150, Suit Rs.1000.', active:true },
+        { id:'ar3', trigger:'closed|hours|timing|open', reply:'We are open Mon-Sat: 9:00 AM - 9:00 PM, Sunday Closed. Thank you!', active:true }
+      ],
+      reportTemplates: [],
+      factoryClients: [],
+      factoryEntries: [],
+      factoryDeliveries: [],
+      factoryPayments: [],
+      factoryEmployees: [],
+      factoryExpenses: [],
+      factoryInvestments: [],
+      settings: {
+        shopName: LOCKED_SHOP_PROFILE.shopName,
+        tagline: 'Quality Dry Cleaner Service',
+        address: LOCKED_SHOP_PROFILE.address,
+        phone: LOCKED_SHOP_PROFILE.phone,
         currency: 'Rs.',
-        ratePerKg: 320,
-        // ---- Thermal printer (black copper) settings ----
-        slipPaper: 'thermal80',   // thermal80 | thermal58 | a5 | a4
-        slipLogo: true,
-        slipLogoHeight: 40,
-        slipPhone: true,
-        slipAddress: true,
-        categories: DEFAULT_CATEGORIES,
-        expenseCategories: ['Salary', 'Fuel', 'Chemicals & Detergent', 'Electricity', 'Water', 'Gas', 'Rent', 'Maintenance & Repair', 'Transport', 'Packaging', 'Utilities', 'Misc'],
-        purchaseCategories: ['Detergent', 'Chemicals', 'Bleach', 'Packaging', 'Machine Parts', 'Gas Cylinder', 'Other'],
-        slipFooterNote: 'Yeh sale slip hai — amount bill / ledger invoice mein diya jayega.',
-        invoiceTerms: 'Payment 7 din mein. Per KG rate ke mutabiq bill hoga. Kharab kapre claim 24 ghante mein report karein.',
-        branches: [],
-        cloudEnabled: false,
-        firebaseConfig: '',
-        shopId: ''
-      })
+        taxPercent: 0,
+        logo: '🧺',
+        logoImage: 'assets/img/logo.jpeg',
+        invoiceFooter: 'Thank you for choosing Mr Laundry!',
+        baseUrl: '',
+        defaultDeliveryDays: 2,
+        loyaltyPrefix: 'MRL',
+        defaultLoyaltyDiscountPercent: 10,
+        autoBackupReminder: true,
+        poPrefix: 'PO',
+        factoryRatePerKg: 200,
+        // ===== INVOICE CUSTOMIZATION =====
+        invoiceFontSize: 14,           // base font size in px
+        invoiceWidth: 360,             // max width in px (thermal=300, A6=420, A5=560)
+        invoiceQtyCircle: true,        // show big quantity circle
+        invoiceShowLogo: true,
+        invoiceShowAddress: true,
+        invoiceShowPhone: true,
+        invoiceShowTagline: true,
+        invoiceShowCashier: true,
+        invoiceShowQR: true,
+        invoiceShowDeliveryType: true, // Hanger/Fold
+        invoiceShowItemBreakdown: true,
+        invoiceShowPaymentMethod: true,
+        invoiceShowDiscount: true,
+        invoiceShowNotes: true,
+        invoiceShowFooter: true,
+        invoiceShowEditedBadge: true,
+        invoiceTerms: 'Items not collected within 30 days are non-refundable.',
+        invoiceShowTerms: false,
+        // Office-copy & WhatsApp settings
+        printDualCopy: true,           // when true, prints customer + office copy together
+        officeCopyWidth: 280,          // small slip for office
+        officeCopyFontSize: 11,
+        photoRetentionDays: 30,        // auto-cleanup photos older than X days after delivery
+        photoAutoCleanup: true,
+        // === Portal-specific settings ===
+        shopHours: 'Mon-Sat: 9:00 AM - 9:00 PM\nSunday: Closed',
+        shopLocation: LOCKED_SHOP_PROFILE.shopLocation,
+        shopMapUrl: '',
+        portalLang: 'en',
+        // === Payment settings ===
+        bankName: '',
+        bankAccountTitle: 'Shahzeb Vakani',
+        bankAccountNumber: '',
+        jazzcashName: 'Shahzeb Vakani',
+        jazzcashNumber: '0302 8244803',
+        easypaisaName: 'Shahzeb Vakani',
+        easypaisaNumber: '0302 8244803',
+        paymentInstructions: 'Please pay to the above account and upload screenshot below. We will verify and mark your invoice as PAID within 30 minutes.',
+        // === Loyalty / Referral ===
+        referralDiscountPercent: 10,
+        // === Claims Policy ===
+        claimPolicyPercent: 30,
+        claimVoucherFreeCount: 7,
+        claimVoucherValidDays: 180,
+        claimPrefix: 'CLM',
+        voucherPrefix: 'VCH',
+        // === Cash close lock ===
+        forceCashClose: true,             // require day close before logout
+        // === Sound effects ===
+        soundEffects: true,
+        // === Suspicious alerts ===
+        suspiciousAlerts: true,
+        largeDiscountThreshold: 500,      // alert if discount > Rs.500
+        largeRefundThreshold: 1000,
+        // === Auto-reply ===
+        autoReplyEnabled: true,
+        // === Public reviews ===
+        showPublicReviews: true,
+        minReviewStars: 4,                // only show reviews with 4+ stars publicly
+        claimTerms: 'Claim valid only with original purchase slip. Voucher valid for 7 free wash services within 6 months from issue date. Non-transferable. Cannot be exchanged for cash.',
+        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from delivery date will not be the responsibility of Mr Laundry.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
+        // === Push notifications ===
+        pushVapidPublicKey: '',
+        whatsappTemplate: 'Hello {name}, thank you for your order at {shop}!\n\nInvoice: {invoice}\nTotal Pcs: {pcs}\nAmount: {total}\nPaid: {paid}\nDue: {due}\nDelivery: {delivery} ({type})\n\n{footer}'
+      }
     };
   },
 
-  _migrate() {
-    const d = this._data;
-    const seed = this._seed();
-    const tables = ['users', 'branches', 'customers', 'products', 'sales', 'payments',
-      'expenses', 'purchases', 'vendors', 'vendorRequests', 'employees', 'salaries', 'drawings',
-      'deliveries', 'auditLog'];
-    tables.forEach(t => { if (!Array.isArray(d[t])) d[t] = seed[t]; });
-    d.settings = Object.assign({}, seed.settings, d.settings || {});
-    /* ⚠️ Cloud config (URL / Shop ID / ON-OFF) DEVICE-LEVEL hai — synced
-       data se kabhi overwrite na ho (yehi "firebase remove ho gaya" ka fix hai) */
-    if (typeof Cloud !== 'undefined' && Cloud.cfg && Cloud.cfg.url) {
-      d.settings.cloudEnabled = !!Cloud.cfg.enabled;
-      d.settings.firebaseConfig = Cloud.cfg.url;
-      d.settings.shopId = Cloud.cfg.shopId;
-    }
-    // Sirf khali/undefined fields ko default se bharein — user ki edited
-    // values (shop name, phone, address) kabhi overwrite na hon.
-    Object.keys(SHOP_DEFAULTS).forEach(k => {
-      if (d.settings[k] === undefined || d.settings[k] === null || d.settings[k] === '') {
-        d.settings[k] = seed.settings[k] || SHOP_DEFAULTS[k];
-      }
-    });
-    if (!Array.isArray(d.settings.categories) || !d.settings.categories.length) d.settings.categories = DEFAULT_CATEGORIES;
-    if (!d._tomb || typeof d._tomb !== 'object' || Array.isArray(d._tomb)) d._tomb = {};
-    if (!d._counters) d._counters = { invoice: 1000 };
-    if (d._counters.invoice == null) d._counters.invoice = 1000;
-    // ensure built-in users still exist (passwords editable in Users page)
-    (seed.users || []).forEach(su => {
-      const exists = d.users.some(u => u && (u.id === su.id || (u.username || '').toLowerCase() === su.username));
-      if (!exists) d.users.push(Object.assign({}, su));
-    });
-    if (!d.branches.length) d.branches = seed.branches;
-    // counters repair — invoice number never goes backwards
-    const maxInv = (d.sales || []).reduce((m, s) => Math.max(m, num(String(s.invoiceNo || '').replace(/\D/g, ''))), 0);
-    if (maxInv >= d._counters.invoice) d._counters.invoice = maxInv;
+  all(table)  { return this._data[table] || []; },
+  get(table, id) { return (this._data[table] || []).find(r => r.id === id); },
+  insert(table, record) {
+    record.id = record.id || (table[0] + Date.now().toString(36) + Math.floor(Math.random()*1000));
+    record.createdAt = record.createdAt || new Date().toISOString();
+    this._data[table].push(record);
+    this.save();
+    return record;
   },
-
-  save() {
-    try {
-      this._data._updatedAt = new Date().toISOString();
-      SafeStore.set(DB_KEY, JSON.stringify(this._data));
-      if (typeof Cloud !== 'undefined' && Cloud.push) Cloud.pushDebounced();
-      return true;
-    } catch (e) {
-      toast('Storage full — Settings se backup lekar purana data clear karein.', 'error', 6000);
-      return false;
-    }
+  update(table, id, patch) {
+    const i = this._data[table].findIndex(r => r.id === id);
+    if (i === -1) return null;
+    this._data[table][i] = { ...this._data[table][i], ...patch };
+    this.save();
+    return this._data[table][i];
   },
-
-  /* ---------------- GENERIC TABLE API ---------------- */
-  all(tbl, includeDeleted) {
-    const rows = (this._data[tbl] || []);
-    return includeDeleted ? rows.slice() : rows.filter(r => r && !r._deleted);
-  },
-  get(tbl, id) { return (this._data[tbl] || []).find(r => r && r.id === id) || null; },
-  upsert(tbl, row, opts) {
-    const o = opts || {};
-    row.updatedAt = new Date().toISOString();
-    const arr = this._data[tbl] = this._data[tbl] || [];
-    const i = arr.findIndex(r => r && r.id === row.id);
-    if (i >= 0) arr[i] = Object.assign({}, arr[i], row);
-    else { row.createdAt = row.createdAt || row.updatedAt; arr.push(row); }
-    if (!o.silent) this.save();
-    return row;
-  },
-  remove(tbl, id, hard) {
-    const arr = this._data[tbl] || [];
-    const i = arr.findIndex(r => r && r.id === id);
-    if (i < 0) return false;
-    const at = new Date().toISOString();
-    if (hard) {
-      /* hard delete bhi yaad rakhein — warna doosre device se record wapis aa jata hai */
-      this.tombstone(tbl, id, at);
-      arr.splice(i, 1);
-    } else {
-      arr[i]._deleted = true; arr[i].deletedAt = at; arr[i].updatedAt = at;
-    }
+  remove(table, id) {
+    const i = this._data[table].findIndex(r => r.id === id);
+    if (i === -1) return false;
+    this._data[table].splice(i, 1);
     this.save();
     return true;
   },
-  /** delete ka nishan (cloud merge ke liye) */
-  tombstone(tbl, id, at) {
-    const t = this._data._tomb = this._data._tomb || {};
-    t[tbl] = t[tbl] || {};
-    t[tbl][id] = at || new Date().toISOString();
-    return true;
-  },
-  settings() { return this._data.settings; },
-  /** cloud config ka mirror (sirf is device par; cloud par push NAHI hota) */
-  setCloudMirror(c) {
-    if (!this._data) return;
-    const s = this._data.settings = this._data.settings || {};
-    s.cloudEnabled = !!(c && c.enabled);
-    s.firebaseConfig = (c && c.url) || '';
-    s.shopId = (c && c.shopId) || '';
-    try { SafeStore.set(DB_KEY, JSON.stringify(this._data)); } catch (e) {}
-  },
-  saveSettings(patch) {
-    this._data.settings = Object.assign({}, this._data.settings, patch || {});
-    this.save();
-    return this._data.settings;
-  },
-  nextNumber(kind) {
+
+  _ensureCounters() {
     this._data._counters = this._data._counters || {};
-    const c = this._data._counters;
-    const prefixMap = { invoice: 'INV', slip: 'SLP', payment: 'RCP', expense: 'EXP', purchase: 'PUR', salary: 'SAL', drawing: 'DRW', customer: 'CUS', vendor: 'VEN', employee: 'EMP', branch: 'BR' };
-    c[kind] = num(c[kind]) + 1;
-    if (kind === 'invoice') c[kind] = Math.max(c[kind], num(c.invoice));
-    const pre = prefixMap[kind] || String(kind).toUpperCase().slice(0, 3);
-    return pre + '-' + String(c[kind]).padStart(4, '0');
-  },
-  countersPreview(kind) {
-    const c = (this._data._counters || {})[kind] || 0;
-    const prefixMap = { invoice: 'INV', slip: 'SLP', payment: 'RCP' };
-    return (prefixMap[kind] || 'GEN') + '-' + String(num(c) + 1).padStart(4, '0');
+    const defaults = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+    for (const k of Object.keys(defaults)) {
+      if (!Number.isFinite(+this._data._counters[k]) || +this._data._counters[k] < defaults[k]) {
+        this._data._counters[k] = defaults[k];
+      } else {
+        this._data._counters[k] = +this._data._counters[k];
+      }
+    }
+    return this._data._counters;
   },
 
-  /* ---------------- AUTH ---------------- */
-  findByUsername(u) {
-    const k = String(u || '').trim().toLowerCase();
-    return this.all('users').find(x => String(x.username || '').toLowerCase() === k) || null;
-  },
-  login(username, password) {
-    const u = this.findByUsername(username);
-    if (!u) return { ok: false, msg: 'User nahi mila' };
-    if (u.password !== password) return { ok: false, msg: 'Password ghalat hai' };
-    if (u.active === false) return { ok: false, msg: 'Yeh account band hai' };
-    SafeStore.set(SESSION_KEY, JSON.stringify({ id: u.id, at: new Date().toISOString() }));
-    this.audit('login', u.name + ' login hua');
-    return { ok: true, user: u };
-  },
-  logout() { const u = this.currentUser(); if (u) this.audit('logout', u.name + ' logout hua'); SafeStore.del(SESSION_KEY); },
-  currentUser() {
-    try {
-      const s = JSON.parse(SafeStore.get(SESSION_KEY) || 'null');
-      if (!s) return null;
-      const u = this.get('users', s.id);
-      return (u && u.active !== false) ? u : null;
-    } catch (e) { return null; }
-  },
-  isOwner(u) { u = u || this.currentUser(); return !!u && (u.role === 'owner' || u.role === 'admin'); },
-  can(page) {
-    const u = this.currentUser();
-    if (!u) return false;
-    if (this.isOwner(u)) return true;
-    const perms = Array.isArray(u.permissions) ? u.permissions : [];
-    return perms.indexOf(page) >= 0;
-  },
-
-  /* ---------------- AUDIT ---------------- */
-  audit(action, detail, extra) {
-    const u = this.currentUser();
-    this._data.auditLog = this._data.auditLog || [];
-    this._data.auditLog.unshift({
-      id: uid('aud'), action, detail: detail || '', ref: (extra && extra.ref) || '',
-      userId: u ? u.id : 'system', userName: u ? u.name : 'System',
-      at: new Date().toISOString()
+  _maxNumberFrom(list, fields) {
+    let max = 0;
+    (list || []).forEach(row => {
+      fields.forEach(f => {
+        const raw = row && row[f];
+        if (raw == null) return;
+        const n = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+        if (Number.isFinite(n) && n > max) max = n;
+      });
     });
-    if (this._data.auditLog.length > 800) this._data.auditLog.length = 800;
+    return max;
+  },
+
+  repairCounters() {
+    // Fix invoice serial after backup restore/import/cloud merge.
+    // If _counters.invoice is old (e.g. 1005) but existing invoices are 1200+,
+    // the next invoice must continue from the highest existing invoiceNo.
+    const c = this._ensureCounters();
+    c.invoice = Math.max(c.invoice, this._maxNumberFrom(this._data.orders, ['invoiceNo']));
+    c.loyalty = Math.max(c.loyalty, this._maxNumberFrom(this._data.customers, ['loyaltyNo']));
+    c.po      = Math.max(c.po,      this._maxNumberFrom(this._data.purchaseOrders, ['poNo', 'poNumber']));
+    c.claim   = Math.max(c.claim,   this._maxNumberFrom(this._data.claims, ['claimNo', 'claimNumber']));
+    c.voucher = Math.max(c.voucher, this._maxNumberFrom(this._data.vouchers, ['voucherNo', 'voucherNumber']));
+    return c;
+  },
+
+  nextLoyaltyNumber() {
+    const counters = this.repairCounters();
+    counters.loyalty += 1;
+    this.save();
+    const prefix = (this._data.settings.loyaltyPrefix || 'MRL').toUpperCase();
+    return `${prefix}-${counters.loyalty}`;
+  },
+  nextInvoiceNumber() {
+    const counters = this.repairCounters();
+    counters.invoice += 1;
+    this.save();
+    return counters.invoice;
+  },
+  nextClaimNumber() {
+    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+    this._data._counters.claim = (this._data._counters.claim || 1000) + 1;
+    this.save();
+    const prefix = (this._data.settings.claimPrefix || 'CLM').toUpperCase();
+    return `${prefix}-${this._data._counters.claim}`;
+  },
+  nextVoucherNumber() {
+    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+    this._data._counters.voucher = (this._data._counters.voucher || 1000) + 1;
+    this.save();
+    const prefix = (this._data.settings.voucherPrefix || 'VCH').toUpperCase();
+    return `${prefix}-${this._data._counters.voucher}`;
+  },
+  nextPONumber() {
+    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+    this._data._counters.po = (this._data._counters.po || 1000) + 1;
+    this.save();
+    const prefix = (this._data.settings.poPrefix || 'PO').toUpperCase();
+    return `${prefix}-${this._data._counters.po}`;
+  },
+
+  settings() { return this._data.settings; },
+  saveSettings(patch) {
+    // Shop name/contact/location are locked for this private POS build.
+    this._data.settings = { ...this._data.settings, ...patch, ...LOCKED_SHOP_PROFILE };
     this.save();
   },
 
-  /* ---------------- BACKUP ---------------- */
-  backupJSON() {
-    return JSON.stringify({ app: 'Mr Laundry Factory Portal', version: 1, exportedAt: new Date().toISOString(), data: this._data }, null, 2);
+  login(username, password) {
+    const u = this._data.users.find(x => x.username === username && x.password === password);
+    if (!u) {
+      // Log failed attempt
+      try {
+        this._data.auditLog = this._data.auditLog || [];
+        this._data.auditLog.push({
+          id: 'a'+Date.now().toString(36),
+          action: 'login.failed',
+          details: 'Username: '+username,
+          username, userName: username, role: 'unknown',
+          timestamp: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+        this.save();
+      } catch(e){}
+      return null;
+    }
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: u.id, name: u.name, username: u.username, role: u.role }));
+    // Log successful login
+    try {
+      this._data.auditLog = this._data.auditLog || [];
+      this._data.auditLog.push({
+        id: 'a'+Date.now().toString(36),
+        action: 'login',
+        details: '',
+        userId: u.id, username: u.username, userName: u.name, role: u.role,
+        timestamp: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      });
+      this.save();
+    } catch(e){}
+    return u;
   },
-  restoreJSON(text) {
-    const parsed = JSON.parse(text);
-    const d = parsed.data || parsed;
-    if (!d || !d.settings) throw new Error('Yeh valid Mr Laundry Factory backup nahi hai');
-    this._data = d;
-    this._migrate();
-    this.save();
-    return true;
+  logout() {
+    const u = this.currentUser();
+    if (u) {
+      try {
+        this._data.auditLog = this._data.auditLog || [];
+        this._data.auditLog.push({
+          id: 'a'+Date.now().toString(36),
+          action: 'logout',
+          details: '',
+          userId: u.id, username: u.username, userName: u.name, role: u.role,
+          timestamp: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+        this.save();
+      } catch(e){}
+    }
+    sessionStorage.removeItem(SESSION_KEY);
   },
-  resetAll() {
-    this._data = this._seed();
+  currentUser() {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch(e){ return null; }
+  },
+
+  exportJSON() { return JSON.stringify(this._data, null, 2); },
+  importJSON(json) {
+    const parsed = typeof json === 'string' ? JSON.parse(json) : json;
+    this._data = parsed;
+    if (this._data.settings) this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
+    this.repairCounters();
     this.save();
   }
 };
+
+/* ============================================================
+   MR LAUNDRY OFFICIAL RATE LIST
+   Update prices here, then click "Import/Reset Price List" in admin Products page.
+   ============================================================ */
+function getMrLaundryRateList() {
+  const G = 'cgents', L = 'cladies', O = 'cothers', P = 'cpress';
+  const list = [
+    // ===== GENTS WEAR =====
+    { name: 'Suit 2 Pcs',            category: G, price: 800,  image: '🤵' },
+    { name: 'Suit 3 Pcs',            category: G, price: 1000, image: '🤵' },
+    { name: 'Coat',                  category: G, price: 600,  image: '🧥' },
+    { name: 'Dress Pant',            category: G, price: 200,  image: '👖' },
+    { name: 'Trouser',               category: G, price: 200,  image: '👖' },
+    { name: 'Waist Coat',            category: G, price: 300,  image: '🦺' },
+    { name: 'Shalwar Suit',          category: G, price: 250,  image: '🥻' },
+    { name: 'Kurta',                 category: G, price: 125,  image: '👘' },
+    { name: 'Shalwar / Pajama',      category: G, price: 125,  image: '👖' },
+    { name: 'Boski Shalwar Suit',    category: G, price: 500,  image: '🥻' },
+    { name: 'T-Shirt',               category: G, price: 150,  image: '👕' },
+    { name: 'Polo / Collar Shirt',   category: G, price: 150,  image: '👕' },
+    { name: 'Open Shirt',            category: G, price: 150,  image: '👔' },
+    { name: 'Tie',                   category: G, price: 100,  image: '👔' },
+    { name: 'Safari Suit',           category: G, price: 400,  image: '🤵' },
+    { name: 'Vest',                  category: G, price: 60,   image: '👕' },
+    { name: 'Under Wear',            category: G, price: 60,   image: '🩲' },
+    { name: 'Sherwani',              category: G, price: 1000, image: '🤴' },
+    { name: 'Kurta Saya / Lab Coat', category: G, price: 200,  image: '🥼' },
+    { name: 'Kandurah',              category: G, price: 200,  image: '👘' },
+    { name: 'Shorts',                category: G, price: 150,  image: '🩳' },
+    { name: 'Kids T-Shirt',          category: G, price: 120,  image: '👕' },
+    { name: 'Kids Shorts',           category: G, price: 120,  image: '🩳' },
+    { name: 'Kids Shirt',            category: G, price: 120,  image: '👔' },
+    { name: 'Kids Trouser / Jeans',  category: G, price: 120,  image: '👖' },
+
+    // ===== LADIES WEAR =====
+    { name: 'Shalwar Suit Plain - 3 Pcs', category: L, price: 400, image: '🥻' },
+    { name: 'Shalwar Suit Plain - 2 Pcs', category: L, price: 300, image: '🥻' },
+    { name: 'Dupatta',                    category: L, price: 150, image: '🧣' },
+    { name: 'Ladies Shirt',               category: L, price: 150, image: '👚' },
+    { name: 'Ladies Shalwar / Pajama',    category: L, price: 150, image: '👖' },
+    { name: 'Fancy / Kamdar Shirt',       category: L, price: 600, image: '👚' },
+    { name: 'Fancy / Kamdar Dupatta',     category: L, price: 800, image: '🧣' },
+    { name: 'Gharara / Maxi',             category: L, price: 1500, image: '👗' },
+    { name: 'Saree Plain',                category: L, price: 600,  image: '🥻' },
+    { name: 'Saree Fancy / Kamdar',       category: L, price: 800,  image: '🥻' },
+    { name: 'Burqa / Abaya Plain',        category: L, price: 500,  image: '🧕' },
+    { name: 'Burqa / Abaya Fancy / Kamdar', category: L, price: 700, image: '🧕' },
+    { name: 'Frock',                      category: L, price: 1200, image: '👗' },
+    { name: 'Blouse Plain',               category: L, price: 500,  image: '👚' },
+    { name: 'Petty Coat',                 category: L, price: 150,  image: '👗' },
+    { name: 'Scarf / Stole',              category: L, price: 150,  image: '🧣' },
+    { name: 'Skirt Suit',                 category: L, price: 400,  image: '👗' },
+    { name: 'Short Coat',                 category: L, price: 400,  image: '🧥' },
+    { name: 'Bridal Dress - Maxi',        category: L, price: 6000, image: '👰' },
+    { name: 'Bridal Dress - 3 Pcs Suit',  category: L, price: 6000, image: '👰' },
+    { name: 'Ladies Undergarments (BRA)', category: L, price: 80,   image: '🩲' },
+
+    // ===== OTHERS =====
+    { name: 'Hoodie / Cardigan / Sweater', category: O, price: 600,  image: '🧥' },
+    { name: 'Heavy Jacket',               category: O, price: 800,  image: '🧥' },
+    { name: 'Jacket Leather',             category: O, price: 1000, image: '🧥' },
+    { name: 'Over Coat',                  category: O, price: 1200, image: '🧥' },
+    { name: 'Socks',                      category: O, price: 60,   image: '🧦' },
+    { name: 'Track Suit',                 category: O, price: 400,  image: '🏃' },
+    { name: 'Shawl',                      category: O, price: 800,  image: '🧣' },
+    { name: 'Ajrak',                      category: O, price: 300,  image: '🧣' },
+    { name: 'Apron',                      category: O, price: 100,  image: '🥼' },
+    { name: 'Stuffed Toys - Small',       category: O, price: 1000, image: '🧸' },
+    { name: 'Stuffed Toys - Large',       category: O, price: 2500, image: '🧸' },
+    { name: 'Shoes',                      category: O, price: 400,  image: '👟' },
+    { name: 'School Bag',                 category: O, price: 400,  image: '🎒' },
+    { name: 'Carpet Woolen / Synthetic (Per Sq.Ft)',       category: O, price: 40,  image: '🧶' },
+    { name: 'Carpet Centerpiece / Hand Knotted (Per Sq.Ft)', category: O, price: 120, image: '🧶' },
+    { name: 'Vertical Blinds',            category: O, price: 1000, image: '🪟' },
+    { name: 'Blanket Single',             category: O, price: 1000, image: '🛌' },
+    { name: 'Blanket Double',             category: O, price: 1400, image: '🛌' },
+    { name: 'Quilt / Comforter',          category: O, price: 0,    image: '🛌' },
+    { name: 'Quilt Cover / Bed Sheet',    category: O, price: 400,  image: '🛏️' },
+    { name: 'Bedsheet Single',            category: O, price: 100,  image: '🛏️' },
+    { name: 'Bedsheet Double',            category: O, price: 180,  image: '🛏️' },
+    { name: 'Table Cloth Plain',          category: O, price: 100,  image: '🍽️' },
+    { name: 'Table Cloth Fancy',          category: O, price: 250,  image: '🍽️' },
+    { name: 'Bath Gown / Bath Robe',      category: O, price: 250,  image: '🛁' },
+    { name: 'Bath Towel',                 category: O, price: 120,  image: '🧖' },
+    { name: 'Hand Towel / Napkin',        category: O, price: 50,   image: '🧖' },
+    { name: 'Curtain (Per Panel)',        category: O, price: 300,  image: '🪟' },
+    { name: 'Palmets (Per Running Ft)',   category: O, price: 150,  image: '🪟' },
+    { name: 'Cushion Cover - Plain',      category: O, price: 80,   image: '🛋️' },
+    { name: 'Cushion Cover - Fancy',      category: O, price: 120,  image: '🛋️' },
+    { name: 'Door Mat',                   category: O, price: 200,  image: '🚪' },
+    { name: 'Ja Namaz',                   category: O, price: 0,    image: '🕌' },
+    { name: 'Daree Small',                category: O, price: 600,  image: '🧶' },
+    { name: 'Daree Large',                category: O, price: 800,  image: '🧶' },
+    { name: 'Sweater Full Sleeve',        category: O, price: 300,  image: '🧶' },
+    { name: 'Sleeveless Sweater',         category: O, price: 200,  image: '🧶' },
+    { name: 'Membership Card',            category: O, price: 1000, image: '💳' },
+    { name: 'Pillow Cover',               category: O, price: 120,  image: '🛏️' },
+    { name: 'Rafooh',                     category: O, price: 0,    image: '🧵' },
+    { name: 'Sofa',                       category: O, price: 0,    image: '🛋️' },
+
+    // ===== PRESS / IRONING ONLY (rates can be set later) =====
+    { name: 'Suit 2 Pcs (Press)',           category: P, price: 0, image: '🤵' },
+    { name: 'Suit 3 Pcs (Press)',           category: P, price: 0, image: '🤵' },
+    { name: 'Coat (Press)',                 category: P, price: 0, image: '🧥' },
+    { name: 'Dress Pant (Press)',           category: P, price: 0, image: '👖' },
+    { name: 'Trouser (Press)',              category: P, price: 0, image: '👖' },
+    { name: 'Waist Coat (Press)',           category: P, price: 0, image: '🦺' },
+    { name: 'Shalwar Suit (Press)',         category: P, price: 0, image: '🥻' },
+    { name: 'Kurta (Press)',                category: P, price: 0, image: '👘' },
+    { name: 'Shalwar / Pajama (Press)',     category: P, price: 0, image: '👖' },
+    { name: 'Boski Shalwar Suit (Press)',   category: P, price: 0, image: '🥻' },
+    { name: 'T-Shirt (Press)',              category: P, price: 0, image: '👕' },
+    { name: 'Polo / Collar Shirt (Press)',  category: P, price: 0, image: '👕' },
+    { name: 'Open Shirt (Press)',           category: P, price: 0, image: '👔' },
+    { name: 'Tie (Press)',                  category: P, price: 0, image: '👔' },
+    { name: 'Safari Suit (Press)',          category: P, price: 0, image: '🤵' },
+    { name: 'Sherwani (Press)',             category: P, price: 0, image: '🤴' },
+    { name: 'Kurta Saya / Lab Coat (Press)',category: P, price: 0, image: '🥼' },
+    { name: 'Kandurah (Press)',             category: P, price: 0, image: '👘' },
+    { name: 'Vest (Press)',                 category: P, price: 0, image: '👕' },
+    { name: 'Scarf / Stole (Press)',        category: P, price: 0, image: '🧣' },
+    { name: 'Skirt Suit (Press)',           category: P, price: 0, image: '👗' },
+    { name: 'Ladies Short Coat (Press)',    category: P, price: 0, image: '🧥' },
+    { name: 'Bridal Dress - Maxi (Press)',  category: P, price: 0, image: '👰' },
+    { name: 'Bridal Dress - 3 Pcs Suit (Press)', category: P, price: 0, image: '👰' },
+    { name: 'Ladies Shalwar Suit Plain - 3 Pcs (Press)', category: P, price: 0, image: '🥻' },
+    { name: 'Ladies Shalwar Suit Plain - 2 Pcs (Press)', category: P, price: 0, image: '🥻' },
+    { name: 'Ladies Dupatta (Press)',       category: P, price: 0, image: '🧣' },
+    { name: 'Ladies Shirt (Press)',         category: P, price: 0, image: '👚' },
+    { name: 'Ladies Shalwar / Pajama (Press)', category: P, price: 0, image: '👖' },
+    { name: 'Ladies Fancy / Kamdar Shirt (Press)', category: P, price: 0, image: '👚' },
+    { name: 'Ladies Fancy / Kamdar Dupatta (Press)', category: P, price: 0, image: '🧣' },
+    { name: 'Ladies Gharara / Maxi (Press)',category: P, price: 0, image: '👗' },
+    { name: 'Ladies Saree Plain (Press)',   category: P, price: 0, image: '🥻' },
+    { name: 'Ladies Saree Fancy / Kamdar (Press)', category: P, price: 0, image: '🥻' },
+    { name: 'Burqa / Abaya Plain (Press)',  category: P, price: 0, image: '🧕' },
+    { name: 'Burqa / Abaya Fancy / Kamdar (Press)', category: P, price: 0, image: '🧕' },
+    { name: 'Frock (Press)',                category: P, price: 0, image: '👗' },
+    { name: 'Blouse Plain (Press)',         category: P, price: 0, image: '👚' }
+  ];
+  return list.map((p, idx) => ({
+    id: 'p' + (idx + 1),
+    ...p,
+    active: true
+  }));
+}
+DB.load();
+
+/* === Auto-cleanup photos from delivered orders older than X days === */
+function cleanupOldPhotos(force) {
+  const s = DB.settings();
+  if (!force && s.photoAutoCleanup === false) return { removed: 0, freed: 0 };
+  const retentionDays = +s.photoRetentionDays || 30;
+  const cutoff = new Date(Date.now() - retentionDays * 86400000);
+  let removed = 0, freed = 0;
+  DB.all('orders').forEach(o => {
+    if (o.status !== 'delivered') return;
+    if (!o.photos || !o.photos.length) return;
+    const d = new Date(o.createdAt);
+    if (d < cutoff) {
+      freed += (o.photos || []).reduce((s,p) => s + (p.size||0), 0);
+      removed += o.photos.length;
+      DB.update('orders', o.id, { photos: [], photoCleanupAt: new Date().toISOString() });
+    }
+  });
+  return { removed, freed };
+}
+
+/* Run auto-cleanup once per day */
+(function autoCleanupCheck() {
+  const lastRun = localStorage.getItem('mrLaundryLastPhotoCleanup');
+  if (lastRun && Date.now() - new Date(lastRun).getTime() < 24*60*60*1000) return;
+  const result = cleanupOldPhotos(false);
+  if (result.removed > 0) console.log(`[Mr Laundry] Auto-cleanup: removed ${result.removed} old photos (${Math.round(result.freed/1024)} KB freed)`);
+  localStorage.setItem('mrLaundryLastPhotoCleanup', new Date().toISOString());
+})();
+
+function brandLogoHTML(size = 40, rounded = true) {
+  const s = DB.settings();
+  const radius = Math.max(10, Math.round(size * 0.2));
+  if (s.logoImage) {
+    return `<img class="logo" src="${s.logoImage}" alt="logo" style="width:${size}px;height:${size}px;object-fit:contain;${rounded?'border-radius:'+radius+'px;':''}background:#000;padding:${Math.round(size*0.07)}px;box-shadow:0 8px 22px rgba(0,0,0,0.18);" onerror="this.outerHTML='<div class=\\'logo\\' style=\\'width:${size}px;height:${size}px;border-radius:${radius}px;background:linear-gradient(135deg,#4f7cff,#6a5cff);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(size*0.55)}px;\\'>${s.logo||'🧺'}</div>'"/>`;
+  }
+  return `<div class="logo" style="width:${size}px;height:${size}px;border-radius:${radius}px;background:linear-gradient(135deg,#4f7cff,#6a5cff);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(size*0.55)}px;box-shadow:0 8px 22px rgba(79,124,255,0.35);">${s.logo||'🧺'}</div>`;
+}
