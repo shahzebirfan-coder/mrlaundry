@@ -130,11 +130,34 @@ function renderPaymentsTab() {
       const p = DB.get('paymentProofs', id);
       const o = DB.get('orders', p.orderId);
       if (!o) { toast('Order not found','error'); return; }
-      // Add p.amount to order's paid, reduce due
-      const newPaid = Math.min(o.total, (o.paid||0) + p.amount);
-      const newDue = o.total - newPaid;
-      DB.update('orders', p.orderId, { paid: newPaid, due: newDue, isCredit: newDue > 0 });
-      DB.update('paymentProofs', id, { status: 'verified', verifiedAt: new Date().toISOString(), verifiedBy: DB.currentUser().username });
+      // Add the verified amount to the invoice and keep a dated receipt entry.
+      const cashier = DB.currentUser() || {};
+      const verifiedAt = new Date().toISOString();
+      const previousPaid = Number(o.paid) || 0;
+      const proofAmount = Math.max(0, Number(p.amount) || 0);
+      const newPaid = Math.min(o.total, previousPaid + proofAmount);
+      const received = Math.max(0, newPaid - previousPaid);
+      const newDue = Math.max(0, o.total - newPaid);
+      const paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
+      if (received > 0) {
+        paymentsLog.push({
+          id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+          amount: received,
+          method: p.method || 'online',
+          note: p.txnId ? `Verified payment proof (TXN ${p.txnId})` : 'Verified payment proof',
+          at: verifiedAt,
+          by: cashier.username || 'unknown',
+          byName: cashier.name || ''
+        });
+      }
+      DB.update('orders', p.orderId, {
+        paid: newPaid,
+        due: newDue,
+        isCredit: newDue > 0,
+        paymentMethod: p.method || 'online',
+        paymentsLog
+      });
+      DB.update('paymentProofs', id, { status: 'verified', verifiedAt, verifiedBy: cashier.username || 'unknown' });
       if (typeof logAction === 'function') logAction('payment.verify', `${fmtMoney(p.amount)} on INV-${o.invoiceNo||p.orderId.slice(-6)}`);
       toast(`✅ Payment verified! ${fmtMoney(p.amount)} added to ${o.invoiceNo?'INV-'+o.invoiceNo:p.orderId}`, 'success');
       renderPaymentsTab();

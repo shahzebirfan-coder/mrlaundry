@@ -5,6 +5,28 @@ function orderSafeTime(o) { return o?.createdAt || o?.bookingDate || o?.date || 
 function orderSafeDay(o) { return String(o?.bookingDate || o?.createdAt || o?.date || '').slice(0,10); }
 function orderSafeItems(o) { return Array.isArray(o?.items) ? o.items : []; }
 
+// Display the most recent real receipt date for an invoice. Legacy paid orders
+// without payment logs fall back to their booking/creation date; unpaid invoices
+// have no payment date.
+function orderPaymentReceivedDate(o) {
+  const paid = Number(o?.paid) || 0;
+  if (paid <= 0) return '';
+
+  const datedPayments = (Array.isArray(o?.paymentsLog) ? o.paymentsLog : [])
+    .filter(p => p && !p._reversal && !p._adjustment && Number(p.amount) > 0)
+    .map(p => {
+      const value = String(p.at || p.createdAt || p.date || '');
+      const time = Date.parse(value);
+      return Number.isFinite(time) ? { value, time } : null;
+    })
+    .filter(Boolean);
+
+  if (datedPayments.length) {
+    return datedPayments.reduce((latest, payment) => payment.time > latest.time ? payment : latest).value;
+  }
+  return orderSafeTime(o);
+}
+
 /* Build the list of months (YYYY-MM) that actually have invoices, newest first.
    Used for the "Month" dropdown so the page loads only the current month by
    default (huge speed + easy scrolling), while older months stay one click away. */
@@ -80,7 +102,7 @@ function renderOrders() {
       <table class="tbl">
         <thead><tr>
           <th>${t('ord.invoice')}</th><th>${t('ord.customer')}</th><th>${t('ord.items')}</th><th>${t('ord.total')}</th><th>${t('ord.paid')}</th>
-          <th>${t('ord.status')}</th><th>${t('ord.booked')}</th><th>${t('ord.delivery')}</th><th>${t('ord.actions')}</th>
+          <th>${t('ord.paymentReceivedDate')}</th><th>${t('ord.status')}</th><th>${t('ord.booked')}</th><th>${t('ord.delivery')}</th><th>${t('ord.actions')}</th>
         </tr></thead>
         <tbody id="ordersBody"></tbody>
       </table>
@@ -169,7 +191,7 @@ function renderOrdersBody() {
   `;
 
   if (!filtered.length) {
-    $('#ordersBody').innerHTML = `<tr><td colspan="9"><div class="empty"><div class="emoji">📦</div><h4>${t('ord.noOrders')}</h4><p>${t('ord.tryClearing')}</p></div></td></tr>`;
+    $('#ordersBody').innerHTML = `<tr><td colspan="10"><div class="empty"><div class="emoji">📦</div><h4>${t('ord.noOrders')}</h4><p>${t('ord.tryClearing')}</p></div></td></tr>`;
     return;
   }
 
@@ -182,6 +204,7 @@ function renderOrdersBody() {
       <td>${orderSafeItems(o).length} items<br><b style='color:var(--primary);'>${orderSafeItems(o).reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
       <td><b>${fmtMoney(o.total)}</b></td>
       <td>${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
+      <td>${fmtDateShort(orderPaymentReceivedDate(o))}</td>
       <td><span class="badge ${escapeHtml(o.status||'pending')}">${escapeHtml(o.status||'pending')}</span></td>
       <td>${fmtDateShort(orderSafeTime(o))}</td>
       <td>${escapeHtml(o.deliveryDate || '-')}</td>
@@ -259,10 +282,24 @@ function openStatusChange(orderId) {
     $('#saveBtn', m).onclick = () => {
       const newStatus = $('#newStatus', m).value;
       const addPay = Math.max(0, +$('#addPay', m).value || 0);
-      const paid = Math.min(o.total, o.paid + addPay);
-      const due = o.total - paid;
+      const paid = Math.min(o.total, (Number(o.paid) || 0) + addPay);
+      const due = Math.max(0, o.total - paid);
+      const received = Math.max(0, paid - (Number(o.paid) || 0));
       const oldStatus = o.status;
-      DB.update('orders', orderId, { status: newStatus, paid, due, isCredit: due > 0 });
+      const paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
+      if (received > 0) {
+        const cashier = DB.currentUser() || {};
+        paymentsLog.push({
+          id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+          amount: received,
+          method: o.paymentMethod || 'cash',
+          note: 'Payment received while updating order status',
+          at: new Date().toISOString(),
+          by: cashier.username || 'unknown',
+          byName: cashier.name || ''
+        });
+      }
+      DB.update('orders', orderId, { status: newStatus, paid, due, isCredit: due > 0, paymentsLog });
       if (typeof maybePromptWhatsAppOnStatus === 'function' && oldStatus !== newStatus && !sessionStorage.getItem('mrLaundryWaPause')) {
         setTimeout(() => maybePromptWhatsAppOnStatus(orderId, newStatus, oldStatus), 300);
       }

@@ -251,16 +251,31 @@ function openCollectPayment(custId) {
       let remaining = Math.max(0, Math.min(totalDue, +$('#payAmt', m).value || 0));
       if (remaining === 0) { toast('Enter amount','error'); return; }
       const initialAmount = remaining;
+      const method = $('#payMethod', m).value || 'cash';
+      const receivedAt = new Date().toISOString();
+      const cashier = DB.currentUser() || {};
 
       dueOrders.forEach(o => {
         if (remaining <= 0) return;
         const apply = Math.min(remaining, o.due);
         const newPaid = (o.paid||0) + apply;
-        const newDue = o.total - newPaid;
+        const newDue = Math.max(0, o.total - newPaid);
+        const paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
+        paymentsLog.push({
+          id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+          amount: apply,
+          method,
+          note: 'Payment received through customer ledger',
+          at: receivedAt,
+          by: cashier.username || 'unknown',
+          byName: cashier.name || ''
+        });
         DB.update('orders', o.id, {
           paid: newPaid,
           due: newDue,
-          isCredit: newDue > 0
+          isCredit: newDue > 0,
+          paymentMethod: method,
+          paymentsLog
         });
         remaining -= apply;
       });

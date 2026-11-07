@@ -220,6 +220,7 @@ const TRANSLATIONS = {
   'ord.items':           { en: 'Items',                            ur: 'اشیاء',                       rmn: 'Items' },
   'ord.total':           { en: 'Total',                            ur: 'کل',                          rmn: 'Total' },
   'ord.paid':            { en: 'Paid',                             ur: 'ادا',                         rmn: 'Paid' },
+  'ord.paymentReceivedDate': { en: 'Payment Received Date', ur: 'ادائیگی وصول ہونے کی تاریخ', rmn: 'Payment receive ki date' },
   'ord.due':             { en: 'Due',                              ur: 'باقی',                        rmn: 'Baqi' },
   'ord.status':          { en: 'Status',                           ur: 'حالت',                        rmn: 'Status' },
   'ord.booked':          { en: 'Booked',                           ur: 'بکنگ',                       rmn: 'Booking' },
