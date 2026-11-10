@@ -6,7 +6,7 @@
   <title>Mr Laundry — Order Tracker</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261109.002" />
   <link rel="stylesheet" href="assets/css/responsive.css" />
   <link rel="icon" href="assets/img/logo.jpeg" />
   <meta name="theme-color" content="#4f7cff"/>
@@ -777,7 +777,6 @@
       <div class="portal-card">
         <div class="portal-tab">
           <button class="active" data-tab="phone">📱 <span data-i18n="search_phone">Search by Phone</span></button>
-          <button data-tab="invoice">🧾 <span data-i18n="search_invoice">Search by Invoice #</span></button>
         </div>
 
         <label id="searchLbl" style="font-weight:700;font-size:13px;display:block;margin-bottom:6px;"><span data-i18n="enter_phone">Enter Your Contact Number</span></label>
@@ -814,11 +813,11 @@
     </div>
   </div>
 
-  <script src="assets/js/i18n.js"></script>
-  <script src="assets/js/portal-i18n.js"></script>
-  <script src="assets/js/db.js"></script>
+  <script src="assets/js/i18n.js?v=20261109.002"></script>
+  <script src="assets/js/portal-i18n.js?v=20261109.002"></script>
+  <script src="assets/js/db.js?v=20261109.002"></script>
   <script src="assets/js/utils.js"></script>
-  <script src="assets/js/portal-helpers.js"></script>
+  <script src="assets/js/portal-helpers.js?v=20261109.002"></script>
   <script src="assets/js/cloudsync.js"></script>
   <script>
 
@@ -913,30 +912,12 @@
       document.getElementById('contactShop').style.display = 'block';
     }
 
-    let tab = 'phone';
     const searchLbl = document.getElementById('searchLbl');
     const searchInp = document.getElementById('searchInp');
     const result = document.getElementById('result');
-
-    document.querySelectorAll('.portal-tab button').forEach(b => b.onclick = (ev) => {
-      // Find the actual button (in case user clicked the inner span)
-      const btn = ev.currentTarget;
-      document.querySelectorAll('.portal-tab button').forEach(x => x.classList.remove('active'));
-      btn.classList.add('active');
-      tab = btn.dataset.tab;
-      if (tab === 'phone') {
-        searchLbl.textContent = pt('enter_phone');
-        searchInp.placeholder = '03XX-XXXXXXX';
-        searchInp.type = 'tel';
-      } else {
-        searchLbl.textContent = pt('enter_invoice');
-        searchInp.placeholder = 'e.g. INV-1023 or 1023';
-        searchInp.type = 'text';
-      }
-      searchInp.value = '';
-      result.innerHTML = '';
-      searchInp.focus();
-    });
+    searchLbl.textContent = pt('enter_phone');
+    searchInp.placeholder = '03XX-XXXXXXX';
+    searchInp.type = 'tel';
 
     document.getElementById('searchBtn').onclick = doSearch;
     searchInp.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
@@ -945,24 +926,16 @@
       const q = searchInp.value.trim();
       if (!q) { searchInp.focus(); return; }
       let orders = [];
-      let customer = null;
-
-      if (tab === 'phone') {
-        const cleanQ = q.replace(/[^\d]/g, '');
-        customer = DB.all('customers').find(c => {
-          const cp = (c.phone || '').replace(/[^\d]/g, '');
-          return cp && cp === cleanQ;
-        });
-        if (!customer) {
-          result.innerHTML = noResultsHTML('We couldn\'t find any orders for this phone number.', 'Please double-check your number, or contact us using the buttons below.');
-          return;
-        }
-        orders = DB.all('orders').filter(o => o.customerId === customer.id);
-      } else {
-        const invNum = q.replace(/[^\d]/g, '');
-        orders = DB.all('orders').filter(o => String(o.invoiceNo||'') === invNum || o.id.slice(-6).toLowerCase() === q.toLowerCase());
-        if (orders.length) customer = DB.get('customers', orders[0].customerId);
+      const cleanQ = q.replace(/[^\d]/g, '');
+      const customer = DB.all('customers').find(c => {
+        const cp = (c.phone || '').replace(/[^\d]/g, '');
+        return cp && cp === cleanQ;
+      });
+      if (!customer) {
+        result.innerHTML = noResultsHTML('We couldn\'t find any orders for this phone number.', 'Please double-check your number, or contact us using the buttons below.');
+        return;
       }
+      orders = DB.all('orders').filter(o => o.customerId === customer.id);
 
       if (!orders.length) { result.innerHTML = noResultsHTML(pt('no_orders'), pt('check_number')); return; }
       renderOrders(orders, customer);
@@ -976,6 +949,7 @@
     const STEPS = [
       { id:'pending',   label:pt('booked'),     icon:'📝' },
       { id:'washing',   label:pt('washing'),    icon:'🌀' },
+      { id:'press',     label:pt('press'),      icon:'♨️' },
       { id:'ready',     label:pt('ready'),      icon:'✅' },
       { id:'delivered', label:pt('delivered'),  icon:'📦' }
     ];
@@ -1003,6 +977,7 @@
       const messages = {
         pending:   `📝 ${pt('msg_pending')}`,
         washing:   `🌀 ${pt('msg_washing')}`,
+        press:     `♨️ ${pt('msg_press')}`,
         ready:     `✅ ${pt('msg_ready')}`,
         delivered: `📦 ${pt('msg_delivered')}`,
         cancelled: `❌ ${pt('msg_cancelled')}`
@@ -1015,7 +990,7 @@
       try { maybeCelebrateReadyOrders(orders); } catch(e){}
       const totalDue = orders.reduce((s,o)=>s+(o.due||0),0);
       const totalSpent = orders.reduce((s,o)=>s+(o.total||0),0);
-      const pending = orders.filter(o => ['pending','washing','ready'].includes(o.status)).length;
+      const pending = orders.filter(o => ['pending','washing','press','ready'].includes(o.status)).length;
       const ready = orders.filter(o => o.status === 'ready').length;
 
       let html = `<div class="portal-card">
@@ -1106,16 +1081,10 @@
       result.innerHTML = html;
     }
 
-    // Auto-search if URL has ?phone=... or ?invoice=...
+    // Phone-only lookup; invoice numbers and invoice query parameters are ignored.
     const urlParams = new URLSearchParams(location.search);
     if (urlParams.get('phone')) {
-      tab = 'phone';
       searchInp.value = urlParams.get('phone');
-      setTimeout(doSearch, 200);
-    } else if (urlParams.get('invoice')) {
-      tab = 'invoice';
-      document.querySelectorAll('.portal-tab button')[1].click();
-      searchInp.value = urlParams.get('invoice');
       setTimeout(doSearch, 200);
     } else {
       searchInp.focus();
@@ -1190,6 +1159,14 @@
 
     /* ===== Request Pickup from Portal ===== */
     function openPickupRequestPortal() {
+      const pickupSlots = [
+        { value: '09:00-11:00', label: '🌅 9 AM - 11 AM' },
+        { value: '11:00-13:00', label: '☀️ 11 AM - 1 PM' },
+        { value: '13:00-15:00', label: '🌞 1 PM - 3 PM' },
+        { value: '15:00-17:00', label: '🕒 3 PM - 5 PM' },
+        { value: '17:00-19:00', label: '🌆 5 PM - 7 PM' },
+        { value: '19:00-21:00', label: '🌙 7 PM - 9 PM' }
+      ];
       const html = '<h2>\u{1F69A} Request Home Pickup</h2>' +
         '<p style="color:#666;margin-bottom:14px;">Fill in your details and we will come pick up your laundry!</p>' +
         '<div class="field"><label>Your Name *</label><input id="pkpName" type="text"/></div>' +
@@ -1197,13 +1174,9 @@
         '<div class="field"><label>Address *</label><textarea id="pkpAddr" rows="2" placeholder="House #, street, area..."></textarea></div>' +
         '<div class="form-row">' +
         '  <div class="field"><label>Date *</label><input type="date" id="pkpDate"/></div>' +
-        '  <div class="field"><label>Time Slot</label>' +
-        '    <select id="pkpSlot">' +
-        '      <option value="9am-12pm">\u{1F305} 9 AM - 12 PM</option>' +
-        '      <option value="10am-2pm" selected>\u2600\uFE0F 10 AM - 2 PM</option>' +
-        '      <option value="2pm-6pm">\u{1F31E} 2 PM - 6 PM</option>' +
-        '      <option value="6pm-9pm">\u{1F306} 6 PM - 9 PM</option>' +
-        '    </select>' +
+        '  <div class="field"><label>Time Slot *</label>' +
+        '    <select id="pkpSlot"><option value="" disabled selected>Choose an available slot</option></select>' +
+        '    <small style="color:#666;">One request per time slot. Same-day pickup must start at least 2 hours from now.</small>' +
         '  </div>' +
         '</div>' +
         '<div class="field"><label>Notes (optional)</label><textarea id="pkpNotes" rows="2" placeholder="Apartment #, landmarks..."></textarea></div>' +
@@ -1212,21 +1185,89 @@
         '  <button class="btn btn-success" id="pkpSubmit">\u{1F69A} Submit Request</button>' +
         '</div>';
       openPortalModal(html);
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      document.getElementById('pkpDate').value = tomorrow.toISOString().slice(0, 10);
-      document.getElementById('pkpSubmit').onclick = function() {
+
+      const dateInput = document.getElementById('pkpDate');
+      const slotSelect = document.getElementById('pkpSlot');
+      const submitButton = document.getElementById('pkpSubmit');
+      const localDayISO = (date = new Date()) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+      const parseSlotWindow = (slot) => {
+        const value = String(slot || '');
+        let m = value.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+        if (m) return { start: (+m[1] * 60 + +m[2]), end: (+m[3] * 60 + +m[4]) };
+        m = value.toLowerCase().match(/^(\d{1,2})(am|pm)-(\d{1,2})(am|pm)$/);
+        if (!m) return null;
+        const minutes = (hourText, period) => {
+          let hour = Number(hourText) % 12;
+          if (period === 'pm') hour += 12;
+          return hour * 60;
+        };
+        return { start: minutes(m[1], m[2]), end: minutes(m[3], m[4]) };
+      };
+      const slotAvailability = (dateValue, slotValue) => {
+        if (!dateValue || dateValue < localDayISO()) return { available: false, reason: 'Choose today or a future date.' };
+        const window = parseSlotWindow(slotValue);
+        if (!window) return { available: false, reason: 'Invalid time slot.' };
+        if (dateValue === localDayISO()) {
+          const [year, month, day] = dateValue.split('-').map(Number);
+          const start = new Date(year, month - 1, day, Math.floor(window.start / 60), window.start % 60, 0, 0);
+          if (start.getTime() < Date.now() + 2 * 60 * 60 * 1000) {
+            return { available: false, reason: 'This slot starts less than 2 hours from now.' };
+          }
+        }
+        const occupied = DB.all('pickupRequests').some(request => {
+          if (request.pickupDate !== dateValue || request.status === 'cancelled') return false;
+          const bookedWindow = parseSlotWindow(request.pickupSlot);
+          return bookedWindow && window.start < bookedWindow.end && window.end > bookedWindow.start;
+        });
+        return occupied ? { available: false, reason: 'This slot is already booked.' } : { available: true, reason: '' };
+      };
+      const refreshPickupSlots = () => {
+        const dateValue = dateInput.value;
+        const previous = slotSelect.value;
+        const available = [];
+        const options = pickupSlots.map(slot => {
+          const state = slotAvailability(dateValue, slot.value);
+          if (state.available) available.push(slot.value);
+          const suffix = state.available ? '' : ` — ${state.reason === 'This slot is already booked.' ? 'Booked' : state.reason === 'This slot starts less than 2 hours from now.' ? 'Too soon (2-hour lead)' : 'Unavailable'}`;
+          return `<option value="${slot.value}" ${state.available ? '' : 'disabled'}>${slot.label}${suffix}</option>`;
+        }).join('');
+        slotSelect.innerHTML = '<option value="" disabled>Choose an available slot</option>' + options;
+        slotSelect.value = available.includes(previous) ? previous : (available[0] || '');
+        submitButton.disabled = available.length === 0;
+      };
+
+      const today = new Date();
+      const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+      dateInput.min = localDayISO(today);
+      dateInput.value = localDayISO(tomorrow);
+      dateInput.onchange = refreshPickupSlots;
+      refreshPickupSlots();
+
+      submitButton.onclick = function() {
         const name = document.getElementById('pkpName').value.trim();
         const phone = document.getElementById('pkpPhone').value.trim();
         const addr = document.getElementById('pkpAddr').value.trim();
+        const pickupDate = dateInput.value;
+        const pickupSlot = slotSelect.value;
         if (!name || !phone || !addr) { alert('Please fill name, phone, and address'); return; }
+        const state = slotAvailability(pickupDate, pickupSlot);
+        if (!state.available) {
+          refreshPickupSlots();
+          showPortalToast(state.reason || 'Please choose an available pickup slot.', 'error');
+          return;
+        }
         try {
           DB.insert('pickupRequests', {
             customerName: name,
             customerPhone: phone,
             address: addr,
-            pickupDate: document.getElementById('pkpDate').value,
-            pickupSlot: document.getElementById('pkpSlot').value,
+            pickupDate,
+            pickupSlot,
             notes: document.getElementById('pkpNotes').value.trim(),
             status: 'pending',
             source: 'portal'
