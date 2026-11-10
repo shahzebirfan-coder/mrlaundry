@@ -96,6 +96,166 @@ a { color: var(--primary); text-decoration: none; }
 }
 .login-hint b { color: var(--text); }
 
+/* Branded boot screen shown after a successful login while the next page opens */
+.brand-boot-overlay {
+  position: fixed; inset: 0; z-index: 100000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; overflow: hidden; color: #fff;
+  background:
+    radial-gradient(ellipse at 50% 44%, rgba(0,177,235,.16), transparent 38%),
+    radial-gradient(circle at 15% 15%, rgba(30,129,194,.14), transparent 30%),
+    linear-gradient(155deg, #02050a 0%, #061522 56%, #02060b 100%);
+  animation: brandBootFadeIn .24s ease-out both;
+}
+.brand-boot-overlay::before,
+.brand-boot-overlay::after {
+  content: ""; position: absolute; border-radius: 50%;
+  background: rgba(0,178,235,.075); filter: blur(5px); pointer-events: none;
+  animation: brandBootOrb 7s ease-in-out infinite alternate;
+}
+.brand-boot-overlay::before { width: 380px; height: 380px; top: -175px; right: -100px; }
+.brand-boot-overlay::after { width: 300px; height: 300px; bottom: -145px; left: -95px; animation-delay: -.9s; }
+.brand-boot-overlay.is-leaving { animation: brandBootFadeOut .32s ease-in forwards; }
+.brand-boot-card {
+  position: relative; z-index: 1; display: flex; flex-direction: column;
+  align-items: center; text-align: center;
+  animation: brandBootRise .42s cubic-bezier(.2,.8,.2,1) both;
+}
+/* The bundled logo has a black background; blend only that image into the dark scene. */
+.brand-boot-card--default-logo { mix-blend-mode: screen; }
+.brand-boot-stage {
+  position: relative; width: min(90vw, 680px, 95vh); height: auto;
+  aspect-ratio: 1.7; margin-bottom: -12px;
+  display: grid; place-items: center;
+}
+.brand-boot-orbit {
+  position: absolute; z-index: 0; top: 0; left: 50%;
+  width: 52%; height: auto; aspect-ratio: 1; border-radius: 50%;
+  border: 1px solid rgba(84,205,255,.28);
+  box-shadow: 0 0 44px rgba(0,174,239,.13), inset 0 0 34px rgba(0,174,239,.055);
+  -webkit-mask-image: linear-gradient(#000 0%, #000 55%, transparent 85%);
+  mask-image: linear-gradient(#000 0%, #000 55%, transparent 85%);
+  animation: brandBootOrbit 11s linear infinite;
+}
+.brand-boot-orbit::before {
+  content: ""; position: absolute; inset: 16px; border-radius: inherit;
+  border: 1px dashed rgba(127,223,255,.18);
+}
+.brand-boot-orbit::after {
+  content: ""; position: absolute; top: 20px; right: 39px;
+  width: 8px; height: 8px; border-radius: 50%; background: #73e9ff;
+  box-shadow: 0 0 12px 4px rgba(39,202,255,.65);
+}
+.brand-boot-mark {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.brand-boot-mark .logo {
+  position: relative; z-index: 1;
+  animation: brandBootFloat 1.6s ease-in-out infinite;
+}
+/* Fit uploaded logos without cropping, even if they are tall or square. */
+.brand-boot-mark img.logo {
+  width: 78% !important; height: 80% !important; object-fit: contain !important;
+  padding: 0 !important; border-radius: 0 !important;
+  background: transparent !important; box-shadow: none !important;
+}
+/* The bundled landscape image includes generous black margins, so give it more room. */
+.brand-boot-card--default-logo .brand-boot-mark img.logo {
+  width: 100% !important; height: auto !important; align-self: flex-start;
+  mix-blend-mode: screen;
+}
+.brand-boot-mark div.logo {
+  width: clamp(96px, 36%, 160px) !important; height: auto !important; aspect-ratio: 1;
+  font-size: clamp(54px, 12vw, 90px) !important;
+}
+.brand-boot-bubbles,
+.brand-boot-clothes { position: absolute; inset: 0; pointer-events: none; }
+.brand-boot-bubbles { z-index: 2; }
+.brand-boot-bubble {
+  position: absolute; display: block; border: 1px solid rgba(151,233,255,.88);
+  border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle at 31% 28%, rgba(255,255,255,.95) 0 13%, rgba(67,204,255,.65) 16%, rgba(13,121,190,.08) 72%);
+  box-shadow: 0 0 10px rgba(62,201,255,.55), inset 0 0 5px rgba(255,255,255,.55);
+  animation: brandBootBubbleRise 1.65s ease-out infinite;
+}
+.brand-boot-bubble--one { left: 16%; bottom: 16%; width: 11px; height: 11px; animation-delay: -.5s; }
+.brand-boot-bubble--two { left: 12%; bottom: 31%; width: 7px; height: 7px; animation-delay: -1.1s; }
+.brand-boot-bubble--three { right: 16%; bottom: 19%; width: 14px; height: 14px; animation-delay: -.9s; }
+.brand-boot-bubble--four { right: 11%; bottom: 12%; width: 9px; height: 9px; animation-delay: -.25s; }
+.brand-boot-bubble--five { left: 25%; top: 32%; width: 6px; height: 6px; animation-delay: -1.3s; }
+.brand-boot-bubble--six { right: 24%; top: 34%; width: 8px; height: 8px; animation-delay: -.7s; }
+.brand-boot-bubble--seven { left: 32%; top: 13%; width: 6px; height: 6px; animation-delay: -.35s; }
+.brand-boot-clothes { z-index: 4; }
+.brand-boot-garment {
+  position: absolute; display: block; width: clamp(30px, 8%, 52px); height: auto;
+  aspect-ratio: 1; opacity: 0;
+  filter: drop-shadow(0 0 9px rgba(61,207,255,.65));
+}
+.brand-boot-garment svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.brand-boot-garment path {
+  fill: #08b9e9; stroke: #b8f2ff; stroke-width: 2.1; stroke-linejoin: round; stroke-linecap: round;
+}
+.brand-boot-garment--shirt {
+  top: 9%; left: 6%;
+  animation: brandBootFlyTopLeft .92s cubic-bezier(.18,.89,.32,1.22) .04s both,
+             brandBootDriftTopLeft 1.9s ease-in-out .96s infinite;
+}
+.brand-boot-garment--sock {
+  top: 10%; right: 7%; width: clamp(28px, 7%, 45px); aspect-ratio: .9;
+  animation: brandBootFlyTopRight .92s cubic-bezier(.18,.89,.32,1.22) .12s both,
+             brandBootDriftTopRight 2.1s ease-in-out 1.04s infinite;
+}
+.brand-boot-garment--pants {
+  right: 4%; bottom: 14%; width: clamp(28px, 7%, 47px); aspect-ratio: .85;
+  animation: brandBootFlyBottomRight .92s cubic-bezier(.18,.89,.32,1.22) .2s both,
+             brandBootDriftBottomRight 2s ease-in-out 1.12s infinite;
+}
+.brand-boot-garment--coat {
+  left: 4%; bottom: 14%; width: clamp(30px, 8%, 50px); aspect-ratio: .94;
+  animation: brandBootFlyBottomLeft .92s cubic-bezier(.18,.89,.32,1.22) .28s both,
+             brandBootDriftBottomLeft 2.15s ease-in-out 1.2s infinite;
+}
+.brand-boot-name { font-size: clamp(18px, 3vw, 20px); font-weight: 800; letter-spacing: .04em; }
+.brand-boot-message { margin-top: 8px; font-size: 14px; color: rgba(255,255,255,.76); }
+.brand-boot-progress {
+  width: 176px; height: 4px; margin-top: 22px; overflow: hidden;
+  border-radius: 99px; background: rgba(255,255,255,.18);
+}
+.brand-boot-progress span {
+  display: block; width: 38%; height: 100%; border-radius: inherit;
+  background: #78e9ff; box-shadow: 0 0 14px rgba(85,220,255,.8);
+  animation: brandBootSweep .95s ease-in-out infinite;
+}
+@keyframes brandBootFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes brandBootFadeOut { to { opacity: 0; visibility: hidden; } }
+@keyframes brandBootRise { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes brandBootOrbit {
+  from { transform: translateX(-50%) rotate(0deg); }
+  to { transform: translateX(-50%) rotate(360deg); }
+}
+@keyframes brandBootFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes brandBootSweep { from { transform: translateX(-120%); } to { transform: translateX(300%); } }
+@keyframes brandBootOrb { from { transform: translate3d(-10px,0,0) scale(.96); } to { transform: translate3d(18px,16px,0) scale(1.06); } }
+@keyframes brandBootBubbleRise { 0% { transform: translateY(18px) scale(.35); opacity: 0; } 18% { opacity: .88; } 78% { opacity: .7; } 100% { transform: translateY(-112px) scale(1.15); opacity: 0; } }
+@keyframes brandBootFlyTopLeft { 0% { opacity: 0; transform: translate(-78px,-64px) rotate(-45deg) scale(.22); } 72% { opacity: 1; transform: translate(5px,3px) rotate(2deg) scale(1.12); } 100% { opacity: 1; transform: translate(0,0) rotate(-13deg) scale(1); } }
+@keyframes brandBootFlyTopRight { 0% { opacity: 0; transform: translate(82px,-58px) rotate(55deg) scale(.2); } 72% { opacity: 1; transform: translate(-5px,2px) rotate(-2deg) scale(1.12); } 100% { opacity: 1; transform: translate(0,0) rotate(13deg) scale(1); } }
+@keyframes brandBootFlyBottomRight { 0% { opacity: 0; transform: translate(78px,70px) rotate(44deg) scale(.2); } 72% { opacity: 1; transform: translate(-4px,-3px) rotate(-3deg) scale(1.1); } 100% { opacity: 1; transform: translate(0,0) rotate(12deg) scale(1); } }
+@keyframes brandBootFlyBottomLeft { 0% { opacity: 0; transform: translate(-78px,70px) rotate(-45deg) scale(.2); } 72% { opacity: 1; transform: translate(5px,-2px) rotate(2deg) scale(1.12); } 100% { opacity: 1; transform: translate(0,0) rotate(-12deg) scale(1); } }
+@keyframes brandBootDriftTopLeft { 0%,100% { transform: rotate(-13deg) translateY(0); } 50% { transform: rotate(-7deg) translateY(-6px); } }
+@keyframes brandBootDriftTopRight { 0%,100% { transform: rotate(13deg) translateY(0); } 50% { transform: rotate(7deg) translateY(-5px); } }
+@keyframes brandBootDriftBottomRight { 0%,100% { transform: rotate(12deg) translateY(0); } 50% { transform: rotate(6deg) translateY(6px); } }
+@keyframes brandBootDriftBottomLeft { 0%,100% { transform: rotate(-12deg) translateY(0); } 50% { transform: rotate(-6deg) translateY(5px); } }
+@media (prefers-reduced-motion: reduce) {
+  .brand-boot-overlay, .brand-boot-card, .brand-boot-overlay::before, .brand-boot-overlay::after,
+  .brand-boot-orbit, .brand-boot-mark .logo, .brand-boot-garment,
+  .brand-boot-bubble, .brand-boot-progress span {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+  }
+  .brand-boot-garment { animation-delay: 0s !important; }
+}
+
 @media (max-width: 860px) {
   .login-wrap { grid-template-columns: 1fr; }
   .login-art { display:none; }
@@ -325,6 +485,7 @@ table.tbl { width:100%; border-collapse: collapse; }
 }
 .badge.pending  { background:#fef3c7; color:#92400e; }
 .badge.washing  { background:#dbeafe; color:#1e40af; }
+.badge.press    { background:#fce7f3; color:#9d174d; }
 .badge.ready    { background:#d1fae5; color:#065f46; }
 .badge.delivered{ background:#e0e7ff; color:#3730a3; }
 .badge.cancelled{ background:#fee2e2; color:#991b1b; }
