@@ -1,4 +1,54 @@
 /* ===================== LOGIN PAGE ===================== */
+function showBrandBootOverlay() {
+  const s = DB.settings();
+  const overlay = document.createElement('div');
+  overlay.id = 'brandBootOverlay';
+  overlay.className = 'brand-boot-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  overlay.innerHTML = `
+    <div class="brand-boot-card${s.logoImage === 'assets/img/logo.jpeg' ? ' brand-boot-card--default-logo' : ''}">
+      <div class="brand-boot-stage" aria-hidden="true">
+        <div class="brand-boot-orbit"></div>
+        <div class="brand-boot-bubbles">
+          <span class="brand-boot-bubble brand-boot-bubble--one"></span>
+          <span class="brand-boot-bubble brand-boot-bubble--two"></span>
+          <span class="brand-boot-bubble brand-boot-bubble--three"></span>
+          <span class="brand-boot-bubble brand-boot-bubble--four"></span>
+          <span class="brand-boot-bubble brand-boot-bubble--five"></span>
+          <span class="brand-boot-bubble brand-boot-bubble--six"></span>
+          <span class="brand-boot-bubble brand-boot-bubble--seven"></span>
+        </div>
+        <div class="brand-boot-mark">${brandLogoHTML(320)}</div>
+        <div class="brand-boot-clothes">
+          <span class="brand-boot-garment brand-boot-garment--shirt">
+            <svg viewBox="0 0 64 64"><path d="M21 8 32 14 43 8 57 18 49 31 43 27 43 57H21V27l-6 4-8-13L21 8Z"/></svg>
+          </span>
+          <span class="brand-boot-garment brand-boot-garment--sock">
+            <svg viewBox="0 0 64 64"><path d="M22 7h21v26l12 8v10H22c-10 0-12-12-4-17l6-4-2-23Z"/></svg>
+          </span>
+          <span class="brand-boot-garment brand-boot-garment--pants">
+            <svg viewBox="0 0 64 64"><path d="M16 8h32l-3 22-4 26H29l-2-20-3 20H12L9 30 7 8h9Z"/></svg>
+          </span>
+          <span class="brand-boot-garment brand-boot-garment--coat">
+            <svg viewBox="0 0 64 64"><path d="M22 8h20l12 10 4 18-9 3-4-12v29H19V27l-4 12-9-3 4-18L22 8Z"/></svg>
+          </span>
+        </div>
+      </div>
+      <div class="brand-boot-name">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
+      <div class="brand-boot-message">${escapeHtml(t('login.bootMessage'))}</div>
+      <div class="brand-boot-progress" aria-hidden="true"><span></span></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function hideBrandBootOverlay(overlay) {
+  if (!overlay || !overlay.isConnected) return;
+  overlay.classList.add('is-leaving');
+  window.setTimeout(() => overlay.remove(), 320);
+}
+
 function renderLogin() {
   const s = DB.settings();
   const logoHtml = s.logoImage
@@ -54,6 +104,14 @@ function renderLogin() {
     const u = DB.login(f.get('username').trim(), f.get('password'));
     if (!u) { toast(t('login.invalid'), 'error'); return; }
     toast(`Welcome, ${u.name}!`, 'success');
-    app.go(u.role === 'admin' ? 'dashboard' : 'pos');
+    const submitButton = e.currentTarget.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    const overlay = showBrandBootOverlay();
+    try {
+      app.go(u.role === 'admin' ? 'dashboard' : 'pos');
+    } finally {
+      // Keep the animated brand screen visible while the destination page paints.
+      window.setTimeout(() => hideBrandBootOverlay(overlay), 1450);
+    }
   };
 }

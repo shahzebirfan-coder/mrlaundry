@@ -56,7 +56,7 @@ function renderDashboard() {
   const monthProfit  = monthReceived - monthExp;
 
   // === PIPELINE ===
-  const pending = orders.filter(o => ['pending','washing','ready'].includes(o.status)).length;
+  const pending = orders.filter(o => ['pending','washing','press','ready'].includes(o.status)).length;
 
   // === LAST 7 DAYS CHART ===
   const last7 = [];
@@ -201,7 +201,7 @@ function renderDashboard() {
           <div style="font-size:26px;">⏳</div>
           <div>
             <div style="font-weight:700;font-size:14px;color:#3730a3;">${pending} order${pending>1?'s':''} in progress</div>
-            <div style="font-size:12px;color:#6366f1;">Click to view pending / washing / ready orders</div>
+            <div style="font-size:12px;color:#6366f1;">Click to view pending / washing / press / ready orders</div>
           </div>
         </div>
         <div style="font-weight:700;color:#4f7cff;font-size:13px;">View All -></div>

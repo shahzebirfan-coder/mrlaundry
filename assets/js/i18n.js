@@ -99,6 +99,7 @@ const TRANSLATIONS = {
   // Order statuses
   'status.pending':      { en: 'Pending',     ur: 'زیرِ التواء',  rmn: 'Pending' },
   'status.washing':      { en: 'Washing',     ur: 'دھلائی میں',  rmn: 'Dho Rahe Hain' },
+  'status.press':        { en: 'Press',       ur: 'استری',        rmn: 'Press / Istri' },
   'status.ready':        { en: 'Ready',       ur: 'تیار',         rmn: 'Tayyar' },
   'status.delivered':    { en: 'Delivered',   ur: 'ڈیلیور ہو گیا', rmn: 'Deliver Ho Gaya' },
   'status.cancelled':    { en: 'Cancelled',   ur: 'منسوخ',        rmn: 'Cancel' },
@@ -119,6 +120,7 @@ const TRANSLATIONS = {
   'login.password':      { en: 'Password',        ur: 'پاس ورڈ',                     rmn: 'Password' },
   'login.invalid':       { en: 'Invalid username or password', ur: 'یوزر نیم یا پاس ورڈ غلط ہے', rmn: 'Galat username ya password' },
   'login.forgot':        { en: 'Forgot Password?',          ur: 'پاس ورڈ بھول گئے؟',          rmn: 'Password Bhool Gaye?' },
+  'login.bootMessage':   { en: 'Getting your dashboard ready…', ur: 'آپ کا ڈیش بورڈ تیار کیا جا رہا ہے…', rmn: 'Aap ka dashboard tayyar ho raha hai…' },
 
   // Language picker
   'lang.title':          { en: 'Choose Language',           ur: 'زبان منتخب کریں',           rmn: 'Zubaan Chunein' },

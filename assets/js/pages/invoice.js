@@ -205,6 +205,7 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
         <tr><td>Subtotal:</td><td style="text-align:right;">${fmtMoney(o.subtotal)}</td></tr>
         ${discountLines}
         ${o.tax>0?`<tr><td>Tax:</td><td style="text-align:right;">${fmtMoney(o.tax)}</td></tr>`:''}
+        ${Number(o.pickupDeliveryCharge)>0?`<tr><td>Pick Up &amp; Delivery Charge:</td><td style="text-align:right;">${fmtMoney(o.pickupDeliveryCharge)}</td></tr>`:''}
         <tr><td><b>TOTAL:</b></td><td style="text-align:right;font-size:${fontSize+4}px;"><b>${fmtMoney(o.total)}</b></td></tr>
         <tr><td>Paid:</td><td style="text-align:right;">${fmtMoney(o.paid)}${o.advance>0?` <span style='font-size:10px;color:#0a0;'>(Advance)</span>`:''}</td></tr>
         ${o.due>0?`<tr><td><b>${o.isCredit?'CREDIT (Pay on Delivery):':'Due:'}</b></td><td style="text-align:right;color:#a00;"><b>${fmtMoney(o.due)}</b></td></tr>`:''}
@@ -273,6 +274,7 @@ function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
 
       <div style="border-top:1px dashed #000;margin-top:4px;padding-top:4px;">
         <table style="font-size:${fontSize}px;width:100%;">
+          ${Number(o.pickupDeliveryCharge)>0?`<tr><td>Pick Up &amp; Delivery:</td><td style="text-align:right;">${fmtMoney(o.pickupDeliveryCharge)}</td></tr>`:''}
           <tr><td>Total:</td><td style="text-align:right;"><b>${fmtMoney(o.total)}</b></td></tr>
           <tr><td>Paid:</td><td style="text-align:right;">${fmtMoney(o.paid)}</td></tr>
           ${o.due>0
@@ -308,6 +310,7 @@ function sendWhatsAppInvoice(o, c, s, invoiceNo, totalPcs, delTypeInfo) {
 
 Invoice: {invoice}
 Total Pcs: {pcs}
+Pick Up & Delivery Charge: {pickupDeliveryCharge}
 Amount: {total}
 Paid: {paid}
 Due: {due}
@@ -323,6 +326,7 @@ Delivery: {delivery} ({type})
     '{items}':    itemsText,
     '{subtotal}': fmtMoney(o.subtotal),
     '{discount}': fmtMoney(o.discount || 0),
+    '{pickupDeliveryCharge}': fmtMoney(o.pickupDeliveryCharge || 0),
     '{total}':    fmtMoney(o.total),
     '{paid}':     fmtMoney(o.paid),
     '{due}':      fmtMoney(o.due),
@@ -335,6 +339,9 @@ Delivery: {delivery} ({type})
 
   let msg = template;
   Object.entries(vars).forEach(([k,v]) => { msg = msg.split(k).join(v); });
+  if (Number(o.pickupDeliveryCharge) > 0 && !template.includes('{pickupDeliveryCharge}') && !/Pick Up & Delivery Charge/i.test(template)) {
+    msg = `${msg.trim()}\n\nPick Up & Delivery Charge: ${fmtMoney(o.pickupDeliveryCharge)}`;
+  }
 
   // Open preview dialog so user can edit before sending
   openModal(`
@@ -458,7 +465,7 @@ function openInvoiceCustomizer(reopenOrderId) {
       <div class="field">
         <label>📱 WhatsApp Message Template</label>
         <textarea id="cfWaTpl" rows="8" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:12px;">${escapeHtml(s.whatsappTemplate||'')}</textarea>
-        <small style="color:var(--text-soft);">Variables: {name} {shop} {invoice} {pcs} {items} {subtotal} {discount} {total} {paid} {due} {delivery} {type} {phone} {address} {footer}</small>
+        <small style="color:var(--text-soft);">Variables: {name} {shop} {invoice} {pcs} {items} {subtotal} {discount} {pickupDeliveryCharge} {total} {paid} {due} {delivery} {type} {phone} {address} {footer}</small>
       </div>
     </div>
 

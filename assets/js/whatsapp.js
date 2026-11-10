@@ -14,6 +14,11 @@ const WA_STATUS_TEMPLATES = {
     icon: '🌀',
     template: `Hello {name}, your clothes are now being washed 🌀\n\nInvoice: {invoice}\nExpected Delivery: {delivery}\n\nThank you,\n{shop}`
   },
+  press: {
+    label: 'Press',
+    icon: '♨️',
+    template: `Hello {name}, your order is now in the pressing and ironing stage ♨️\n\nInvoice: {invoice}\nExpected Delivery: {delivery}\n\nThank you,\n{shop}`
+  },
   ready: {
     label: 'Ready for Pickup',
     icon: '✅',

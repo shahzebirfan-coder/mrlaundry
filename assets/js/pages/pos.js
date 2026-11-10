@@ -5,7 +5,8 @@ let posState = {
   discountType: 'fixed',   // 'fixed' or 'percent'
   discountValue: 0,
   activeCategory: 'all',
-  search: ''
+  search: '',
+  pickupDeliveryCharge: 0
 };
 
 function renderPOS() {
@@ -44,7 +45,7 @@ function renderPOS() {
   renderCart();
 
   $('#posSearch').oninput = (e) => { posState.search = e.target.value; renderPosGrid(); };
-  $('#clearCart').onclick = () => { posState.cart = []; posState.discountValue = 0; renderCart(); };
+  $('#clearCart').onclick = () => { posState.cart = []; posState.discountValue = 0; posState.pickupDeliveryCharge = 0; renderCart(); };
   $('#chooseCustBtn').onclick = openCustomerPicker;
 
   // Mobile: tap cart header to collapse/expand
@@ -415,6 +416,14 @@ function openBookingForm() {
       </div>
     </div>
 
+    <div class="form-row cols-1" style="margin-top:10px;">
+      <div class="field">
+        <label>🚚 Pick Up &amp; Delivery Charges (optional)</label>
+        <input type="number" id="bPickupDeliveryCharge" value="${Math.max(0, Number(posState.pickupDeliveryCharge)||0)}" min="0" step="1" placeholder="0"/>
+        <small style="color:var(--text-soft);">Added after item discounts; this charge is not discounted or taxed.</small>
+      </div>
+    </div>
+
     <div class="form-row cols-1">
       <div class="field">
         <label>Notes (optional)</label>
@@ -423,13 +432,7 @@ function openBookingForm() {
     </div>
 
     <!-- Total summary -->
-    <div style="background:var(--primary-light);padding:14px;border-radius:10px;margin-bottom:14px;">
-      <div style="display:flex;justify-content:space-between;font-size:13px;"><span>Subtotal</span><span>${fmtMoney(tot.subtotal)}</span></div>
-      ${tot.manualDiscount>0?`<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--danger);"><span>Manual Discount</span><span>− ${fmtMoney(tot.manualDiscount)}</span></div>`:''}
-      ${tot.loyaltyDiscount>0?`<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--success);"><span>⭐ Loyalty Discount</span><span>− ${fmtMoney(tot.loyaltyDiscount)}</span></div>`:''}
-      ${tot.tax>0?`<div style="display:flex;justify-content:space-between;font-size:13px;"><span>Tax</span><span>${fmtMoney(tot.tax)}</span></div>`:''}
-      <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:800;color:var(--primary);margin-top:6px;border-top:1px dashed rgba(0,0,0,.1);padding-top:6px;"><span>TOTAL</span><span>${fmtMoney(tot.total)}</span></div>
-    </div>
+    <div id="bookingTotals" style="background:var(--primary-light);padding:14px;border-radius:10px;margin-bottom:14px;"></div>
 
     <div class="modal-footer">
       <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
@@ -437,6 +440,23 @@ function openBookingForm() {
     </div>
   `;
   openModal(html, { large: true, onOpen(m) {
+    const chargeInput = $('#bPickupDeliveryCharge', m);
+    const renderBookingTotals = () => {
+      const charge = Math.max(0, Math.round(Number(chargeInput.value) || 0));
+      posState.pickupDeliveryCharge = charge;
+      const total = tot.total + charge;
+      $('#bookingTotals', m).innerHTML = `
+        <div style="display:flex;justify-content:space-between;font-size:13px;"><span>Subtotal</span><span>${fmtMoney(tot.subtotal)}</span></div>
+        ${tot.manualDiscount>0?`<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--danger);"><span>Manual Discount</span><span>− ${fmtMoney(tot.manualDiscount)}</span></div>`:''}
+        ${tot.loyaltyDiscount>0?`<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--success);"><span>⭐ Loyalty Discount</span><span>− ${fmtMoney(tot.loyaltyDiscount)}</span></div>`:''}
+        ${tot.tax>0?`<div style="display:flex;justify-content:space-between;font-size:13px;"><span>Item Tax</span><span>${fmtMoney(tot.tax)}</span></div>`:''}
+        ${charge>0?`<div style="display:flex;justify-content:space-between;font-size:13px;"><span>Pick Up &amp; Delivery Charge</span><span>${fmtMoney(charge)}</span></div>`:''}
+        <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:800;color:var(--primary);margin-top:6px;border-top:1px dashed rgba(0,0,0,.1);padding-top:6px;"><span>TOTAL</span><span>${fmtMoney(total)}</span></div>
+      `;
+    };
+    chargeInput.oninput = renderBookingTotals;
+    renderBookingTotals();
+
     // ===== CUSTOMER AUTO-SUGGEST =====
     const phoneInp = $('#bCustPhone', m);
     const nameInp  = $('#bCustName', m);
@@ -571,7 +591,7 @@ function openBookingForm() {
       $('#bLoyaltyActive', m).checked = true;
       toast('Loyalty number generated','success');
     };
-    $('#cancelBtn', m).onclick = closeModal;
+    $('#cancelBtn', m).onclick = () => { posState.pickupDeliveryCharge = 0; closeModal(); };
     $('#nextBtn', m).onclick = () => {
       const name = $('#bCustName', m).value.trim();
       const phone = $('#bCustPhone', m).value.trim();
@@ -596,6 +616,7 @@ function openBookingForm() {
         deliveryDate: $('#bDeliveryDate', m).value,
         deliveryType: deliveryTypeEl ? deliveryTypeEl.value : 'hanger',
         notes: $('#bNotes', m).value.trim(),
+        pickupDeliveryCharge: Math.max(0, Math.round(Number($('#bPickupDeliveryCharge', m).value) || 0)),
         bookingDate: bookingDateIso
       };
       closeModal();
@@ -607,11 +628,14 @@ function openBookingForm() {
 /* ===== PAYMENT (Step 2) ===== */
 function openPaymentDialog(orderMeta) {
   const tot = calcCartTotals();
+  const pickupDeliveryCharge = Math.max(0, Math.round(Number(orderMeta.pickupDeliveryCharge) || 0));
+  const grandTotal = tot.total + pickupDeliveryCharge;
   const cust = DB.get('customers', posState.customerId);
 
   const html = `
     <h3>💳 Payment</h3>
     <p class="sub">Customer: <b>${escapeHtml(cust.name)}</b> • ${escapeHtml(cust.phone||'')}</p>
+    ${pickupDeliveryCharge>0?`<div style="background:var(--surface-alt);padding:9px 12px;border-radius:8px;margin-bottom:12px;font-size:13px;">🚚 Pick Up &amp; Delivery Charge: <b>${fmtMoney(pickupDeliveryCharge)}</b> <small style="color:var(--text-soft);">(added after discounts)</small></div>`:''}
 
     <!-- Payment type tabs -->
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;">
@@ -628,7 +652,7 @@ function openPaymentDialog(orderMeta) {
         <button class="btn btn-secondary btn-sm" data-adv="200">Rs. 200</button>
         <button class="btn btn-secondary btn-sm" data-adv="500">Rs. 500</button>
         <button class="btn btn-secondary btn-sm" data-adv="1000">Rs. 1000</button>
-        <button class="btn btn-secondary btn-sm" data-adv="half">50% (${fmtMoney(Math.round(tot.total/2))})</button>
+        <button class="btn btn-secondary btn-sm" data-adv="half">50% (${fmtMoney(Math.round(grandTotal/2))})</button>
       </div>
     </div>
 
@@ -648,6 +672,7 @@ function openPaymentDialog(orderMeta) {
         <select id="payStatus">
           <option value="pending" selected>⏳ Pending</option>
           <option value="washing">🌀 Washing</option>
+          <option value="press">♨️ Press</option>
           <option value="ready">✅ Ready</option>
           <option value="delivered">📦 Delivered</option>
         </select>
@@ -657,11 +682,11 @@ function openPaymentDialog(orderMeta) {
     <div class="form-row">
       <div class="field">
         <label>Total Amount</label>
-        <input type="text" value="${fmtMoney(tot.total)}" readonly style="font-weight:700;font-size:16px;background:var(--primary-light);"/>
+        <input type="text" value="${fmtMoney(grandTotal)}" readonly style="font-weight:700;font-size:16px;background:var(--primary-light);"/>
       </div>
       <div class="field">
         <label id="paidLbl">Amount Received Now</label>
-        <input type="number" id="paidInput" value="${tot.total}" min="0"/>
+        <input type="number" id="paidInput" value="${grandTotal}" min="0"/>
       </div>
     </div>
 
@@ -680,9 +705,9 @@ function openPaymentDialog(orderMeta) {
       tb.classList.add('active');
       currentType = tb.dataset.type;
       $('#advanceHelper', m).style.display = currentType === 'advance' ? 'block' : 'none';
-      if (currentType === 'paid')    { $('#paidInput', m).value = tot.total; $('#payMethod', m).value = 'cash'; $('#paidLbl', m).textContent = 'Amount Received'; }
-      if (currentType === 'advance') { $('#paidInput', m).value = Math.min(tot.total, 200); $('#payMethod', m).value = 'cash'; $('#paidLbl', m).textContent = '🟢 Advance Amount'; }
-      if (currentType === 'partial') { $('#paidInput', m).value = Math.round(tot.total/2); $('#payMethod', m).value = 'cash'; $('#paidLbl', m).textContent = '🟡 Partial Amount'; }
+      if (currentType === 'paid')    { $('#paidInput', m).value = grandTotal; $('#payMethod', m).value = 'cash'; $('#paidLbl', m).textContent = 'Amount Received'; }
+      if (currentType === 'advance') { $('#paidInput', m).value = Math.min(grandTotal, 200); $('#payMethod', m).value = 'cash'; $('#paidLbl', m).textContent = '🟢 Advance Amount'; }
+      if (currentType === 'partial') { $('#paidInput', m).value = Math.round(grandTotal/2); $('#payMethod', m).value = 'cash'; $('#paidLbl', m).textContent = '🟡 Partial Amount'; }
       if (currentType === 'credit')  { $('#paidInput', m).value = 0; $('#payMethod', m).value = 'credit'; $('#paidLbl', m).textContent = 'Amount Received (0 = Credit)'; }
       updateDue();
     });
@@ -690,16 +715,16 @@ function openPaymentDialog(orderMeta) {
     // Advance quick buttons
     $$('[data-adv]', m).forEach(b => b.onclick = () => {
       const v = b.dataset.adv;
-      if (v === 'half') $('#paidInput', m).value = Math.round(tot.total/2);
-      else $('#paidInput', m).value = Math.min(tot.total, +v);
+      if (v === 'half') $('#paidInput', m).value = Math.round(grandTotal/2);
+      else $('#paidInput', m).value = Math.min(grandTotal, +v);
       updateDue();
     });
 
     const updateDue = () => {
       const paid = Math.max(0, +$('#paidInput', m).value || 0);
-      const due = tot.total - paid;
+      const due = grandTotal - paid;
       let html;
-      if (paid <= 0)                          html = `<span style="color:var(--warning);">📋 Credit Sale — Customer will pay ${fmtMoney(tot.total)} on delivery</span>`;
+      if (paid <= 0)                          html = `<span style="color:var(--warning);">📋 Credit Sale — Customer will pay ${fmtMoney(grandTotal)} on delivery</span>`;
       else if (currentType === 'advance' && due > 0) html = `🟢 Advance Received: <b style="color:var(--success);">${fmtMoney(paid)}</b> • Balance on delivery: <b style="color:var(--danger);">${fmtMoney(due)}</b>`;
       else if (due > 0)                       html = `Due Amount: <span style="color:var(--danger);">${fmtMoney(due)}</span>`;
       else if (due < 0)                       html = `Change to Return: <span style="color:var(--success);">${fmtMoney(Math.abs(due))}</span>`;
@@ -713,8 +738,8 @@ function openPaymentDialog(orderMeta) {
 
     $('#confirmBtn', m).onclick = async () => {
       const paid = Math.max(0, +$('#paidInput', m).value || 0);
-      const actualPaid = Math.min(tot.total, paid);
-      const due = Math.max(0, tot.total - actualPaid);
+      const actualPaid = Math.min(grandTotal, paid);
+      const due = Math.max(0, grandTotal - actualPaid);
       const paymentMethod = $('#payMethod', m).value;
       const cashier = DB.currentUser() || {};
       const payAt = new Date().toISOString();
@@ -733,7 +758,7 @@ function openPaymentDialog(orderMeta) {
       // Determine paymentType label
       let paymentType = 'paid';
       if (actualPaid === 0) paymentType = 'credit';
-      else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
+      else if (actualPaid < grandTotal) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
 
       const order = {
         invoiceNo,
@@ -747,7 +772,9 @@ function openPaymentDialog(orderMeta) {
         discountType: posState.discountType,
         discountValue: posState.discountValue,
         tax: tot.tax,
-        total: tot.total,
+        taxPercent: tot.taxPercent,
+        pickupDeliveryCharge,
+        total: grandTotal,
         paid: actualPaid,
         due,
         advance: paymentType === 'advance' ? actualPaid : 0,
@@ -784,7 +811,7 @@ function openPaymentDialog(orderMeta) {
           if (typeof showLowStockAlert === 'function' && alerts.length) showLowStockAlert(alerts);
         } catch(e) { console.warn('Inventory auto-deduct failed:', e); }
       }
-      posState.cart = []; posState.discountValue = 0; posState.customerId = 'cu1';
+      posState.cart = []; posState.discountValue = 0; posState.pickupDeliveryCharge = 0; posState.customerId = 'cu1';
       closeModal();
       toast('Order booked successfully!', 'success');
       openInvoice(saved.id);

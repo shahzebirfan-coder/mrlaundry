@@ -72,6 +72,7 @@ function renderOrders() {
           <option value="all">${t('ord.allStatus')}</option>
           <option value="pending">⏳ ${t('status.pending')}</option>
           <option value="washing">🌀 ${t('status.washing')}</option>
+          <option value="press">♨️ ${t('status.press')}</option>
           <option value="ready">✅ ${t('status.ready')}</option>
           <option value="delivered">📦 ${t('status.delivered')}</option>
           <option value="cancelled">❌ ${t('status.cancelled')}</option>
@@ -261,6 +262,7 @@ function openStatusChange(orderId) {
         <select id="newStatus">
           <option value="pending"   ${o.status==='pending'?'selected':''}>⏳ Pending</option>
           <option value="washing"   ${o.status==='washing'?'selected':''}>🌀 Washing</option>
+          <option value="press"     ${o.status==='press'?'selected':''}>♨️ Press</option>
           <option value="ready"     ${o.status==='ready'?'selected':''}>✅ Ready for Pickup</option>
           <option value="delivered" ${o.status==='delivered'?'selected':''}>📦 Delivered</option>
           <option value="cancelled" ${o.status==='cancelled'?'selected':''}>❌ Cancelled</option>
@@ -314,6 +316,19 @@ function openEditInvoice(orderId) {
   const o = DB.get('orders', orderId);
   if (!o) return;
   const c = DB.get('customers', o.customerId) || {};
+  const originalSubtotal = Number(o.subtotal) || 0;
+  const originalManualDiscount = Number(o.manualDiscount != null ? o.manualDiscount : o.discount) || 0;
+  const originalLoyaltyDiscount = Number(o.loyaltyDiscount) || 0;
+  const originalDiscount = Number(o.discount != null ? o.discount : (originalManualDiscount + originalLoyaltyDiscount)) || 0;
+  const originalTaxable = Math.max(0, originalSubtotal - originalDiscount);
+  const savedLoyaltyPercent = o.loyaltyPercent != null && Number.isFinite(Number(o.loyaltyPercent))
+    ? Number(o.loyaltyPercent)
+    : (originalLoyaltyDiscount > 0 && originalSubtotal > originalManualDiscount
+        ? (originalLoyaltyDiscount / (originalSubtotal - originalManualDiscount)) * 100
+        : 0);
+  const editTaxPercent = o.taxPercent != null && Number.isFinite(Number(o.taxPercent))
+    ? Number(o.taxPercent)
+    : (originalTaxable > 0 ? ((Number(o.tax) || 0) / originalTaxable) * 100 : (Number(DB.settings().taxPercent) || 0));
 
   const itemsHtml = (items) => items.map((it,i) => `
     <tr data-i="${i}">
@@ -361,7 +376,14 @@ function openEditInvoice(orderId) {
       </div>
       <div class="field">
         <label>Discount Value</label>
-        <input type="number" id="eDiscVal" value="${o.discountValue||0}" min="0"/>
+        <input type="number" id="eDiscVal" value="${o.discountValue || originalManualDiscount || 0}" min="0"/>
+      </div>
+    </div>
+    <div class="form-row cols-1">
+      <div class="field">
+        <label>Pick Up &amp; Delivery Charge</label>
+        <input type="number" id="ePickupDeliveryCharge" value="${Math.max(0, Number(o.pickupDeliveryCharge)||0)}" min="0" step="1"/>
+        <small style="color:var(--text-soft);">Added after discounts; not discounted or taxable.</small>
       </div>
     </div>
     <div class="form-row">
@@ -372,7 +394,7 @@ function openEditInvoice(orderId) {
       <div class="field">
         <label>Status</label>
         <select id="eStatus">
-          ${['pending','washing','ready','delivered','cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}
+          ${['pending','washing','press','ready','delivered','cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -408,14 +430,22 @@ function openEditInvoice(orderId) {
         subtotal += line;
       });
       const discType = $('#eDiscType', m).value;
-      const discVal = +$('#eDiscVal', m).value || 0;
-      const disc = discType === 'percent' ? Math.round(subtotal * discVal / 100) : discVal;
-      const total = Math.max(0, subtotal - disc);
-      const paid = Math.min(total, +$('#ePaid', m).value || 0);
-      const due = total - paid;
+      const discVal = Math.max(0, +$('#eDiscVal', m).value || 0);
+      const manualDiscount = Math.min(subtotal, Math.max(0, discType === 'percent' ? Math.round(subtotal * discVal / 100) : discVal));
+      const loyaltyDiscount = Math.min(Math.max(0, subtotal - manualDiscount), Math.max(0, Math.round((subtotal - manualDiscount) * savedLoyaltyPercent / 100)));
+      const discount = manualDiscount + loyaltyDiscount;
+      const taxable = Math.max(0, subtotal - discount);
+      const tax = Math.round(taxable * editTaxPercent / 100);
+      const pickupDeliveryCharge = Math.max(0, Math.round(+$('#ePickupDeliveryCharge', m).value || 0));
+      const total = taxable + tax + pickupDeliveryCharge;
+      const paid = Math.max(0, Math.min(total, +$('#ePaid', m).value || 0));
+      const due = Math.max(0, total - paid);
       $('#eTotals', m).innerHTML = `
         Subtotal: ${fmtMoney(subtotal)} •
-        Discount: − ${fmtMoney(disc)} •
+        Manual discount: − ${fmtMoney(manualDiscount)} •
+        ${loyaltyDiscount>0?`Loyalty: − ${fmtMoney(loyaltyDiscount)} •`:''}
+        ${tax>0?`Item tax: ${fmtMoney(tax)} •`:''}
+        ${pickupDeliveryCharge>0?`Pick Up &amp; Delivery: ${fmtMoney(pickupDeliveryCharge)} •`:''}
         <b>Total: ${fmtMoney(total)}</b> •
         Paid: ${fmtMoney(paid)} •
         ${due>0?`<span style="color:var(--danger);">Due: ${fmtMoney(due)}</span>`:'<span style="color:var(--success);">Paid in Full ✅</span>'}
@@ -444,7 +474,7 @@ function openEditInvoice(orderId) {
       calcAndShow();
     };
 
-    [$('#eDiscType', m), $('#eDiscVal', m), $('#ePaid', m)].forEach(el => el.oninput = calcAndShow);
+    [$('#eDiscType', m), $('#eDiscVal', m), $('#ePickupDeliveryCharge', m), $('#ePaid', m)].forEach(el => el.oninput = calcAndShow);
     $('#eDiscType', m).onchange = calcAndShow;
     calcAndShow();
 
@@ -461,11 +491,17 @@ function openEditInvoice(orderId) {
 
       const subtotal = items.reduce((s,i)=>s+i.lineTotal,0);
       const discType = $('#eDiscType', m).value;
-      const discVal = +$('#eDiscVal', m).value || 0;
-      const disc = discType === 'percent' ? Math.round(subtotal * discVal / 100) : Math.min(subtotal, discVal);
-      const total = Math.max(0, subtotal - disc);
-      const paid = Math.min(total, +$('#ePaid', m).value || 0);
-      const due = total - paid;
+      const discVal = Math.max(0, +$('#eDiscVal', m).value || 0);
+      const manualDiscount = Math.min(subtotal, Math.max(0, discType === 'percent' ? Math.round(subtotal * discVal / 100) : discVal));
+      const loyaltyDiscount = Math.min(Math.max(0, subtotal - manualDiscount), Math.max(0, Math.round((subtotal - manualDiscount) * savedLoyaltyPercent / 100)));
+      const discount = manualDiscount + loyaltyDiscount;
+      const taxable = Math.max(0, subtotal - discount);
+      const tax = Math.round(taxable * editTaxPercent / 100);
+      const pickupDeliveryCharge = Math.max(0, Math.round(+$('#ePickupDeliveryCharge', m).value || 0));
+      const total = taxable + tax + pickupDeliveryCharge;
+      const paid = Math.max(0, Math.min(total, +$('#ePaid', m).value || 0));
+      const due = Math.max(0, total - paid);
+      const paymentType = paid <= 0 ? 'credit' : (paid >= total ? 'paid' : (o.paymentType === 'advance' ? 'advance' : 'partial'));
 
       const editLog = o.editLog || [];
       editLog.push({ by: DB.currentUser().username, at: new Date().toISOString() });
@@ -555,8 +591,10 @@ function openEditInvoice(orderId) {
       DB.update('orders', orderId, {
         customerId: newCustomerId,
         items, subtotal, discountType: discType, discountValue: discVal,
-        discount: disc, manualDiscount: disc, loyaltyDiscount: 0, loyaltyPercent: 0,
-        tax: 0, total, paid, due, isCredit: due > 0,
+        discount, manualDiscount, loyaltyDiscount, loyaltyPercent: savedLoyaltyPercent,
+        tax, taxPercent: editTaxPercent, pickupDeliveryCharge,
+        total, paid, due, isCredit: paid <= 0, paymentType,
+        advance: paymentType === 'advance' ? paid : 0,
         status: $('#eStatus', m).value,
         deliveryDate: $('#eDelivery', m).value,
         paymentMethod: $('#ePayMethod', m).value,
