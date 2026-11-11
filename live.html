@@ -6,40 +6,292 @@
   <title>Mr Laundry — Live Dashboard</title>
   <meta name="theme-color" content="#4f7cff" />
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f7fb;color:#0f172a;min-height:100vh}
-    .wrap{max-width:1280px;margin:0 auto;padding:22px}
-    .top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-    .brand{display:flex;align-items:center;gap:14px}
-    .logo{width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#4f7cff,#6a5cff);display:flex;align-items:center;justify-content:center;font-size:30px;box-shadow:0 12px 28px rgba(79,124,255,.28)}
-    h1{font-size:clamp(24px,4vw,38px);letter-spacing:-.04em;line-height:1.05}
-    .sub{color:#64748b;margin-top:5px;font-size:14px}
-    .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid #dbeafe;background:#eff6ff;color:#1d4ed8;padding:10px 13px;border-radius:999px;font-weight:800;font-size:13px}
-    .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 6px rgba(34,197,94,.15)}
-    .dot.err{background:#ef4444;box-shadow:0 0 0 6px rgba(239,68,68,.14)}
-    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    button{border:0;border-radius:12px;padding:11px 14px;font-weight:900;cursor:pointer;background:#4f7cff;color:#fff;box-shadow:0 10px 20px rgba(79,124,255,.22)}
-    button.secondary{background:#fff;color:#334155;border:1px solid #e2e8f0;box-shadow:none}
-    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
-    .card{background:#fff;border:1px solid #e5eaf2;border-radius:22px;padding:18px;box-shadow:0 16px 45px rgba(15,23,42,.06)}
-    .stat{position:relative;overflow:hidden;min-height:144px;display:flex;flex-direction:column;justify-content:space-between}
-    .stat:after{content:"";position:absolute;right:-35px;top:-35px;width:130px;height:130px;border-radius:50%;background:var(--soft,#eff6ff)}
-    .stat .ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;background:var(--main,#4f7cff);color:#fff;position:relative;z-index:1}
-    .lbl{color:#64748b;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-top:12px}
-    .val{font-size:clamp(26px,3vw,38px);font-weight:950;letter-spacing:-.04em;margin-top:2px;color:var(--main,#4f7cff);position:relative;z-index:1}
-    .hint{font-size:12px;color:#94a3b8;margin-top:4px;position:relative;z-index:1}
-    .blue{--main:#4f7cff;--soft:#dbeafe}.green{--main:#16a34a;--soft:#dcfce7}.orange{--main:#d97706;--soft:#fef3c7}.red{--main:#dc2626;--soft:#fee2e2}.purple{--main:#7c3aed;--soft:#ede9fe}.slate{--main:#334155;--soft:#f1f5f9}
-    .layout{display:grid;grid-template-columns:1.4fr .9fr;gap:16px;margin-bottom:18px}
-    .section-title{font-weight:950;font-size:18px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-    .mini{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:14px}
-    .mini .k{font-size:12px;color:#64748b;font-weight:800;text-transform:uppercase}.mini .v{font-size:23px;font-weight:950;margin-top:4px}
-    table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:.05em;background:#f8fafc}th,td{padding:12px;border-bottom:1px solid #eef2f7}td b{font-weight:950}.right{text-align:right}.badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:900;text-transform:capitalize}.pending{background:#fef3c7;color:#92400e}.washing{background:#dbeafe;color:#1d4ed8}.ready{background:#dcfce7;color:#166534}.delivered{background:#ede9fe;color:#6d28d9}.cancelled{background:#fee2e2;color:#991b1b}.paid{background:#dcfce7;color:#166534}
-    .bars{height:230px;display:flex;align-items:flex-end;gap:10px;padding-top:18px}.bar-wrap{flex:1;text-align:center;min-width:0}.bar{height:165px;display:flex;align-items:flex-end;background:#f8fafc;border-radius:12px 12px 6px 6px;overflow:hidden;border:1px solid #edf2f7}.bar span{display:block;width:100%;min-height:4px;background:linear-gradient(180deg,#4f7cff,#6a5cff);border-radius:12px 12px 0 0}.bar-label{font-size:12px;font-weight:900;margin-top:7px}.bar-val{font-size:11px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .empty{padding:30px;text-align:center;color:#64748b}.loader{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:14px}.spin{width:48px;height:48px;border-radius:50%;border:5px solid #dbeafe;border-top-color:#4f7cff;animation:spin .85s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-    .error{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;padding:14px;border-radius:16px;margin-bottom:14px;line-height:1.5}
-    @media(max-width:1050px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.mini-grid{grid-template-columns:repeat(2,1fr)}}
-    @media(max-width:640px){.wrap{padding:14px}.grid,.mini-grid{grid-template-columns:1fr}.card{border-radius:18px;padding:14px}.top{align-items:flex-start}.actions{width:100%}.actions button,.actions .pill{flex:1;justify-content:center}.table-scroll{overflow-x:auto}table{min-width:680px}.bars{gap:5px}.bar-val{display:none}}
+    :root {
+      color-scheme: light;
+      --ink: #171a2b;
+      --muted: #73798a;
+      --line: #e4e6eb;
+      --paper: #fffefa;
+      --canvas: #eef0f4;
+      --navy: #191d43;
+      --navy-2: #2b315a;
+      --blue-slate: #71869b;
+      --gold: #dfc17e;
+      --coral: #c86d72;
+      --green: #2d9b75;
+      --shadow: 0 16px 42px rgba(27, 34, 56, .09);
+      --shadow-soft: 0 8px 24px rgba(27, 34, 56, .055);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { min-height: 100%; background: var(--canvas); }
+    body {
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      background: radial-gradient(ellipse at 9% 0%, rgba(255,255,255,.9), transparent 34%), var(--canvas);
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font: inherit; }
+    .wrap { width: min(100%, 1510px); margin: 0 auto; padding: 22px clamp(16px, 2.5vw, 38px) 30px; }
+
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+      padding: 15px 18px; margin-bottom: 18px; border-radius: 22px;
+      background: rgba(255,255,255,.9); border: 1px solid rgba(35,42,62,.09);
+      box-shadow: var(--shadow-soft); backdrop-filter: blur(12px);
+    }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand-logo {
+      display: grid; flex: 0 0 54px; width: 54px; height: 54px; place-items: center;
+      overflow: hidden; border-radius: 17px; color: #fff;
+      background: linear-gradient(145deg, #263b66, #131a3e);
+      box-shadow: 0 8px 18px rgba(23,32,69,.2);
+    }
+    .brand-logo img { display: block; width: 100%; height: 100%; padding: 5px; object-fit: contain; }
+    .brand-logo-fallback { display: grid; width: 100%; height: 100%; place-items: center; font-size: 27px; }
+    .brand-copy { min-width: 0; }
+    .brand-kicker { color: #657189; font-size: 9px; font-weight: 850; letter-spacing: .18em; text-transform: uppercase; margin-bottom: 3px; }
+    .brand h1 { color: #171a35; font-size: clamp(20px, 2.5vw, 30px); line-height: 1.08; font-weight: 850; letter-spacing: -.045em; }
+    .brand-sub { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .brand-sub svg { width: 13px; height: 13px; flex: 0 0 auto; fill: none; stroke: #8990a0; stroke-width: 1.8; }
+    .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+    .connection-pill, .clock-chip {
+      display: inline-flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 13px;
+      border: 1px solid #e2e4e9; border-radius: 13px; background: #fff; color: #555d70;
+      font-size: 11px; font-weight: 750; white-space: nowrap;
+    }
+    .connection-pill { border-color: #e8dfc8; background: #fbf8ef; color: #5f5438; }
+    .live-dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: #30a878; box-shadow: 0 0 0 4px rgba(48,168,120,.12); }
+    .clock-chip svg, .refresh-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .clock-date { padding-left: 8px; margin-left: 1px; border-left: 1px solid #e7e8ed; color: #8a8f9d; font-size: 10px; }
+    .refresh-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px;
+      padding: 0 16px; border: 1px solid #1d234b; border-radius: 13px;
+      background: linear-gradient(125deg, #202650, #171b3d); color: #fff; font-weight: 750; font-size: 12px;
+      box-shadow: 0 7px 16px rgba(25,30,68,.18); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease;
+    }
+    .refresh-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 20px rgba(25,30,68,.24); }
+    .refresh-btn:active { transform: translateY(0); }
+
+    .primary-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin-bottom: 14px; }
+    .kpi-card {
+      --accent: #fff;
+      position: relative; isolation: isolate; overflow: hidden; min-height: 198px; padding: 19px;
+      border: 1px solid rgba(34,42,65,.08); border-radius: 22px; box-shadow: var(--shadow);
+      transition: transform .18s ease, box-shadow .18s ease;
+    }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 20px 44px rgba(27,34,56,.13); }
+    .kpi-card::after { content: ""; position: absolute; z-index: -1; width: 174px; height: 174px; right: -65px; top: -78px; border-radius: 50%; background: rgba(255,255,255,.075); }
+    .kpi-orders { color: #fff; --accent: #f1d38d; background: linear-gradient(145deg, #171b3d, #292f58); }
+    .kpi-sales { color: #fff; --accent: #f0d28a; background: linear-gradient(145deg, #6f8296, #536b83); }
+    .kpi-recovery { color: #202238; --accent: #232749; background: linear-gradient(145deg, #fffef9, #f0eee5); }
+    .kpi-expenses { color: #fff; --accent: #f3d99c; background: linear-gradient(145deg, #d17b7e, #bd626a); }
+    .kpi-head { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .kpi-label { font-size: 10px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; opacity: .79; }
+    .kpi-icon { display: grid; flex: 0 0 39px; width: 39px; height: 39px; place-items: center; border-radius: 13px; color: currentColor; background: rgba(255,255,255,.12); }
+    .kpi-recovery .kpi-icon { background: #efede4; color: #25294e; }
+    .kpi-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .kpi-main { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; }
+    .kpi-value { font-size: clamp(25px, 2.8vw, 36px); line-height: 1.05; font-weight: 850; letter-spacing: -.045em; color: var(--accent); white-space: nowrap; }
+    .kpi-value.count { font-size: clamp(35px, 3.5vw, 45px); }
+    .kpi-description { margin-top: 7px; font-size: 11px; line-height: 1.45; opacity: .76; }
+    .kpi-foot { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 15px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,.16); font-size: 10px; opacity: .86; }
+    .kpi-recovery .kpi-foot { border-color: rgba(35,39,73,.12); }
+    .kpi-foot strong { font-size: 11px; font-weight: 850; color: var(--accent); }
+    .kpi-sales .kpi-main { margin-top: 4px; }
+    .collection-ring { display: grid; flex: 0 0 78px; width: 78px; aspect-ratio: 1; place-items: center; border-radius: 50%; background: conic-gradient(var(--gold) var(--progress), rgba(255,255,255,.2) var(--progress)); transform: rotate(-36deg); }
+    .collection-ring::before { content: ""; grid-area: 1 / 1; width: 62px; aspect-ratio: 1; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; background: #60768d; }
+    .collection-ring > div { grid-area: 1 / 1; z-index: 1; display: flex; flex-direction: column; align-items: center; transform: rotate(36deg); color: #fff; }
+    .collection-ring strong { font-size: 15px; line-height: 1.1; }
+    .collection-ring span { font-size: 7px; opacity: .76; text-transform: uppercase; letter-spacing: .08em; }
+    .progress-track { height: 6px; margin-top: 14px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.22); }
+    .kpi-recovery .progress-track { background: rgba(35,39,73,.12); }
+    .progress-track span { display: block; width: var(--progress,0%); height: 100%; border-radius: inherit; background: var(--accent); }
+
+    .quick-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 17px; }
+    .metric-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 13px 15px; border: 1px solid rgba(34,42,65,.08); border-radius: 17px; background: rgba(255,255,255,.88); box-shadow: 0 7px 18px rgba(27,34,56,.04); }
+    .metric-icon { display: grid; flex: 0 0 38px; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: #f0f1f6; color: #4b5577; }
+    .metric-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .metric-copy { min-width: 0; }
+    .metric-label { color: #7b8090; font-size: 9px; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; }
+    .metric-value { margin-top: 3px; color: #20233e; font-size: clamp(17px, 1.8vw, 23px); font-weight: 850; letter-spacing: -.035em; white-space: nowrap; }
+    .metric-caption { margin-top: 2px; color: #989cab; font-size: 9px; }
+    .metric-card.net .metric-icon { background: #e9f4ee; color: #347859; }
+    .metric-card.workflow .metric-icon { background: #f7f0df; color: #876a28; }
+    .metric-card.due .metric-icon { background: #edf1f7; color: #58657b; }
+    .metric-card.outstanding .metric-icon { background: #f5e9e9; color: #a2525b; }
+
+    .insights-grid { display: grid; grid-template-columns: minmax(208px,.78fr) minmax(0,1.72fr) minmax(250px,.96fr); gap: 15px; margin-bottom: 17px; align-items: stretch; }
+    .panel { min-width: 0; padding: 18px; border: 1px solid rgba(34,42,65,.08); border-radius: 21px; background: var(--paper); box-shadow: var(--shadow-soft); }
+    .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+    .panel-title { color: #202238; font-size: 15px; line-height: 1.25; font-weight: 850; letter-spacing: -.025em; }
+    .panel-subtitle { margin-top: 4px; color: #9297a3; font-size: 10px; line-height: 1.4; }
+    .panel-tag { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 9px; border-radius: 99px; background: #f2f3f6; color: #666d7c; font-size: 9px; font-weight: 800; }
+    .panel-tag .live-dot { width: 6px; height: 6px; box-shadow: none; }
+
+    .flow-list { display: grid; gap: 12px; }
+    .flow-row { display: grid; grid-template-columns: 10px minmax(0,1fr) auto; align-items: center; column-gap: 9px; row-gap: 6px; }
+    .flow-dot { width: 9px; height: 31px; border-radius: 99px; background: #c4c8d1; }
+    .flow-dot.pending { background: #d9b870; }.flow-dot.washing { background: #718aa5; }.flow-dot.press { background: #987cc5; }.flow-dot.ready { background: #4b9b79; }
+    .flow-name { color: #33374a; font-size: 11px; font-weight: 780; }
+    .flow-count { color: #73798a; font-size: 10px; font-weight: 750; }
+    .flow-track { grid-column: 2 / 4; height: 4px; overflow: hidden; border-radius: 99px; background: #f0f1f3; }
+    .flow-track span { display: block; width: var(--flow-width,0%); height: 100%; border-radius: inherit; background: #697590; }
+    .flow-row.pending .flow-track span { background: #d0ae5f; }.flow-row.washing .flow-track span { background: #718aa5; }.flow-row.press .flow-track span { background: #9275c0; }.flow-row.ready .flow-track span { background: #4b9b79; }
+    .flow-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #efeff1; color: #8b909c; font-size: 9px; }
+    .flow-footer strong { color: #282c44; font-size: 11px; }
+
+    .chart-panel { color: #fff; border-color: rgba(29,44,68,.2); background: linear-gradient(145deg, #203954, #657c94); box-shadow: 0 15px 34px rgba(41,64,91,.17); }
+    .chart-panel .panel-title { color: #fff; }.chart-panel .panel-subtitle { color: rgba(255,255,255,.6); }
+    .chart-panel .panel-tag { color: #f1dda9; background: rgba(255,255,255,.1); }
+    .chart-total { margin: 2px 0 -2px; color: #f4d992; font-size: 24px; font-weight: 850; letter-spacing: -.04em; }
+    .chart-total-caption { color: rgba(255,255,255,.62); font-size: 9px; }
+    .sales-chart { display: block; width: 100%; height: auto; margin-top: 7px; overflow: visible; }
+    .sales-chart .chart-gridline { stroke: rgba(255,255,255,.12); stroke-width: 1; }
+    .sales-chart .chart-area { fill: url(#liveChartFill); }
+    .sales-chart .chart-line { fill: none; stroke: url(#liveChartLine); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .sales-chart .chart-point { fill: #f7d990; stroke: #fff; stroke-width: 2; }
+    .chart-labels { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 3px; margin-top: -4px; }
+    .chart-label { min-width: 0; text-align: center; }
+    .chart-label b { display: block; color: rgba(255,255,255,.85); font-size: 9px; }
+    .chart-label span { display: block; margin-top: 3px; overflow: hidden; color: rgba(255,255,255,.55); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .month-panel { background: #fffef9; }
+    .mini-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+    .mini { min-width: 0; padding: 12px; border: 1px solid #eeece4; border-radius: 14px; background: #faf9f4; }
+    .mini:nth-child(1) { background: #f4e4bb; border-color: #ead7a5; }
+    .mini:nth-child(2) { background: #eef1f4; border-color: #e5e8ec; }
+    .mini:nth-child(3) { background: #f4f0e5; }
+    .mini:nth-child(4) { background: #f7e8e7; border-color: #f0dddd; }
+    .mini-k { overflow: hidden; color: #737583; font-size: 8px; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-v { overflow: hidden; margin-top: 5px; color: #282a43; font-size: clamp(15px,1.5vw,20px); font-weight: 850; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }
+
+    .lower-grid { display: grid; grid-template-columns: minmax(0,1.45fr) minmax(320px,.82fr); gap: 15px; align-items: start; }
+    .data-panel { padding: 0; overflow: hidden; }
+    .data-panel .panel-header { margin: 0; padding: 17px 18px 13px; align-items: center; }
+    .section-count { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 25px; padding: 0 8px; border-radius: 8px; color: #5c6272; background: #f0f1f4; font-size: 10px; font-weight: 850; }
+    .table-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #c9cdd5 transparent; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+    .data-table th { padding: 10px 13px; color: #747a89; background: #f6f7f8; border-top: 1px solid #eceef1; border-bottom: 1px solid #e8eaee; font-size: 8px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; white-space: nowrap; }
+    .data-table td { padding: 11px 13px; color: #424657; border-bottom: 1px solid #eff0f2; vertical-align: middle; }
+    .data-table tbody tr:last-child td { border-bottom: 0; }
+    .data-table tbody tr:hover td { background: #fcfcfa; }
+    .data-table td b { color: #272a3d; font-weight: 820; }
+    .data-table .right { text-align: right; white-space: nowrap; }
+    .invoice-code { display: block; color: #272a43; font-size: 10px; font-weight: 850; white-space: nowrap; }
+    .muted-cell { display: block; margin-top: 3px; color: #9095a1; font-size: 9px; }
+    .badge { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 99px; font-size: 9px; font-weight: 800; text-transform: capitalize; white-space: nowrap; }
+    .badge.pending { color: #775b20; background: #f4e7c4; }
+    .badge.washing { color: #3f5f80; background: #e1eaf2; }
+    .badge.press { color: #6d5498; background: #eee7f8; }
+    .badge.ready { color: #327b5c; background: #e3f1e9; }
+    .badge.delivered, .badge.paid { color: #3d6673; background: #e5f0f1; }
+    .badge.cancelled { color: #a44f58; background: #f7e4e4; }
+    .badge.other { color: #626779; background: #eceef2; }
+    .empty { padding: 28px 18px !important; color: #8a909d !important; text-align: center; font-size: 11px; }
+    .side-panels { display: grid; gap: 15px; }
+    .small-panel .panel-header { padding-bottom: 12px; }
+    .payment-method { color: #697080; font-size: 10px; text-transform: capitalize; }
+    .mobile-list { display: none; }
+
+    .footer-meta { margin: 17px 2px 0; color: #9196a2; text-align: center; font-size: 9px; line-height: 1.6; }
+    .footer-meta strong { color: #727887; font-weight: 750; }
+    .loader { display: flex; min-height: 72vh; flex-direction: column; align-items: center; justify-content: center; gap: 13px; color: #34384c; text-align: center; }
+    .loader h2 { font-size: 18px; font-weight: 800; }
+    .loader .sub { color: #858b9a; font-size: 12px; }
+    .spin { width: 44px; height: 44px; border: 4px solid #dfe3ec; border-top-color: #303b63; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { margin: 18px 0; padding: 16px 18px; border: 1px solid #f2c8cc; border-radius: 17px; background: #fff4f4; color: #923e49; box-shadow: var(--shadow-soft); line-height: 1.55; }
+    .error button, .wrap > button { margin: 0 7px 7px 0; padding: 10px 13px; border: 0; border-radius: 11px; color: #fff; background: #24294f; font-weight: 750; cursor: pointer; }
+    .error button.secondary, .wrap > button.secondary { color: #33384b; background: #fff; border: 1px solid #e1e3e8; }
+
+    @media (max-width: 1180px) {
+      .insights-grid { grid-template-columns: minmax(205px,.82fr) minmax(0,1.7fr); }
+      .month-panel { grid-column: 1 / -1; }
+      .month-panel .mini-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    }
+    @media (max-width: 1050px) {
+      .primary-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .quick-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .lower-grid { grid-template-columns: minmax(0,1fr); }
+      .side-panels { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    }
+    @media (max-width: 760px) {
+      .wrap { padding: 14px 13px 24px; }
+      .topbar { align-items: flex-start; flex-direction: column; gap: 13px; padding: 13px; border-radius: 18px; }
+      .brand-logo { flex-basis: 46px; width: 46px; height: 46px; border-radius: 14px; }
+      .brand h1 { font-size: 21px; }
+      .brand-kicker { font-size: 8px; }
+      .brand-sub { align-items: flex-start; font-size: 10px; }
+      .top-actions { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+      .connection-pill, .clock-chip { justify-content: center; min-height: 39px; padding: 0 8px; font-size: 10px; }
+      .clock-date { display: none; }
+      .refresh-btn { grid-column: 1 / -1; min-height: 39px; }
+      .primary-kpis { gap: 10px; }
+      .kpi-card { min-height: 176px; padding: 14px; border-radius: 18px; }
+      .kpi-icon { flex-basis: 34px; width: 34px; height: 34px; border-radius: 11px; }
+      .kpi-icon svg { width: 17px; height: 17px; }
+      .kpi-label { font-size: 8px; letter-spacing: .1em; }
+      .kpi-value { font-size: clamp(20px,5.4vw,28px); }
+      .kpi-value.count { font-size: 35px; }
+      .kpi-description { font-size: 9px; }
+      .kpi-foot { font-size: 8px; margin-top: 11px; padding-top: 9px; }
+      .collection-ring { flex-basis: 60px; width: 60px; }
+      .collection-ring::before { width: 48px; }
+      .collection-ring strong { font-size: 12px; }
+      .collection-ring span { font-size: 6px; }
+      .progress-track { margin-top: 11px; }
+      .quick-metrics { gap: 8px; }
+      .metric-card { gap: 8px; padding: 10px; border-radius: 14px; }
+      .metric-icon { flex-basis: 32px; width: 32px; height: 32px; border-radius: 10px; }
+      .metric-icon svg { width: 16px; height: 16px; }
+      .metric-label { font-size: 8px; }
+      .metric-value { font-size: clamp(15px,4vw,20px); }
+      .metric-caption { font-size: 8px; }
+      .insights-grid { grid-template-columns: minmax(0,1fr); gap: 10px; }
+      .month-panel { grid-column: auto; }
+      .month-panel .mini-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .panel { padding: 14px; border-radius: 18px; }
+      .panel-header { margin-bottom: 12px; }
+      .chart-panel { min-height: 0; }
+      .chart-total { font-size: 21px; }
+      .sales-chart { margin-top: 0; }
+      .chart-label span { display: none; }
+      .lower-grid { gap: 10px; }
+      .side-panels { grid-template-columns: minmax(0,1fr); gap: 10px; }
+      .data-panel .panel-header { padding: 14px 14px 11px; }
+      .desktop-table { display: none; }
+      .mobile-list { display: grid; padding: 0 14px 9px; }
+      .mobile-item { padding: 12px 0; border-top: 1px solid #eff0f2; }
+      .mobile-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+      .mobile-item-title { color: #292c40; font-size: 11px; font-weight: 850; }
+      .mobile-item-sub { display: block; margin-top: 3px; color: #858b98; font-size: 10px; }
+      .mobile-item-meta { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-top: 10px; }
+      .mobile-meta-cell { min-width: 0; }
+      .mobile-meta-cell span { display: block; color: #959aa5; font-size: 8px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
+      .mobile-meta-cell b { display: block; overflow: hidden; margin-top: 3px; color: #34384a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+      .mobile-item .badge { font-size: 8px; }
+      .footer-meta { margin-top: 13px; font-size: 8px; }
+    }
+    @media (max-width: 390px) {
+      .wrap { padding-right: 10px; padding-left: 10px; }
+      .kpi-card { min-width: 0; padding: 12px; }
+      .kpi-value { font-size: 19px; }
+      .kpi-value.count { font-size: 31px; }
+      .kpi-foot { letter-spacing: -.02em; }
+      .metric-card { padding: 9px 8px; }
+      .metric-icon { flex-basis: 29px; width: 29px; height: 29px; }
+      .month-panel .mini-grid { gap: 7px; }
+      .mini { padding: 10px; }
+    }
+    @media (max-width: 360px) {
+      .primary-kpis, .quick-metrics { grid-template-columns: minmax(0,1fr); }
+      .kpi-card { min-height: 164px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
   </style>
 </head>
 <body>
@@ -178,7 +430,11 @@
       const todayRecovery = todayPayments.reduce((s,p)=>s+(+p.amount||0),0);
       const todayExpenses = expenses.filter(e=>expenseDay(e)===today).reduce((s,e)=>s+(+e.amount||0),0);
       const net = todayRecovery - todayExpenses;
-      const pending = orders.filter(o=>['pending','washing','ready'].includes(o.status)).length;
+      const statusKeys = ['pending','washing','press','ready'];
+      const statusCounts = Object.fromEntries(statusKeys.map(key=>[key,orders.filter(o=>String(o.status||'pending').toLowerCase()===key).length]));
+      const orderFlow = statusKeys.map(key=>({key,label:key.charAt(0).toUpperCase()+key.slice(1),count:statusCounts[key]}));
+      const pending = orderFlow.reduce((sum,item)=>sum+item.count,0);
+      const collectionRate = todaySale > 0 ? Math.max(0,Math.min(100,Math.round(todayRecovery/todaySale*100))) : 0;
       const totalOutstanding = orders.reduce((s,o)=>s+(+o.due||0),0);
       const monthOrders = orders.filter(o=>(orderDay(o)||rowDate(o.createdAt)).slice(0,7)===month || rowDate(o.createdAt).slice(0,7)===month);
       const monthSale = monthOrders.reduce((s,o)=>s+(+o.total||0),0);
@@ -189,7 +445,38 @@
       for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const k=dayKey(d); const sum=orders.filter(o=>orderDay(o)===k || rowDate(o.createdAt)===k).reduce((s,o)=>s+(+o.total||0),0); last7.push({key:k,label:d.toLocaleDateString('en',{weekday:'short'}),value:sum}); }
       const recentOrders=[...orders].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,10);
       const recentExpenses=[...expenses].filter(e=>expenseDay(e)===today).sort((a,b)=>(b.createdAt||b.date||'').localeCompare(a.createdAt||a.date||'')).slice(0,8);
-      return {orders,expenses,today,todayOrders,todaySale,todayDue,todayPayments,todayRecovery,todayExpenses,net,pending,totalOutstanding,monthOrders,monthSale,monthReceived,monthExpenses,last7,recentOrders,recentExpenses};
+      const weekTotal = last7.reduce((sum,day)=>sum+day.value,0);
+      return {orders,expenses,today,todayOrders,todaySale,todayDue,todayPayments,todayRecovery,todayExpenses,net,pending,statusCounts,orderFlow,collectionRate,weekTotal,totalOutstanding,monthOrders,monthSale,monthReceived,monthExpenses,last7,recentOrders,recentExpenses};
+    }
+
+    function statusToken(status){
+      const key = String(status || 'pending').toLowerCase().replace(/[^a-z0-9_-]/g,'');
+      return ['pending','washing','press','ready','delivered','cancelled','paid'].includes(key) ? key : 'other';
+    }
+    function invoiceLabel(item){
+      return item.invoiceNo ? 'INV-' + esc(item.invoiceNo) : '#' + esc(String(item.id || item.orderId || '').slice(-6).toUpperCase());
+    }
+    function salesChartSvg(points){
+      const width=720, height=200, left=18, right=18, top=16, bottom=24;
+      const max=Math.max(1,...points.map(p=>Number(p.value)||0));
+      const usableW=width-left-right, usableH=height-top-bottom;
+      const coords=points.map((p,i)=>({x:left+(points.length<2?usableW/2:i*usableW/(points.length-1)),y:top+(1-(Number(p.value)||0)/max)*usableH}));
+      let linePath=`M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+      for(let i=1;i<coords.length;i++){
+        const prev=coords[i-1], cur=coords[i], mid=(prev.x+cur.x)/2;
+        linePath+=` Q ${mid.toFixed(1)} ${prev.y.toFixed(1)} ${cur.x.toFixed(1)} ${cur.y.toFixed(1)}`;
+      }
+      const first=coords[0], last=coords[coords.length-1];
+      const areaPath=`${linePath} L ${last.x.toFixed(1)} ${(height-bottom).toFixed(1)} L ${first.x.toFixed(1)} ${(height-bottom).toFixed(1)} Z`;
+      const grid=[.25,.5,.75,1].map(r=>`<line class="chart-gridline" x1="${left}" y1="${(top+usableH*r).toFixed(1)}" x2="${width-right}" y2="${(top+usableH*r).toFixed(1)}"/>`).join('');
+      const dots=coords.map((point,i)=>`<circle class="chart-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4.5"><title>${esc(points[i].label)}: ${esc(money(points[i].value))}</title></circle>`).join('');
+      return `<svg class="sales-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Billed sales chart for the last seven days">
+        <defs>
+          <linearGradient id="liveChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2d58f" stop-opacity=".42"/><stop offset="100%" stop-color="#f2d58f" stop-opacity="0"/></linearGradient>
+          <linearGradient id="liveChartLine" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#e2c47f"/><stop offset="50%" stop-color="#f6e4b5"/><stop offset="100%" stop-color="#94b4d2"/></linearGradient>
+        </defs>
+        ${grid}<path class="chart-area" d="${areaPath}"/><path class="chart-line" d="${linePath}"/>${dots}
+      </svg>`;
     }
 
     function render(data){
@@ -197,81 +484,145 @@
       lastFetchAt = Date.now();
       const s = data.settings || {};
       const st = buildStats(data);
-      const maxBar = Math.max(1, ...st.last7.map(x=>x.value));
       const now = new Date();
+      const maxFlow = Math.max(1,...st.orderFlow.map(item=>item.count));
+      const collectionRate = st.collectionRate;
+      const expenseRate = st.todayRecovery > 0 ? Math.max(0,Math.min(100,Math.round(st.todayExpenses/st.todayRecovery*100))) : (st.todayExpenses > 0 ? 100 : 0);
+      const logo = s.logoImage
+        ? `<img src="${esc(s.logoImage)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"><span class="brand-logo-fallback" style="display:none">${esc(s.logo || '🧺')}</span>`
+        : `<span class="brand-logo-fallback">${esc(s.logo || '🧺')}</span>`;
+      const flowRows = st.orderFlow.map(item=>{
+        const width=item.count ? Math.max(6,Math.round(item.count/maxFlow*100)) : 0;
+        return `<div class="flow-row ${item.key}" style="--flow-width:${width}%"><span class="flow-dot ${item.key}"></span><span class="flow-name">${item.label}</span><span class="flow-count">${item.count} ${item.count===1?'item':'items'}</span><div class="flow-track"><span></span></div></div>`;
+      }).join('');
+      const orderRows = st.recentOrders.length ? st.recentOrders.map(o=>`<tr>
+        <td><span class="invoice-code">${invoiceLabel(o)}</span></td>
+        <td>${esc(customerName(data,o.customerId))}</td>
+        <td><span class="badge ${statusToken(o.status)}">${esc(o.status||'pending')}</span></td>
+        <td class="right"><b>${money(o.total)}</b></td>
+        <td class="right">${money(o.paid)}</td>
+        <td>${safeDate(o.createdAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="empty">No orders yet</td></tr>';
+      const mobileOrders = st.recentOrders.length ? st.recentOrders.map(o=>`<article class="mobile-item">
+        <div class="mobile-item-head"><div><div class="mobile-item-title">${invoiceLabel(o)}</div><span class="mobile-item-sub">${esc(customerName(data,o.customerId))}</span></div><span class="badge ${statusToken(o.status)}">${esc(o.status||'pending')}</span></div>
+        <div class="mobile-item-meta"><div class="mobile-meta-cell"><span>Total</span><b>${money(o.total)}</b></div><div class="mobile-meta-cell"><span>Paid</span><b>${money(o.paid)}</b></div><div class="mobile-meta-cell"><span>Time</span><b>${safeDate(o.createdAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</b></div></div>
+      </article>`).join('') : '<div class="empty">No orders yet</div>';
+      const paymentRows = st.todayPayments.length ? st.todayPayments.slice(0,10).map(p=>`<tr>
+        <td><span class="invoice-code">${invoiceLabel(p)}</span><span class="muted-cell">${safeDate(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</span></td>
+        <td class="payment-method">${esc(p.method||'cash')}</td><td class="right"><b>${money(p.amount)}</b></td>
+      </tr>`).join('') : '<tr><td colspan="3" class="empty">No recovery yet today</td></tr>';
+      const mobilePayments = st.todayPayments.length ? st.todayPayments.slice(0,8).map(p=>`<article class="mobile-item">
+        <div class="mobile-item-head"><div><div class="mobile-item-title">${invoiceLabel(p)}</div><span class="mobile-item-sub">${safeDate(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</span></div><span class="payment-method">${esc(p.method||'cash')}</span></div>
+        <div class="mobile-item-meta"><div class="mobile-meta-cell"><span>Received</span><b>${money(p.amount)}</b></div><div class="mobile-meta-cell"><span>Order total</span><b>${money(p.orderTotal)}</b></div><div class="mobile-meta-cell"><span>Method</span><b>${esc(p.method||'cash')}</b></div></div>
+      </article>`).join('') : '<div class="empty">No recovery yet today</div>';
+      const expenseRows = st.recentExpenses.length ? st.recentExpenses.map(e=>`<tr>
+        <td>${esc(e.category||e.type||'Expense')}</td><td>${esc(e.note||e.description||'-')}</td><td class="right"><b>${money(e.amount)}</b></td>
+      </tr>`).join('') : '<tr><td colspan="3" class="empty">No expenses today</td></tr>';
+      const mobileExpenses = st.recentExpenses.length ? st.recentExpenses.map(e=>`<article class="mobile-item">
+        <div class="mobile-item-head"><div><div class="mobile-item-title">${esc(e.category||e.type||'Expense')}</div><span class="mobile-item-sub">${esc(e.note||e.description||'-')}</span></div><b>${money(e.amount)}</b></div>
+        <div class="mobile-item-meta"><div class="mobile-meta-cell"><span>Recorded</span><b>${safeDate(e.createdAt||e.date).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</b></div><div class="mobile-meta-cell"><span>Type</span><b>${esc(e.type||e.category||'Expense')}</b></div><div class="mobile-meta-cell"><span>Amount</span><b>${money(e.amount)}</b></div></div>
+      </article>`).join('') : '<div class="empty">No expenses today</div>';
+      const chartLabels = st.last7.map(day=>`<div class="chart-label"><b>${esc(day.label)}</b><span>${money(day.value)}</span></div>`).join('');
+      const time = now.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      const date = now.toLocaleDateString('en',{day:'2-digit',month:'short',year:'numeric'});
+      const address = s.address || 'Shop 04, Gulistan E Zafar, Karachi';
+      const phone = s.phone || '+923343691210';
       document.getElementById('root').innerHTML = `
-        <div class="wrap">
-          <div class="top">
+        <main class="wrap">
+          <header class="topbar">
             <div class="brand">
-              <div class="logo">🧺</div>
-              <div>
-                <h1>${esc(s.shopName || 'Mr Laundry')} Live Dashboard</h1>
-                <p class="sub">${esc(s.address || 'Shop 04, Gulistan E Zafar, Karachi')} • ${esc(s.phone || '+923343691210')}</p>
+              <div class="brand-logo">${logo}</div>
+              <div class="brand-copy">
+                <div class="brand-kicker">Live operations overview</div>
+                <h1>${esc(s.shopName || 'Mr Laundry')} <span>Live Dashboard</span></h1>
+                <p class="brand-sub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>${esc(address)} · ${esc(phone)}</span></p>
               </div>
             </div>
-            <div class="actions">
-              <div class="pill"><span class="dot"></span> Synced Live</div>
-              <div class="pill">🕒 ${now.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>
-              <button onclick="manualRefresh()">Refresh</button>
+            <div class="top-actions">
+              <div class="connection-pill"><span class="live-dot"></span><span>Synced Live</span></div>
+              <div class="clock-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>${time}</span><span class="clock-date">${date}</span></div>
+              <button class="refresh-btn" type="button" onclick="manualRefresh()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2L20 12M4 12l2.4 5a7 7 0 0 0 11.5-2"/></svg><span>Refresh</span></button>
             </div>
-          </div>
+          </header>
 
-          <div class="grid">
-            <div class="card stat blue"><div class="ic">🛒</div><div><div class="lbl">Aaj Orders</div><div class="val">${st.todayOrders.length}</div><div class="hint">Total bookings today</div></div></div>
-            <div class="card stat green"><div class="ic">💰</div><div><div class="lbl">Total Sale Today</div><div class="val">${money(st.todaySale)}</div><div class="hint">Aaj ki total billed sale</div></div></div>
-            <div class="card stat orange"><div class="ic">✅</div><div><div class="lbl">Recovery Today</div><div class="val">${money(st.todayRecovery)}</div><div class="hint">Cash/payment actually received</div></div></div>
-            <div class="card stat red"><div class="ic">💸</div><div><div class="lbl">Expenses Today</div><div class="val">${money(st.todayExpenses)}</div><div class="hint">Aaj ke kharchay</div></div></div>
-          </div>
+          <section class="primary-kpis" aria-label="Today's key figures">
+            <article class="kpi-card kpi-orders">
+              <div class="kpi-head"><div><div class="kpi-label">Orders today</div><div class="kpi-description">Bookings placed today</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 1.9-1.4L22 8H6"/><circle cx="10" cy="20" r="1.2"/><circle cx="18" cy="20" r="1.2"/></svg></span></div>
+              <div class="kpi-main"><div class="kpi-value count">${st.todayOrders.length}</div></div>
+              <div class="kpi-foot"><span>Active in workflow</span><strong>${st.pending}</strong></div>
+            </article>
+            <article class="kpi-card kpi-sales">
+              <div class="kpi-head"><div><div class="kpi-label">Total sale today</div><div class="kpi-description">Billed value of today's orders</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h17"/><path d="m7 15 4-4 3 2 6-7"/><path d="M16 6h4v4"/></svg></span></div>
+              <div class="kpi-main"><div class="kpi-value">${money(st.todaySale)}</div><div class="collection-ring" style="--progress:${collectionRate}%"><div><strong>${collectionRate}%</strong><span>recovered</span></div></div></div>
+              <div class="kpi-foot"><span>7-day billed sales</span><strong>${money(st.weekTotal)}</strong></div>
+            </article>
+            <article class="kpi-card kpi-recovery">
+              <div class="kpi-head"><div><div class="kpi-label">Recovery today</div><div class="kpi-description">Payments actually received</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M17 7.5c0-1.7-2.2-3-5-3s-5 1.3-5 3 2 2.6 5 3.5 5 1.8 5 3.6-2.2 3-5 3-5-1.3-5-3"/></svg></span></div>
+              <div class="kpi-main"><div class="kpi-value">${money(st.todayRecovery)}</div></div>
+              <div class="progress-track" style="--progress:${collectionRate}%"><span></span></div>
+              <div class="kpi-foot"><span>Collected vs today's sale</span><strong>${collectionRate}%</strong></div>
+            </article>
+            <article class="kpi-card kpi-expenses">
+              <div class="kpi-head"><div><div class="kpi-label">Expenses today</div><div class="kpi-description">Daily operating costs</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span></div>
+              <div class="kpi-main"><div class="kpi-value">${money(st.todayExpenses)}</div></div>
+              <div class="progress-track" style="--progress:${expenseRate}%"><span></span></div>
+              <div class="kpi-foot"><span>${st.todayRecovery ? 'Share of today’s recovery' : 'Logged for today'}</span><strong>${st.todayRecovery ? `${expenseRate}%` : 'Today'}</strong></div>
+            </article>
+          </section>
 
-          <div class="grid">
-            <div class="card stat ${st.net>=0?'green':'red'}"><div class="ic">📈</div><div><div class="lbl">Net Cash Today</div><div class="val">${money(st.net)}</div><div class="hint">Recovery minus expenses</div></div></div>
-            <div class="card stat purple"><div class="ic">⏳</div><div><div class="lbl">Pending / In Progress</div><div class="val">${st.pending}</div><div class="hint">Pending, washing, ready</div></div></div>
-            <div class="card stat orange"><div class="ic">📋</div><div><div class="lbl">Today Due</div><div class="val">${money(st.todayDue)}</div><div class="hint">Aaj ke orders ka balance</div></div></div>
-            <div class="card stat slate"><div class="ic">🏦</div><div><div class="lbl">Total Outstanding</div><div class="val">${money(st.totalOutstanding)}</div><div class="hint">All unpaid invoices</div></div></div>
-          </div>
+          <section class="quick-metrics" aria-label="Cash and order summary">
+            <article class="metric-card net"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17 9 11l4 4 8-9"/><path d="M15 6h6v6"/></svg></span><div class="metric-copy"><div class="metric-label">Net cash today</div><div class="metric-value">${money(st.net)}</div><div class="metric-caption">Recovery minus expenses</div></div></article>
+            <article class="metric-card workflow"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div class="metric-copy"><div class="metric-label">In progress</div><div class="metric-value">${st.pending}</div><div class="metric-caption">Pending, Washing, Press &amp; Ready</div></div></article>
+            <article class="metric-card due"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v17H5z"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></span><div class="metric-copy"><div class="metric-label">Due today</div><div class="metric-value">${money(st.todayDue)}</div><div class="metric-caption">Balance on today's orders</div></div></article>
+            <article class="metric-card outstanding"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg></span><div class="metric-copy"><div class="metric-label">Total outstanding</div><div class="metric-value">${money(st.totalOutstanding)}</div><div class="metric-caption">Balance across all orders</div></div></article>
+          </section>
 
-          <div class="layout">
-            <div class="card">
-              <div class="section-title"><span>📈 Last 7 Days Sale</span><small class="sub">Live from Firebase</small></div>
-              <div class="bars">${st.last7.map(d=>`<div class="bar-wrap"><div class="bar" title="${money(d.value)}"><span style="height:${Math.max(3,(d.value/maxBar)*100)}%"></span></div><div class="bar-label">${d.label}</div><div class="bar-val">${d.value?money(d.value):'—'}</div></div>`).join('')}</div>
-            </div>
-            <div class="card">
-              <div class="section-title">🗓️ This Month</div>
+          <section class="insights-grid" aria-label="Order flow and sales insights">
+            <article class="panel flow-panel">
+              <div class="panel-header"><div><h2 class="panel-title">Order flow</h2><p class="panel-subtitle">Orders currently by status</p></div><span class="panel-tag">${st.pending} active</span></div>
+              <div class="flow-list">${flowRows}</div>
+              <div class="flow-footer"><span>Active orders</span><strong>${st.pending}</strong></div>
+            </article>
+            <article class="panel chart-panel">
+              <div class="panel-header"><div><h2 class="panel-title">Sales trend</h2><p class="panel-subtitle">Daily billed sales · Last 7 days</p></div><span class="panel-tag"><span class="live-dot"></span> Live feed</span></div>
+              <div class="chart-total">${money(st.weekTotal)}</div><div class="chart-total-caption">Billed across the last seven days</div>
+              ${salesChartSvg(st.last7)}
+              <div class="chart-labels">${chartLabels}</div>
+            </article>
+            <article class="panel month-panel">
+              <div class="panel-header"><div><h2 class="panel-title">This month</h2><p class="panel-subtitle">A quick month-to-date view</p></div><span class="panel-tag">${new Date().toLocaleDateString('en',{month:'short'})}</span></div>
               <div class="mini-grid">
-                <div class="mini"><div class="k">Orders</div><div class="v">${st.monthOrders.length}</div></div>
-                <div class="mini"><div class="k">Sale</div><div class="v">${money(st.monthSale)}</div></div>
-                <div class="mini"><div class="k">Received</div><div class="v">${money(st.monthReceived)}</div></div>
-                <div class="mini"><div class="k">Expenses</div><div class="v">${money(st.monthExpenses)}</div></div>
-                <div class="mini"><div class="k">Customers</div><div class="v">${(data.customers||[]).length}</div></div>
-                <div class="mini"><div class="k">Total Orders</div><div class="v">${st.orders.length}</div></div>
+                <div class="mini"><div class="mini-k">Orders</div><div class="mini-v">${st.monthOrders.length}</div></div>
+                <div class="mini"><div class="mini-k">Sales</div><div class="mini-v">${money(st.monthSale)}</div></div>
+                <div class="mini"><div class="mini-k">Received</div><div class="mini-v">${money(st.monthReceived)}</div></div>
+                <div class="mini"><div class="mini-k">Expenses</div><div class="mini-v">${money(st.monthExpenses)}</div></div>
+                <div class="mini"><div class="mini-k">Customers</div><div class="mini-v">${(data.customers||[]).filter(c=>!c._deleted).length}</div></div>
+                <div class="mini"><div class="mini-k">All orders</div><div class="mini-v">${st.orders.length}</div></div>
               </div>
-            </div>
-          </div>
+            </article>
+          </section>
 
-          <div class="layout">
-            <div class="card">
-              <div class="section-title">🕒 Recent Orders</div>
-              <div class="table-scroll"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th class="right">Total</th><th class="right">Paid</th><th>Time</th></tr></thead><tbody>
-                ${st.recentOrders.length ? st.recentOrders.map(o=>`<tr><td><b>${o.invoiceNo?'INV-'+esc(o.invoiceNo):'#'+esc(String(o.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(customerName(data,o.customerId))}</td><td><span class="badge ${esc(o.status||'pending')}">${esc(o.status||'pending')}</span></td><td class="right"><b>${money(o.total)}</b></td><td class="right">${money(o.paid)}</td><td>${safeDate(o.createdAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">No orders yet</td></tr>'}
-              </tbody></table></div>
+          <section class="lower-grid" aria-label="Recent business activity">
+            <article class="panel data-panel orders-panel">
+              <div class="panel-header"><div><h2 class="panel-title">Recent orders</h2><p class="panel-subtitle">Latest bookings from the live order stream</p></div><span class="section-count">${st.recentOrders.length}</span></div>
+              <div class="table-scroll desktop-table"><table class="data-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th class="right">Total</th><th class="right">Paid</th><th>Time</th></tr></thead><tbody>${orderRows}</tbody></table></div>
+              <div class="mobile-list">${mobileOrders}</div>
+            </article>
+            <div class="side-panels">
+              <article class="panel data-panel small-panel">
+                <div class="panel-header"><div><h2 class="panel-title">Payments today</h2><p class="panel-subtitle">${st.todayPayments.length} recorded · ${money(st.todayRecovery)} recovered</p></div><span class="section-count">${st.todayPayments.length}</span></div>
+                <div class="table-scroll desktop-table"><table class="data-table"><thead><tr><th>Invoice / time</th><th>Method</th><th class="right">Amount</th></tr></thead><tbody>${paymentRows}</tbody></table></div>
+                <div class="mobile-list">${mobilePayments}</div>
+              </article>
+              <article class="panel data-panel small-panel">
+                <div class="panel-header"><div><h2 class="panel-title">Expenses today</h2><p class="panel-subtitle">Today's recorded operating costs</p></div><span class="section-count">${money(st.todayExpenses)}</span></div>
+                <div class="table-scroll desktop-table"><table class="data-table"><thead><tr><th>Category</th><th>Note</th><th class="right">Amount</th></tr></thead><tbody>${expenseRows}</tbody></table></div>
+                <div class="mobile-list">${mobileExpenses}</div>
+              </article>
             </div>
-            <div class="card">
-              <div class="section-title">💰 Payments Today <small>${st.todayPayments.length}</small></div>
-              <div class="table-scroll"><table><thead><tr><th>Invoice</th><th>Method</th><th class="right">Amount</th></tr></thead><tbody>
-                ${st.todayPayments.length ? st.todayPayments.slice(0,10).map(p=>`<tr><td><b>${p.invoiceNo?'INV-'+esc(p.invoiceNo):'#'+esc(String(p.orderId||'').slice(-6).toUpperCase())}</b><br><small class="sub">${safeDate(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</small></td><td>${esc(p.method||'cash')}</td><td class="right"><b>${money(p.amount)}</b></td></tr>`).join('') : '<tr><td colspan="3" class="empty">No recovery yet today</td></tr>'}
-              </tbody></table></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="section-title">💸 Expenses Today <small>${money(st.todayExpenses)}</small></div>
-            <div class="table-scroll"><table><thead><tr><th>Category</th><th>Note</th><th class="right">Amount</th></tr></thead><tbody>
-              ${st.recentExpenses.length ? st.recentExpenses.map(e=>`<tr><td>${esc(e.category||e.type||'Expense')}</td><td>${esc(e.note||e.description||'-')}</td><td class="right"><b>${money(e.amount)}</b></td></tr>`).join('') : '<tr><td colspan="3" class="empty">No expenses today</td></tr>'}
-            </tbody></table></div>
-          </div>
-
-          <p class="sub" style="text-align:center;margin:18px 0 8px;">Last cloud update: ${lastUpdated ? lastUpdated.toLocaleString() : '—'} • Auto-refresh/realtime enabled • Shop ID: ${SHOP_ID}</p>
-        </div>`;
+          </section>
+          <footer class="footer-meta">Last cloud update: <strong>${lastUpdated ? esc(lastUpdated.toLocaleString()) : '—'}</strong> · Live sync and automatic refresh are enabled · Shop ID: <strong>${esc(SHOP_ID)}</strong></footer>
+        </main>`;
     }
 
     function renderError(err){
