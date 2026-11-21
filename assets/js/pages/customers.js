@@ -91,32 +91,18 @@ function openCustomerForm(existing, callback) {
     </div>
 
     <div style="background:var(--surface-alt);border-radius:10px;padding:14px;margin-top:10px;">
-      <div style="font-weight:700;margin-bottom:10px;">🏢 Corporate / B2B Account</div>
-      <label style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
-        <input type="checkbox" id="cIsB2B" ${c.isB2B?'checked':''}/> Enable B2B Corporate Billing
-      </label>
-      <div class="form-row cols-1" id="b2bFields" style="display:${c.isB2B?'flex':'none'};">
-        <div class="field"><label>Corporate Discount %</label><input type="number" id="cB2bDisc" value="${c.b2bDiscount||0}" min="0" max="100"/></div>
-      </div>
-    </div>
-
-    <div style="background:var(--surface-alt);border-radius:10px;padding:14px;margin-top:10px;">
       <div style="font-weight:700;margin-bottom:10px;">⭐ Loyalty Card</div>
       <div class="form-row">
         <div class="field" style="margin:0;">
           <label>Loyalty Number</label>
           <div style="display:flex;gap:6px;">
             <input id="cLoyNo" value="${escapeHtml(c.loyaltyNo||'')}" placeholder="auto-generated"/>
-            <button type="button" class="btn btn-secondary btn-sm" id="genBtn">🎫</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="genBtn">🎫 Generate</button>
           </div>
         </div>
         <div class="field" style="margin:0;">
           <label>Discount %</label>
           <input type="number" id="cLoyPct" value="${c.loyaltyDiscountPercent || defaultPct}" min="0" max="100"/>
-        </div>
-        <div class="field" style="margin:0;">
-          <label>Expiry Date</label>
-          <input type="date" id="cLoyExp" value="${escapeHtml(c.loyaltyExpiry||'')}"/>
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;">
@@ -131,7 +117,6 @@ function openCustomerForm(existing, callback) {
   `;
   openModal(html, { large: true, onOpen(m){
     $('#genBtn', m).onclick = () => { $('#cLoyNo', m).value = DB.nextLoyaltyNumber(); $('#cLoyActive', m).checked = true; toast('Loyalty number generated','success'); };
-    $('#cIsB2B', m).onchange = (e) => { $('#b2bFields', m).style.display = e.target.checked ? 'flex' : 'none'; };
     $('#cancelBtn', m).onclick = closeModal;
     $('#saveBtn', m).onclick = () => {
       const name = $('#cName', m).value.trim();
@@ -143,10 +128,7 @@ function openCustomerForm(existing, callback) {
         address: $('#cAddr', m).value.trim(),
         loyaltyNo: $('#cLoyNo', m).value.trim(),
         loyaltyDiscountPercent: Math.max(0, +$('#cLoyPct', m).value || 0),
-        loyaltyActive: $('#cLoyActive', m).checked,
-        loyaltyExpiry: $('#cLoyExp', m).value,
-        isB2B: $('#cIsB2B', m).checked,
-        b2bDiscount: Math.max(0, +$('#cB2bDisc', m).value || 0)
+        loyaltyActive: $('#cLoyActive', m).checked
       };
       let saved;
       if (existing) saved = DB.update('customers', existing.id, data);
@@ -166,10 +148,10 @@ function openCustomerHistory(custId) {
 
   const rows = orders.length ? orders.map(o => `
     <tr>
-      <td><b>${DB.invoiceLabel(o)}</b></td>
+      <td><b>#${o.invoiceNo || o.id.slice(-6).toUpperCase()}</b></td>
       <td>${fmtDateShort(o.createdAt)}</td>
       <td>${o.items.length}</td>
-      <td><span class="badge ${o.status}">${typeof statusBadgeLabel === "function" ? statusBadgeLabel(o.status) : o.status}</span></td>
+      <td><span class="badge ${o.status}">${o.status}</span></td>
       <td><b>${fmtMoney(o.total)}</b></td>
       <td>${o.due>0?`<span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<span class="badge paid">Paid</span>`}</td>
       <td><button class="btn btn-secondary btn-sm" onclick="closeModal();openInvoice('${o.id}')">👁️ View</button></td>

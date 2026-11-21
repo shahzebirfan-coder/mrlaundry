@@ -1,6 +1,45 @@
 /* ===================== PRODUCTS & CATEGORIES ===================== */
 let prodFilter = { search:'', category:'all' };
 
+/* ---------------------------------------------------------------
+   Image URL validator.
+   Google Images "thumbnail" links (encrypted-tbnX.gstatic.com,
+   or ...google.com/imgres / /url?...) are TEMPORARY and only load
+   on the device that searched. They break on other devices (e.g.
+   the cashier's) and expire over time. This helper flags those so
+   the shop only saves permanent, cross-device image links.
+   Returns { ok:boolean, reason:string }.
+---------------------------------------------------------------- */
+function checkProductImageUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return { ok:false, reason:'Link khaali hai.' };
+  if (!/^https?:\/\//i.test(u)) return { ok:false, reason:'Link http:// ya https:// se shuru hona chahiye.' };
+  const bad = [
+    /encrypted-tbn\d*\.gstatic\.com/i,        // Google thumbnail (temporary)
+    /gstatic\.com\/images\?q=tbn/i,           // Google thumbnail (temporary)
+    /google\.[a-z.]+\/imgres/i,               // Google image viewer page (not the image)
+    /google\.[a-z.]+\/url\?/i,                // Google redirect link
+    /google\.[a-z.]+\/search/i,               // Google search page
+    /lh3\.googleusercontent\.com\/proxy/i     // Google proxy thumbnail
+  ];
+  if (bad.some(re => re.test(u))) {
+    return { ok:false, reason:'Yeh Google ka TEMPORARY thumbnail link hai — yeh cashier ke device par nahi khulega aur baad mein toot jayega. Image ko full-size kholein, phir right-click → "Copy image address" (link .jpg/.png/.webp par khatam ho).' };
+  }
+  return { ok:true, reason:'' };
+}
+window.checkProductImageUrl = checkProductImageUrl;
+
+/* Nudge the normal (light, debounced) background sync so a newly-set image
+   reaches the cloud quickly, WITHOUT blocking the POS. We deliberately avoid
+   the heavy { manual:true } push (which does a full pull+merge+full upload on
+   every save and makes the POS lag). DB.save() already triggers the debounced
+   auto-push; this is just a safety no-op wrapper kept for clarity. */
+function pushProductsNow() {
+  // DB.save() (called inside DB.update/insert) already schedules the debounced
+  // background push. Nothing heavy needed here — keep the UI snappy.
+  return;
+}
+
 function renderProducts() {
   const content = `
     <h1 class="page-title">🧺 Products & Rate List</h1>
@@ -18,7 +57,7 @@ function renderProducts() {
             </select>
             <button class="btn btn-primary btn-sm" id="addProdBtn">+ Add Product</button>
             <button class="btn btn-success btn-sm" id="bulkImgBtn" title="Upload images for many products quickly">📷 Bulk Image Manager</button>
-            ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" id="importRateBtn" title="Replace all products with Modern Dry Cleaners official rate list">📋 Import Rate List</button>`:''}
+            ${DB.currentUser().role==='admin' ? `<button class="btn btn-warning btn-sm" id="importRateBtn" title="Replace all products with Mr Laundry official rate list">📋 Import Rate List</button>`:''}
           </div>
         </div>
         <div style="padding:8px 16px;font-size:12px;color:var(--text-soft);border-bottom:1px solid var(--border);background:var(--surface-alt);">
@@ -50,7 +89,7 @@ function renderProducts() {
 }
 
 function importRateList() {
-  confirmDialog('⚠️ This will REPLACE all products with the official Modern Dry Cleaners rate list (Gents, Ladies, Others). Your customers, orders, and expenses will NOT be affected. Continue?', () => {
+  confirmDialog('⚠️ This will REPLACE all products with the official Mr Laundry rate list (Gents, Ladies, Others). Your customers, orders, and expenses will NOT be affected. Continue?', () => {
     DB._data.products = getMrLaundryRateList();
     DB._data.categories = [
       { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },
@@ -148,14 +187,15 @@ function openProductForm(existing) {
             ${productImageHTML(p.image, 100)}
           </div>
           <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
-            <div style="display:flex;gap:6px;">
-              <button type="button" class="btn btn-primary btn-sm" id="pImgUploadBtn">📤 Upload Photo</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary btn-sm" id="pImgUrlBtn">🔗 Paste Image URL</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="pImgUploadBtn">📤 Upload Photo</button>
               <button type="button" class="btn btn-secondary btn-sm" id="pImgEmojiBtn">😀 Use Emoji</button>
               <button type="button" class="btn btn-ghost btn-sm" id="pImgClearBtn" title="Remove image">🗑️</button>
             </div>
             <input type="file" id="pImgFile" accept="image/*" style="display:none;"/>
-            <input type="text" id="pImg" value="${escapeHtml(p.image||'🧺')}" placeholder="Emoji or image data" style="font-size:13px;font-family:monospace;"/>
-            <small style="color:var(--text-soft);">Upload a small product photo (auto-resized to 200x200). Or use an emoji.</small>
+            <input type="text" id="pImg" value="${escapeHtml(p.image||'🧺')}" placeholder="Paste image link (https://...) or emoji" style="font-size:13px;font-family:monospace;"/>
+            <small style="color:var(--text-soft);">✅ Recommended: paste an image <b>link (URL)</b> — it stays light and never disappears. Upload also works (auto-resized), or use an emoji.</small>
           </div>
         </div>
       </div>
@@ -182,6 +222,16 @@ function openProductForm(existing) {
     const imgInput = $('#pImg', m);
     const preview = $('#pImgPreview', m);
     const refreshPreview = () => { preview.innerHTML = productImageHTML(imgInput.value || '🧺', 100); };
+    $('#pImgUrlBtn', m).onclick = () => {
+      const url = prompt('Paste the image link (URL) — e.g. from Google Images (must start with https://):', imgInput.value.startsWith('http') ? imgInput.value : 'https://');
+      if (url == null) return;
+      const clean = url.trim();
+      if (!clean || clean === 'https://') return;
+      const chk = checkProductImageUrl(clean);
+      if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link — dekhein warning','error'); return; }
+      imgInput.value = clean; refreshPreview();
+      toast('✅ Image link set — click Save','success');
+    };
     $('#pImgUploadBtn', m).onclick = () => fileInput.click();
     $('#pImgEmojiBtn', m).onclick = () => openEmojiPicker((emoji) => { imgInput.value = emoji; refreshPreview(); });
     $('#pImgClearBtn', m).onclick = () => { imgInput.value = '🧺'; refreshPreview(); };
@@ -191,10 +241,10 @@ function openProductForm(existing) {
       if (!f) return;
       if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
       try {
-        const dataUrl = await resizeImageToDataURL(f, 200, 200, 0.85);
+        const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
         imgInput.value = dataUrl;
         refreshPreview();
-        toast('✅ Image uploaded — click Save','success');
+        toast('✅ Image uploaded — click Save. Tip: image links (URL) are lighter.','success');
       } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
     };
 
@@ -204,15 +254,22 @@ function openProductForm(existing) {
       const price = +$('#pPrice', m).value;
       if (!name || price < 0) { toast('Enter name & price','error'); return; }
       const maxV = $('#pPriceMax', m).value;
+      const imgVal = $('#pImg', m).value || '🧺';
+      // Block temporary Google thumbnail links (they break on other devices).
+      if (/^https?:\/\//i.test(imgVal)) {
+        const chk = checkProductImageUrl(imgVal);
+        if (!chk.ok) { alert('⚠️ Image link theek nahi, is liye save nahi kiya:\n\n' + chk.reason + '\n\nAap emoji rakh sakte hain ya sahi image link daal sakte hain.'); return; }
+      }
       const data = {
         name, price,
         priceMax: maxV === '' ? null : Math.max(0, +maxV || 0),
         category: $('#pCat', m).value,
-        image: $('#pImg', m).value || '🧺',
+        image: imgVal,
         active: true
       };
       if (existing) DB.update('products', existing.id, data);
       else DB.insert('products', data);
+      pushProductsNow();
       closeModal(); toast('Saved','success'); renderProductsBody();
     };
   }});
@@ -306,7 +363,7 @@ function openBulkImageManager() {
 
   openModal(`
     <h3>📷 Bulk Image Manager — Set product images quickly</h3>
-    <p class="sub">Click any product to upload an image. Auto-resized & saved.</p>
+    <p class="sub">Click a tile to upload a photo, or click <b>🔗 URL</b> on a tile to paste an image link (recommended — stays light, never disappears).</p>
     ${buildHtml()}
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Close</button>
@@ -322,21 +379,44 @@ function openBulkImageManager() {
         return true;
       });
       const withImg = all.filter(p => p.image && (p.image.startsWith('data:') || p.image.startsWith('http'))).length;
-      $('#bimStats', m).innerHTML = `📊 <b>${withImg}</b> of <b>${all.length}</b> products have real images (${Math.round(withImg/all.length*100)}%). Click any tile to upload!`;
+      const badLinks = all.filter(p => typeof p.image === 'string' && /^https?:\/\//i.test(p.image) && !checkProductImageUrl(p.image).ok);
+      const badWarn = badLinks.length
+        ? `<div style="margin-top:8px;background:#fef2f2;border-left:4px solid #dc2626;padding:8px 10px;border-radius:8px;color:#991b1b;font-weight:700;">⚠️ ${badLinks.length} product(s) par TEMPORARY Google link hai jo cashier ke device par nahi khulega. Neeche tile par 🔗 URL se sahi link lagayein.</div>`
+        : '';
+      $('#bimStats', m).innerHTML = `📊 <b>${withImg}</b> of <b>${all.length}</b> products have real images (${Math.round(withImg/all.length*100)}%). Click any tile to upload!` + badWarn;
       $('#bimGrid', m).innerHTML = filtered.map(p => {
         const hasImg = p.image && (p.image.startsWith('data:') || p.image.startsWith('http'));
-        return `<div class="bim-tile" data-id="${p.id}" style="background:#fff;border:2px solid ${hasImg?'#10b981':'#e5e9f2'};border-radius:12px;padding:10px;text-align:center;cursor:pointer;transition:.15s;position:relative;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-          ${hasImg ? '<div style="position:absolute;top:4px;right:4px;background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;">✓</div>' : ''}
+        const isBad = typeof p.image === 'string' && /^https?:\/\//i.test(p.image) && !checkProductImageUrl(p.image).ok;
+        const borderColor = isBad ? '#dc2626' : (hasImg ? '#10b981' : '#e5e9f2');
+        return `<div class="bim-tile" data-id="${p.id}" style="background:#fff;border:2px solid ${borderColor};border-radius:12px;padding:10px;text-align:center;cursor:pointer;transition:.15s;position:relative;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+          ${isBad ? '<div style="position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:12px;" title="Temporary link — cashier ke device par nahi khulega">⚠️</div>' : (hasImg ? '<div style="position:absolute;top:4px;right:4px;background:#10b981;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;">✓</div>' : '')}
           <div style="width:80px;height:80px;margin:0 auto 6px;border-radius:10px;background:linear-gradient(135deg,#e0e7ff,#fff);display:flex;align-items:center;justify-content:center;overflow:hidden;">${productImageHTML(p.image, 80)}</div>
           <div style="font-weight:700;font-size:12px;line-height:1.2;height:30px;overflow:hidden;">${escapeHtml(p.name)}</div>
-          <div style="font-size:11px;color:#0b3f80;font-weight:700;">Rs. ${p.price}</div>
+          <div style="font-size:11px;color:#4f7cff;font-weight:700;">Rs. ${p.price}</div>
+          <button type="button" class="bim-url" data-id="${p.id}" style="margin-top:6px;font-size:10px;padding:3px 8px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer;font-weight:700;color:#334155;">🔗 URL</button>
         </div>`;
       }).join('') || '<div class="empty" style="grid-column:1/-1;padding:30px;"><div class="emoji">🔍</div><h4>No products match</h4></div>';
 
-      m.querySelectorAll('.bim-tile').forEach(t => t.onclick = () => {
+      m.querySelectorAll('.bim-tile').forEach(t => t.onclick = (ev) => {
+        if (ev.target.classList.contains('bim-url')) return; // handled below
         pendingProductId = t.dataset.id;
         $('#bimFile', m).value = ''; // reset
         $('#bimFile', m).click();
+      });
+      m.querySelectorAll('.bim-url').forEach(btn => btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const id = btn.dataset.id;
+        const cur = DB.get('products', id);
+        const url = prompt(`Paste image link (URL) for "${cur?.name||''}" — must start with https://`, (cur?.image||'').startsWith('http') ? cur.image : 'https://');
+        if (url == null) return;
+        const clean = url.trim();
+        if (!clean || clean === 'https://') return;
+        const chk = checkProductImageUrl(clean);
+        if (!chk.ok) { alert('⚠️ Yeh link theek nahi:\n\n' + chk.reason); toast('Galat image link','error'); return; }
+        DB.update('products', id, { image: clean });
+        pushProductsNow();
+        toast(`✅ Image link set for ${cur?.name||'product'}`,'success');
+        renderGrid();
       });
     };
 
@@ -348,8 +428,9 @@ function openBulkImageManager() {
       if (!f || !pendingProductId) return;
       if (f.size > 5 * 1024 * 1024) { toast('Image too large (max 5MB)','error'); return; }
       try {
-        const dataUrl = await resizeImageToDataURL(f, 200, 200, 0.85);
+        const dataUrl = await resizeImageToDataURL(f, 150, 150, 0.8);
         DB.update('products', pendingProductId, { image: dataUrl });
+        pushProductsNow();
         const p = DB.get('products', pendingProductId);
         toast(`✅ Image set for ${p.name}`, 'success');
         renderGrid();

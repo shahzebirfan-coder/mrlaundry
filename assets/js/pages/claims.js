@@ -260,7 +260,7 @@ function openClaimForm() {
         const orders = DB.all('orders').filter(o => o.customerId === cust.id).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,30);
         orderSel.innerHTML = '<option value="">-- Not linked --</option>' +
           orders.map(o => {
-            const invNo = DB.invoiceLabel(o);
+            const invNo = o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase();
             return `<option value="${o.id}">${invNo} • ${fmtDateShort(o.createdAt)} • ${fmtMoney(o.total)}</option>`;
           }).join('');
       }
@@ -450,17 +450,17 @@ function openClaimDocument(claimId, autoPrint) {
 function buildVoucherDoc(claim, voucher, s, logoBlock) {
   const expDate = new Date(voucher.expiresAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
   return `
-    <div class="invoice-page" style="max-width:560px;border:3px solid #0b3f80;background:linear-gradient(135deg,#fff,#f0f4ff);">
+    <div class="invoice-page" style="max-width:560px;border:3px solid #4f7cff;background:linear-gradient(135deg,#fff,#f0f4ff);">
       ${logoBlock}
-      <h2 style="font-size:22px;text-align:center;color:#0b3f80;">${escapeHtml(s.shopName)}</h2>
+      <h2 style="font-size:22px;text-align:center;color:#4f7cff;">${escapeHtml(s.shopName)}</h2>
       <div class="sub">${escapeHtml(s.tagline||'')}<br>${escapeHtml(s.address||'')}<br>📞 ${escapeHtml(s.phone||'')}</div>
-      <div style="text-align:center;font-weight:900;font-size:24px;letter-spacing:3px;border-top:2px solid #000;border-bottom:2px solid #000;padding:10px;margin:10px 0;background:#0b3f80;color:#fff;">
+      <div style="text-align:center;font-weight:900;font-size:24px;letter-spacing:3px;border-top:2px solid #000;border-bottom:2px solid #000;padding:10px;margin:10px 0;background:#4f7cff;color:#fff;">
         🎫 FREE LAUNDRY VOUCHER
       </div>
 
-      <div style="background:#fff;border:2px dashed #0b3f80;padding:14px;border-radius:10px;margin:14px 0;text-align:center;">
+      <div style="background:#fff;border:2px dashed #4f7cff;padding:14px;border-radius:10px;margin:14px 0;text-align:center;">
         <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:2px;">Voucher Number</div>
-        <div style="font-size:32px;font-weight:900;color:#0b3f80;font-family:monospace;letter-spacing:2px;margin:6px 0;">${escapeHtml(voucher.voucherNo)}</div>
+        <div style="font-size:32px;font-weight:900;color:#4f7cff;font-family:monospace;letter-spacing:2px;margin:6px 0;">${escapeHtml(voucher.voucherNo)}</div>
         <div style="font-size:11px;color:#666;">Claim Ref: ${escapeHtml(claim.claimNo)}</div>
       </div>
 
@@ -503,7 +503,7 @@ function buildVoucherDoc(claim, voucher, s, logoBlock) {
         </div>
       </div>
 
-      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Modern Dry Cleaners</div>
+      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Mr Laundry POS</div>
     </div>
   `;
 }
@@ -532,7 +532,7 @@ function buildCashRefundDoc(claim, s, logoBlock) {
         <div style="font-size:12px;">${escapeHtml(claim.itemDescription)}</div>
       </div>
 
-      ${claim.thirdPartyShop ? `<div style="background:#dbeafe;border:1px solid #0b3f80;border-radius:8px;padding:10px;margin:10px 0;font-size:12px;">
+      ${claim.thirdPartyShop ? `<div style="background:#dbeafe;border:1px solid #4f7cff;border-radius:8px;padding:10px;margin:10px 0;font-size:12px;">
         <b>📍 Originally Purchased From:</b> ${escapeHtml(claim.thirdPartyShop)}
       </div>` : ''}
 
@@ -570,7 +570,7 @@ function buildCashRefundDoc(claim, s, logoBlock) {
         </tr>
       </table>
 
-      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Modern Dry Cleaners</div>
+      <div style="text-align:center;font-size:9px;color:#666;margin-top:10px;">Powered by Mr Laundry POS</div>
     </div>
   `;
 }

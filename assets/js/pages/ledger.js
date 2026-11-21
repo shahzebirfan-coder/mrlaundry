@@ -139,12 +139,12 @@ function openCustomerLedger(custId) {
     const debit = o.total || 0;
     const credit = o.paid || 0;
     runningBalance += debit - credit;
-    const invNo = DB.invoiceLabel(o);
+    const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
     return `<tr>
       <td>${fmtDateShort(o.createdAt)}</td>
       <td><b>${escapeHtml(invNo)}</b></td>
       <td>${o.items.length} items / ${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</td>
-      <td><span class="badge ${o.status}">${typeof statusBadgeLabel === "function" ? statusBadgeLabel(o.status) : o.status}</span></td>
+      <td><span class="badge ${o.status}">${o.status}</span></td>
       <td style="text-align:right;color:var(--danger);">${fmtMoney(debit)}</td>
       <td style="text-align:right;color:var(--success);">${fmtMoney(credit)}</td>
       <td style="text-align:right;"><b style="color:${runningBalance>0?'var(--danger)':'var(--success)'};">${fmtMoney(runningBalance)}</b></td>
@@ -157,20 +157,11 @@ function openCustomerLedger(custId) {
   const totalPaid = orders.reduce((s,o)=>s+(o.paid||0),0);
 
   openModal(`
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-      <div>
-        <h3>📜 ${escapeHtml(c.name)} — Full Ledger ${c.isB2B ? `<span style="font-size:12px;background:#2563eb;color:#fff;padding:2px 6px;border-radius:4px;vertical-align:middle;margin-left:6px;">B2B</span>` : ''}</h3>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--text-soft);margin-bottom:10px;">
-          <div>📞 ${escapeHtml(c.phone||'-')}</div>
-          ${c.loyaltyActive?`<div>⭐ ${escapeHtml(c.loyaltyNo)} (${c.loyaltyDiscountPercent}%)</div>`:''}
-          ${c.isB2B?`<div style="color:#2563eb;">🏢 Corporate Discount: ${c.b2bDiscount||0}%</div>`:''}
-          ${c.address?`<div>🏠 ${escapeHtml(c.address)}</div>`:''}
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;">
-        ${totalDue > 0 ? `<button class="btn btn-warning" id="btnConsolidated" style="padding:6px 12px;font-size:13px;font-weight:bold;">🧾 Print Consolidated Bill</button>` : ''}
-        ${c.isB2B ? `<button class="btn btn-primary" id="btnGenB2B" style="padding:6px 12px;font-size:13px;font-weight:bold;">📄 Generate Monthly Statement</button>` : ''}
-      </div>
+    <h3>📜 ${escapeHtml(c.name)} — Full Ledger</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--text-soft);margin-bottom:10px;">
+      <div>📞 ${escapeHtml(c.phone||'-')}</div>
+      ${c.loyaltyActive?`<div>⭐ ${escapeHtml(c.loyaltyNo)} (${c.loyaltyDiscountPercent}%)</div>`:''}
+      ${c.address?`<div>🏠 ${escapeHtml(c.address)}</div>`:''}
     </div>
 
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;">
@@ -238,7 +229,7 @@ function openCollectPayment(custId) {
         <thead><tr><th>Date</th><th>Invoice</th><th>Total</th><th>Paid</th><th>Due</th></tr></thead>
         <tbody>
           ${dueOrders.map(o => {
-            const invNo = DB.invoiceLabel(o);
+            const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
             return `<tr>
               <td>${fmtDateShort(o.createdAt)}</td>
               <td><b>${escapeHtml(invNo)}</b></td>
@@ -260,30 +251,25 @@ function openCollectPayment(custId) {
       let remaining = Math.max(0, Math.min(totalDue, +$('#payAmt', m).value || 0));
       if (remaining === 0) { toast('Enter amount','error'); return; }
       const initialAmount = remaining;
-
       const method = $('#payMethod', m).value || 'cash';
-      const nowIso = new Date().toISOString();
-      const user = DB.currentUser() || {};
+      const receivedAt = new Date().toISOString();
+      const cashier = DB.currentUser() || {};
 
       dueOrders.forEach(o => {
         if (remaining <= 0) return;
         const apply = Math.min(remaining, o.due);
         const newPaid = (o.paid||0) + apply;
         const newDue = Math.max(0, o.total - newPaid);
-
-        // Keep the same audit trail the Orders page writes, so the money shows
-        // up in the cash book / dashboard on the day it was actually collected.
         const paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
         paymentsLog.push({
-          id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random()*1000),
+          id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
           amount: apply,
           method,
-          note: 'Collected from ledger',
-          by: user.username || 'unknown',
-          byName: user.name || '',
-          at: nowIso
+          note: 'Payment received through customer ledger',
+          at: receivedAt,
+          by: cashier.username || 'unknown',
+          byName: cashier.name || ''
         });
-
         DB.update('orders', o.id, {
           paid: newPaid,
           due: newDue,
@@ -319,7 +305,7 @@ function sendDueReminder(custId) {
   if (phone.startsWith('0') && phone.length === 11) phone = '92' + phone.substring(1);
 
   const invList = dueOrders.map(o => {
-    const invNo = DB.invoiceLabel(o);
+    const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
     return `• ${invNo} (${fmtDateShort(o.createdAt)}) — ${fmtMoney(o.due)}`;
   }).join('\n');
 
