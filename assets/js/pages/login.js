@@ -117,7 +117,7 @@ function renderLogin() {
               <label for="loginUsername">${t('login.username')}</label>
               <div class="login-input-wrap">
                 <svg class="login-input-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.5-3.6 3.1-5.5 7-5.5s6.5 1.9 7 5.5"/></svg>
-                <input id="loginUsername" name="username" autocomplete="username" required placeholder="e.g. adminshahzeb" />
+                <input id="loginUsername" name="username" autocomplete="username" required placeholder="e.g. shahzeb" />
               </div>
             </div>
             <div class="field">
@@ -143,19 +143,55 @@ function renderLogin() {
   `;
   $('#app').innerHTML = html;
   $('#forgotBtn').onclick = () => { if (typeof openForgotPassword === 'function') openForgotPassword(); };
-  $('#loginForm').onsubmit = (e) => {
+  $('#loginForm').onsubmit = async (e) => {
     e.preventDefault();
-    const f = new FormData(e.target);
-    const u = DB.login(f.get('username').trim(), f.get('password'));
-    if (!u) { toast(t('login.invalid'), 'error'); return; }
-    toast(`Welcome, ${u.name}!`, 'success');
+    const form = new FormData(e.target);
+    const username = String(form.get('username') || '').trim();
+    const password = String(form.get('password') || '');
     const submitButton = e.currentTarget.querySelector('button[type="submit"]');
     if (submitButton) submitButton.disabled = true;
+
+    let user = null;
+    const localRecord = DB.all('users').find(u => String(u.username || '').trim().toLowerCase() === username.toLowerCase());
+    const managedAdmin = typeof SecureAdminAuth !== 'undefined' && SecureAdminAuth.isManagedUser(username, localRecord);
+    try {
+      if (managedAdmin) {
+        user = await SecureAdminAuth.login(username, password);
+      } else {
+        user = DB.login(username, password);
+      }
+    } catch (error) {
+      console.warn('[Login] Sign-in failed:', error && error.code ? error.code : 'invalid-credentials');
+      toast(t('login.invalid'), 'error');
+      if (submitButton) submitButton.disabled = false;
+      return;
+    }
+
+    if (!user) {
+      toast(t('login.invalid'), 'error');
+      if (submitButton) submitButton.disabled = false;
+      return;
+    }
+    if (user.tempPasswordExpired) {
+      await SecureAdminAuth.signOut();
+      if (typeof openMandatoryAdminPasswordChange === 'function') openMandatoryAdminPasswordChange(true);
+      if (submitButton) submitButton.disabled = false;
+      return;
+    }
+    if (user.mustChangePassword) {
+      if (typeof openMandatoryAdminPasswordChange === 'function') openMandatoryAdminPasswordChange(false);
+      if (submitButton) submitButton.disabled = false;
+      return;
+    }
+
+    toast(`Welcome, ${user.name}!`, 'success');
+    if (user.authMode === 'firebase' && !user.totpEnabled) {
+      setTimeout(() => toast('Settings mein Google Authenticator recovery setup karna yaad rakhein.', 'warning', 7000), 400);
+    }
     const overlay = showBrandBootOverlay();
     try {
-      app.go(u.role === 'admin' ? 'dashboard' : 'pos');
+      app.go(user.role === 'admin' ? 'dashboard' : 'pos');
     } finally {
-      // Keep the animated brand screen visible while the destination page paints.
       window.setTimeout(() => hideBrandBootOverlay(overlay), 1450);
     }
   };

@@ -24,11 +24,71 @@ function getSecurityQuestionText(user) {
   return SECURITY_QUESTIONS[user.securityQuestion] || user.securityQuestion;
 }
 
+function isFirebaseManagedAdminAccount(user, username = '') {
+  const normalized = String(username || (user && user.username) || '').trim().toLowerCase();
+  if (typeof SecureAdminAuth !== 'undefined' && SecureAdminAuth.isManagedUser(normalized, user)) return true;
+  return !!(user && (user.role === 'admin' || user.authManaged === true)) || ['adminshahzeb', 'shahzeb', 'itdesk'].includes(normalized);
+}
+
 /* ========== 1. ADMIN RESETS A USER'S PASSWORD ========== */
 function openAdminResetPassword(userId) {
-  if (DB.currentUser().role !== 'admin') { toast('Admin only','error'); return; }
+  const current = DB.currentUser();
+  if (!current || current.role !== 'admin') { toast('Admin only','error'); return; }
   const u = DB.get('users', userId);
   if (!u) return;
+
+  if (isFirebaseManagedAdminAccount(u)) {
+    if (!current.itDesk) { toast('Firebase-managed admin passwords can only be reset by IT Desk.','error'); return; }
+    openModal(`
+      <h3>🔑 Issue Temporary Admin Password</h3>
+      <p class="sub">Create a one-time temporary password for <b>${escapeHtml(u.username)}</b>. It expires in 15 minutes and must be changed after login.</p>
+      <div id="itResetResult" style="margin:12px 0;"></div>
+      <div class="field" style="background:#fff7e6;border:1px solid #f1d28e;border-radius:10px;padding:12px;font-size:12px;">
+        Lost authenticator recovery: resetting the factor invalidates all unused backup codes. The admin must sign in with their username/password and enroll again. If they also forgot the password, issue a temporary password separately.
+      </div>
+      <div id="itFactorResult" style="margin:12px 0;"></div>
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Close</button><button class="btn btn-warning" id="itResetFactor">Reset lost authenticator</button><button class="btn btn-primary" id="itResetIssue">Generate temporary password</button></div>
+    `, { onOpen(m) {
+      $('#itResetIssue', m).onclick = async () => {
+        const button = $('#itResetIssue', m);
+        button.disabled = true;
+        try {
+          const result = await SecureAdminAuth.resetAdminPasswordByITDesk(u.username);
+          const expires = new Date(result.expiresAt).toLocaleTimeString();
+          $('#itResetResult', m).innerHTML = `<div style="background:#fff7e6;border:1px solid #f1d28e;border-radius:10px;padding:12px;"><b>Show this password to the user privately. It is displayed once.</b><br><code id="itResetSecret" style="display:block;margin-top:8px;font-size:18px;word-break:break-all;user-select:all;">${escapeHtml(result.temporaryPassword)}</code><small>Expires at ${escapeHtml(expires)}. The user must set a new password after logging in.</small></div>`;
+          button.textContent = 'Issued';
+          if (typeof logAction === 'function') logAction('user.passwordReset', `${u.username} reset by IT Desk`);
+          if (typeof renderUsersBody === 'function') renderUsersBody();
+        } catch (error) {
+          console.warn('[IT Desk password reset] Failed:', error && error.code ? error.code : 'unknown');
+          const freshLoginRequired = error && String(error.code || '').includes('failed-precondition');
+          toast(freshLoginRequired
+            ? 'For security, IT Desk must sign out and sign back in before resetting an account.'
+            : 'Temporary password could not be generated. Check the IT Desk account and Firebase setup.','error');
+          button.disabled = false;
+        }
+      };
+      $('#itResetFactor', m).onclick = async () => {
+        if (!confirm(`Reset the Google Authenticator factor and all unused recovery codes for ${u.username}? The user will need to sign in and enroll again.`)) return;
+        const button = $('#itResetFactor', m);
+        button.disabled = true;
+        try {
+          await SecureAdminAuth.resetAdminAuthenticatorByITDesk(u.username);
+          $('#itFactorResult', m).innerHTML = '<div style="background:#dcfce7;padding:10px;border-radius:8px;color:#065f46;">Authenticator and unused recovery codes reset. The admin can sign in with their current password and enroll a new factor.</div>';
+          button.textContent = 'Authenticator reset';
+          if (typeof logAction === 'function') logAction('user.authenticatorReset', `${u.username} reset by IT Desk`);
+        } catch (error) {
+          console.warn('[IT Desk authenticator reset] Failed:', error && error.code ? error.code : 'unknown');
+          const freshLoginRequired = error && String(error.code || '').includes('failed-precondition');
+          toast(freshLoginRequired
+            ? 'For security, IT Desk must sign out and sign back in before resetting an authenticator.'
+            : 'Authenticator reset failed. Check the IT Desk account and Firebase setup.','error');
+          button.disabled = false;
+        }
+      };
+    }});
+    return;
+  }
 
   openModal(`
     <h3>🔑 Reset Password — ${escapeHtml(u.name)}</h3>
@@ -77,11 +137,20 @@ function openForgotPassword() {
 
     <div style="display:flex;flex-direction:column;gap:10px;">
 
+      <button class="recovery-option" data-method="authenticator">
+        <div style="font-size:28px;">📲</div>
+        <div style="flex:1;text-align:left;">
+          <div style="font-weight:700;">Google Authenticator recovery</div>
+          <small style="color:var(--text-soft);">Admin / IT Desk only; use a six-digit TOTP or one-time recovery code</small>
+        </div>
+        <div>→</div>
+      </button>
+
       <button class="recovery-option" data-method="security">
         <div style="font-size:28px;">❓</div>
         <div style="flex:1;text-align:left;">
           <div style="font-weight:700;">Answer Security Question</div>
-          <small style="color:var(--text-soft);">If you set up a security question earlier</small>
+          <small style="color:var(--text-soft);">Legacy cashier accounts only</small>
         </div>
         <div>→</div>
       </button>
@@ -90,7 +159,7 @@ function openForgotPassword() {
         <div style="font-size:28px;">🔑</div>
         <div style="flex:1;text-align:left;">
           <div style="font-weight:700;">Master Recovery Code</div>
-          <small style="color:var(--text-soft);">Shop owner's special PIN (set in Settings)</small>
+          <small style="color:var(--text-soft);">For legacy cashier accounts only; admins use Authenticator recovery</small>
         </div>
         <div>→</div>
       </button>
@@ -134,7 +203,8 @@ function openForgotPassword() {
         const method = btn.dataset.method;
         closeModal();
         setTimeout(() => {
-          if (method === 'security') openSecurityQuestionRecovery();
+          if (method === 'authenticator') openAuthenticatorRecovery();
+          else if (method === 'security') openSecurityQuestionRecovery();
           else if (method === 'master') openMasterCodeRecovery();
           else if (method === 'backup') openBackupRecovery();
           else if (method === 'contact') showAdminContactInfo();
@@ -199,8 +269,12 @@ function openSecurityQuestionRecovery() {
       if (stage === 1) {
         const u = $('#srUser', m).value.trim().toLowerCase();
         if (!u) { msg('Enter username', 'error'); return; }
-        foundUser = DB.all('users').find(x => x.username.toLowerCase() === u);
+        foundUser = DB.all('users').find(x => String(x.username || '').toLowerCase() === u);
         if (!foundUser) { msg('❌ Username not found', 'error'); return; }
+        if (isFirebaseManagedAdminAccount(foundUser, u)) {
+          msg('Admin/IT Desk accounts must use Google Authenticator recovery.', 'error');
+          return;
+        }
         if (!foundUser.securityQuestion || !foundUser.securityAnswer) {
           msg('⚠️ This user has no security question set up. Try another recovery method.', 'error');
           return;
@@ -331,8 +405,12 @@ function openMasterCodeRecovery() {
         const u = $('#mcUser', m).value.trim().toLowerCase();
         const code = $('#mcCode', m).value;
         if (!u || !code) { msg('Fill both fields','error'); return; }
-        foundUser = DB.all('users').find(x => x.username.toLowerCase() === u);
+        foundUser = DB.all('users').find(x => String(x.username || '').toLowerCase() === u);
         if (!foundUser) { msg('❌ Username not found','error'); return; }
+        if (isFirebaseManagedAdminAccount(foundUser, u)) {
+          msg('Admin/IT Desk accounts must use Google Authenticator recovery.','error');
+          return;
+        }
         if (code !== s.masterRecoveryCode) {
           msg('❌ Wrong Master Recovery Code','error');
           try {
@@ -500,11 +578,11 @@ function openChangeMyPassword() {
     </div>
     <div class="field">
       <label>New Password *</label>
-      <input type="text" id="cpNew" placeholder="At least 4 characters"/>
+      <input type="password" id="cpNew" autocomplete="new-password" placeholder="At least 12 characters for admin accounts"/>
     </div>
     <div class="field">
       <label>Confirm New Password *</label>
-      <input type="text" id="cpNew2" placeholder="Same as above"/>
+      <input type="password" id="cpNew2" autocomplete="new-password" placeholder="Same as above"/>
     </div>
 
     <div id="cpMsg"></div>
@@ -514,15 +592,33 @@ function openChangeMyPassword() {
       <button class="btn btn-primary" id="cpSave">💾 Change Password</button>
     </div>
   `, { onOpen(m) {
-    $('#cpSave', m).onclick = () => {
+    $('#cpSave', m).onclick = async () => {
       const oldp = $('#cpOld', m).value;
       const newp = $('#cpNew', m).value;
       const newp2 = $('#cpNew2', m).value;
+      const button = $('#cpSave', m);
+      if (!newp || newp !== newp2) { toast('Passwords do not match', 'error'); return; }
+
+      if (user.authMode === 'firebase') {
+        if (newp.length < 12) { toast('Admin password must be at least 12 characters.', 'error'); return; }
+        button.disabled = true;
+        try {
+          await SecureAdminAuth.changeOwnPassword(newp, oldp);
+          if (typeof logAction === 'function') logAction('user.passwordChange', 'Changed Firebase Auth password');
+          toast('Password changed securely.', 'success');
+          closeModal();
+        } catch (error) {
+          console.warn('[Password change] Firebase Auth failed:', error && error.code ? error.code : 'unknown');
+          toast('Password change failed. Check your current password and try again.', 'error');
+          button.disabled = false;
+        }
+        return;
+      }
+
       const fullUser = DB.get('users', user.id);
       if (!fullUser) { toast('User not found', 'error'); return; }
       if (fullUser.password !== oldp) { toast('❌ Current password is wrong', 'error'); return; }
-      if (!newp || newp.length < 4) { toast('New password too short', 'error'); return; }
-      if (newp !== newp2) { toast('Passwords do not match', 'error'); return; }
+      if (newp.length < 4) { toast('New password too short', 'error'); return; }
       DB.update('users', user.id, { password: newp });
       if (typeof logAction === 'function') logAction('user.passwordChange', 'Changed own password');
       toast('✅ Password changed!', 'success');
@@ -539,7 +635,7 @@ function openMasterCodeSetup() {
 
   openModal(`
     <h3>🔑 Master Recovery Code Setup</h3>
-    <p class="sub">This is a special code that lets you reset ANY user's password — even your own — if you ever forget.</p>
+    <p class="sub">This local recovery code is for legacy cashier accounts only. Firebase-managed admin and IT Desk passwords must be recovered through Google Authenticator or one-time recovery codes.</p>
 
     <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;">
       🔐 <b>Treat this like a bank PIN!</b><br>

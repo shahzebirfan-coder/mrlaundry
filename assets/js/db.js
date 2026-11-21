@@ -5,6 +5,12 @@
 
 const DB_KEY = 'mrLaundryDB';
 const SESSION_KEY = 'mrLaundrySession';
+const FIREBASE_MANAGED_ADMIN_USERNAMES = new Set(['adminshahzeb', 'shahzeb', 'itdesk']);
+
+function isFirebaseManagedAdminRecord(user) {
+  const username = String(user && user.username || '').trim().toLowerCase();
+  return !!user && (user.role === 'admin' || user.authManaged === true || FIREBASE_MANAGED_ADMIN_USERNAMES.has(username));
+}
 
 // Locked shop profile for this installation. Keep these values as the
 // permanent defaults so a new browser/device shows correct shop details
@@ -18,6 +24,14 @@ const LOCKED_SHOP_PROFILE = {
 
 const DB = {
   _data: null,
+
+  stripManagedPasswords(data = this._data) {
+    if (!data || !Array.isArray(data.users)) return data;
+    data.users.forEach(user => {
+      if (isFirebaseManagedAdminRecord(user)) delete user.password;
+    });
+    return data;
+  },
 
   load() {
     const raw = localStorage.getItem(DB_KEY);
@@ -37,6 +51,14 @@ const DB = {
       (seed.users || []).forEach(su => {
         const exists = this._data.users.some(u => u && (u.id === su.id || (u.username && su.username && u.username.toLowerCase() === su.username.toLowerCase())));
         if (!exists) this._data.users.push({ ...su });
+      });
+      // IT Desk is explicitly a managed full-admin identity, not a cashier row.
+      this._data.users.forEach(user => {
+        if (user && String(user.username || '').trim().toLowerCase() === 'itdesk') {
+          user.role = 'admin';
+          user.authManaged = true;
+          delete user.password;
+        }
       });
       if (!Array.isArray(this._data.categories) || !this._data.categories.length) this._data.categories = seed.categories;
       if (!Array.isArray(this._data.products) || !this._data.products.length) this._data.products = seed.products;
@@ -73,6 +95,10 @@ const DB = {
     if (this._data && this._data.settings) {
       this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
     }
+    // Admin credentials are verified by Firebase Auth; never keep or re-export
+    // their old local plaintext password fields. Cashier accounts remain on the
+    // existing local login flow until separately migrated.
+    this.stripManagedPasswords();
     // Repair serial counters after backup restore/cloud merge so invoice numbers
     // always continue from the highest existing invoice.
     this.repairCounters();
@@ -83,6 +109,7 @@ const DB = {
 
   _storageSafeCopy(data, aggressive = false) {
     const copy = JSON.parse(JSON.stringify(data || {}));
+    this.stripManagedPasswords(copy);
 
     // Online-only build: never put heavy base64 files into browser localStorage.
     // They are the main reason Chrome shows QUOTA_EXCEEDED / critical storage errors.
@@ -189,7 +216,9 @@ const DB = {
     return {
       _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
       users: [
-        { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
+        { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', role: 'admin', authManaged: true, createdAt: now },
+        { id: 'auth_owner_shahzeb', name: 'Shahzeb (Owner)', username: 'shahzeb', role: 'admin', authManaged: true, createdAt: now },
+        { id: 'auth_itdesk', name: 'IT Desk', username: 'itdesk', role: 'admin', authManaged: true, createdAt: now },
         { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now },
         { id: 'u3', name: 'Kashif', username: 'kashif', password: '123456', role: 'cashier', createdAt: now }
       ],
@@ -435,7 +464,8 @@ const DB = {
   },
 
   login(username, password) {
-    const u = this._data.users.find(x => x.username === username && x.password === password);
+    let u = this._data.users.find(x => x.username === username && x.password === password);
+    if (u && isFirebaseManagedAdminRecord(u)) u = null;
     if (!u) {
       // Log failed attempt
       try {
@@ -484,7 +514,9 @@ const DB = {
         this.save();
       } catch(e){}
     }
+    const secureAuthUser = u && u.authMode === 'firebase';
     sessionStorage.removeItem(SESSION_KEY);
+    if (secureAuthUser && typeof SecureAdminAuth !== 'undefined') SecureAdminAuth.signOut().catch(() => {});
   },
   currentUser() {
     const raw = sessionStorage.getItem(SESSION_KEY);
@@ -492,10 +524,15 @@ const DB = {
     try { return JSON.parse(raw); } catch(e){ return null; }
   },
 
-  exportJSON() { return JSON.stringify(this._data, null, 2); },
+  exportJSON() {
+    const safe = JSON.parse(JSON.stringify(this._data || {}));
+    this.stripManagedPasswords(safe);
+    return JSON.stringify(safe, null, 2);
+  },
   importJSON(json) {
     const parsed = typeof json === 'string' ? JSON.parse(json) : json;
     this._data = parsed;
+    this.stripManagedPasswords(this._data);
     if (this._data.settings) this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
     this.repairCounters();
     this.save();

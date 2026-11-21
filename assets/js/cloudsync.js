@@ -208,17 +208,20 @@ const CLOUD = {
   setAutoPushMin(v) { localStorage.setItem(this.AUTO_PUSH_MIN_KEY, String(Math.max(0, +v || 0))); },
 
   async loadSDK() {
-    if (window.firebase?.firestore) return;
     const scripts = [
-      'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js',
-      'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'
+      { src: 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js', ready: () => !!window.firebase?.initializeApp },
+      { src: 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js', ready: () => !!window.firebase?.auth },
+      { src: 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js', ready: () => !!window.firebase?.firestore },
+      { src: 'https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js', ready: () => !!window.firebase?.functions }
     ];
-    for (const src of scripts) {
+    for (const item of scripts) {
+      if (item.ready()) continue;
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = src; s.onload = resolve; s.onerror = reject;
+        s.src = item.src; s.onload = resolve; s.onerror = reject;
         document.head.appendChild(s);
       });
+      if (!item.ready()) throw new Error('Firebase SDK component failed to load: ' + item.src);
     }
   },
 
@@ -350,8 +353,8 @@ const CLOUD = {
   },
 
   mergeData(local, remote) {
-    if (!remote) return local;
-    if (!local) return remote;
+    if (!remote) return (typeof DB !== 'undefined' && DB.stripManagedPasswords) ? DB.stripManagedPasswords(local) : local;
+    if (!local) return (typeof DB !== 'undefined' && DB.stripManagedPasswords) ? DB.stripManagedPasswords(remote) : remote;
     const mergeRecordSafely = this._mergeRecordSafely.bind(this);
     const merged = JSON.parse(JSON.stringify(local));
 
@@ -408,6 +411,7 @@ const CLOUD = {
         merged[tbl] = r;
       }
     }
+    if (typeof DB !== 'undefined' && DB.stripManagedPasswords) DB.stripManagedPasswords(merged);
     return merged;
   },
 
@@ -486,6 +490,7 @@ const CLOUD = {
       return this.push({ ...options, _preMerged: true, wait: true });
     }
 
+    if (typeof DB.stripManagedPasswords === 'function') DB.stripManagedPasswords(DB._data);
     this.assertSafeToPush(DB._data);
     this._syncing = true;
     const runId = ++this._syncRunId;

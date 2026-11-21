@@ -121,10 +121,18 @@ function renderSettings() {
           <div id="gdriveStatus" style="font-size:11px;color:var(--text-soft);margin-top:8px;text-align:center;"></div>
         </div>
 
+        ${DB.currentUser()?.authMode === 'firebase' ? `
+        <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,#eef2ff 0%,#f8faff 100%);border:2px solid #7c8ef5;">
+          <div class="card-header"><h3>📲 Google Authenticator Recovery</h3></div>
+          <p style="color:var(--text-soft);font-size:12px;margin-bottom:14px;">Admin aur IT Desk ke liye. Recovery ke waqt Authenticator code verify hota hai; 10 one-time backup codes setup par sirf ek baar dikhte hain.</p>
+          <button class="btn btn-primary btn-block" id="openAuthenticatorBtn">🔐 Set up / check recovery</button>
+        </div>
+        ` : ''}
+
         <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,#fef3c7 0%,#fffbeb 100%);border:2px solid #f59e0b;">
           <div class="card-header"><h3>🔑 Master Recovery Code <span class="badge" style="background:${s.masterRecoveryCode?'#10b981':'#ef4444'};color:#fff;">${s.masterRecoveryCode?'✅ SET':'⚠️ NOT SET'}</span></h3></div>
           <p style="color:#78350f;font-size:12px;margin-bottom:14px;">
-            🔐 <b>CRITICAL FOR LAUNCH!</b> A special PIN that resets any user password if forgotten. Like a bank PIN — keep safe!
+            🔐 Backup PIN for legacy cashier accounts only. Admin and IT Desk accounts use server-verified Google Authenticator recovery.
           </p>
           <button class="btn btn-warning btn-block" id="openMasterCodeBtn" style="background:#f59e0b;color:#fff;border:none;font-weight:700;">
             🔑 ${s.masterRecoveryCode?'Change':'Set Up'} Master Recovery Code
@@ -268,6 +276,7 @@ function renderSettings() {
   if ($('#checkStorageBtn')) $('#checkStorageBtn').onclick = () => showStorageStatus();
   if ($('#openWaTplBtn'))  $('#openWaTplBtn').onclick  = () => openWhatsAppTemplateEditor();
   if ($('#openGDriveBtn')) $('#openGDriveBtn').onclick = () => openGDriveManager();
+  if ($('#openAuthenticatorBtn')) $('#openAuthenticatorBtn').onclick = () => openAuthenticatorSetup();
   if ($('#openMasterCodeBtn')) $('#openMasterCodeBtn').onclick = () => openMasterCodeSetup();
   if ($('#openCloudBtn')) $('#openCloudBtn').onclick  = () => openCloudSyncManager();
   // Status indicators

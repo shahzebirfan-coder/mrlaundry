@@ -25,22 +25,25 @@ function renderUsers() {
 function renderUsersBody() {
   const users = DB.all('users');
   $('#usrBody').innerHTML = users.map(u => {
-    const permCount = u.role === 'admin' ? 'All access' :
+    const managedAdmin = u.role === 'admin' || u.authManaged === true ||
+      (typeof SecureAdminAuth !== 'undefined' && SecureAdminAuth.isManagedUser(u.username, u));
+    const isAdmin = managedAdmin;
+    const permCount = isAdmin ? 'All access' :
       (Array.isArray(u.permissions) ? u.permissions.length : 3) + ' permissions';
     return `
     <tr>
       <td><b>${escapeHtml(u.name)}</b></td>
       <td><code>${escapeHtml(u.username)}</code></td>
-      <td><span class="badge ${u.role}">${u.role === 'admin' ? '👑 Admin' : '🧑‍💼 Cashier'}</span></td>
-      <td>${u.role === 'admin'
+      <td><span class="badge ${isAdmin ? 'admin' : 'cashier'}">${isAdmin ? '👑 Admin' : '🧑‍💼 Cashier'}</span></td>
+      <td>${isAdmin
         ? '<span style="color:var(--success);font-weight:600;">✅ All access</span>'
         : `<span style="font-size:12px;">${permCount}</span>`}</td>
       <td>${fmtDateShort(u.createdAt)}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-secondary btn-sm" data-act="edit" data-id="${u.id}">✏️ Edit</button>
-        ${u.role !== 'admin' ? `<button class="btn btn-warning btn-sm" data-act="perms" data-id="${u.id}" title="Manage Permissions">🔐 Permissions</button>` : ''}
+        ${!isAdmin ? `<button class="btn btn-warning btn-sm" data-act="perms" data-id="${u.id}" title="Manage Permissions">🔐 Permissions</button>` : ''}
         <button class="btn btn-primary btn-sm" data-act="reset" data-id="${u.id}" title="Reset Password (admin override)">🔑 Reset Pass</button>
-        ${u.id !== DB.currentUser().id ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${u.id}">🗑️</button>` : '<small style="color:var(--text-soft);">(you)</small>'}
+        ${u.id !== DB.currentUser().id && !managedAdmin ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${u.id}">🗑️</button>` : (u.id === DB.currentUser().id ? '<small style="color:var(--text-soft);">(you)</small>' : '<small style="color:var(--text-soft);">(managed)</small>')}
       </td>
     </tr>
   `;
@@ -60,11 +63,12 @@ function renderUsersBody() {
 
 function openUserForm(existing) {
   const u = existing || { name:'', username:'', password:'', role:'cashier' };
+  const existingManaged = !!(existing && ((typeof SecureAdminAuth !== 'undefined' && SecureAdminAuth.isManagedUser(existing.username, existing)) || existing.role === 'admin'));
   openModal(`
     <h3>${existing?'Edit':'Add'} User</h3>
     <div class="form-row">
       <div class="field"><label>Full Name *</label><input id="uName" value="${escapeHtml(u.name)}"/></div>
-      <div class="field"><label>Username *</label><input id="uUser" value="${escapeHtml(u.username)}"/></div>
+      <div class="field"><label>Username *</label><input id="uUser" value="${escapeHtml(u.username)}" ${existingManaged?'readonly':''}/></div>
     </div>
     <div class="form-row">
       <div class="field"><label>Password ${existing?'(leave blank to keep)':'*'}</label><input type="text" id="uPass" placeholder="${existing?'••••••••':''}"/></div>
@@ -77,8 +81,8 @@ function openUserForm(existing) {
     </div>
 
     <div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:12px;border-radius:8px;margin-top:10px;margin-bottom:12px;">
-      <div style="font-weight:700;margin-bottom:6px;">🔐 Password Recovery (Optional but Recommended!)</div>
-      <small style="color:var(--text-soft);display:block;margin-bottom:8px;">If you forget your password, you can recover it using this security question. Set this for every user!</small>
+      <div style="font-weight:700;margin-bottom:6px;">🔐 Cashier Password Recovery (Optional)</div>
+      <small style="color:var(--text-soft);display:block;margin-bottom:8px;">Security questions are for legacy local cashier accounts only. Firebase-managed admin accounts use Google Authenticator recovery.</small>
       <div class="form-row">
         <div class="field"><label>Security Question</label>
           <select id="uSecQ">
@@ -118,6 +122,18 @@ function openUserForm(existing) {
       const password = $('#uPass', m).value;
       const role = $('#uRole', m).value;
       if (!name || !username || (!existing && !password)) { toast('All fields required','error'); return; }
+      if ((role === 'admin' && (!existing || existing.role !== 'admin')) || (existingManaged && existing.role === 'admin' && role !== 'admin')) {
+        toast('Admin accounts must be provisioned through the secure Firebase admin setup; local role changes are disabled.','error');
+        return;
+      }
+      if (existingManaged && username.toLowerCase() !== String(existing.username || '').toLowerCase()) {
+        toast('Firebase-managed admin usernames cannot be changed in the local user list.','error');
+        return;
+      }
+      if ((role === 'admin' || existingManaged) && password) {
+        toast('Admin passwords are managed by Firebase Auth; use IT Desk reset or authenticator recovery.','error');
+        return;
+      }
       const dup = DB.all('users').find(x => x.username === username && x.id !== (existing?existing.id:null));
       if (dup) { toast('Username already exists','error'); return; }
       const data = { name, username, role };

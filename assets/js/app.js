@@ -77,19 +77,32 @@ const app = {
 };
 
 // Boot
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   const saved = localStorage.getItem('mrLaundryTheme') || 'light';
   document.documentElement.dataset.theme = saved;
 
-  const u = DB.currentUser();
+  let u = DB.currentUser();
   if (typeof initShortcuts === 'function') initShortcuts();
+  if (u && u.authMode === 'firebase') {
+    u = await SecureAdminAuth.restoreSession();
+    if (!u) sessionStorage.removeItem('mrLaundrySession');
+  }
+  if (u && u.tempPasswordExpired) {
+    await SecureAdminAuth.signOut();
+    app.go('login');
+    if (typeof openMandatoryAdminPasswordChange === 'function') openMandatoryAdminPasswordChange(true);
+    return;
+  }
+  if (u && u.mustChangePassword) {
+    app.go('login');
+    if (typeof openMandatoryAdminPasswordChange === 'function') openMandatoryAdminPasswordChange(false);
+    return;
+  }
   if (u) {
-    // Land on first allowed page
     if (u.role === 'admin') {
       app.go('dashboard');
     } else {
       const allowed = (typeof getUserPermissions === 'function') ? getUserPermissions(u) : ['pos'];
-      // Prefer dashboard > pos > first allowed
       if (allowed.includes('dashboard')) app.go('dashboard');
       else if (allowed.includes('pos')) app.go('pos');
       else app.go(allowed[0] || 'pos');
