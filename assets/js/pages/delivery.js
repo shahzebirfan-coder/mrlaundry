@@ -1,46 +1,5 @@
 /* ===================== PICKUP & DELIVERY MODULE ===================== */
-const PICKUP_TIME_SLOTS = [
-  { value: '09:00-11:00', label: '9 AM - 11 AM' },
-  { value: '11:00-13:00', label: '11 AM - 1 PM' },
-  { value: '13:00-15:00', label: '1 PM - 3 PM' },
-  { value: '15:00-17:00', label: '3 PM - 5 PM' },
-  { value: '17:00-19:00', label: '5 PM - 7 PM' },
-  { value: '19:00-21:00', label: '7 PM - 9 PM' }
-];
-const LEGACY_PICKUP_SLOTS = {
-  '9am-12pm': '9 AM - 12 PM',
-  '10am-2pm': '10 AM - 2 PM',
-  '2pm-6pm': '2 PM - 6 PM',
-  '6pm-9pm': '6 PM - 9 PM'
-};
 let deliveryFilter = { tab: 'requests', status: 'all', driverId: 'all' };
-
-function pickupSlotLabel(slot) {
-  const known = PICKUP_TIME_SLOTS.find(s => s.value === slot);
-  return known ? known.label : (LEGACY_PICKUP_SLOTS[slot] || String(slot || '-'));
-}
-
-function pickupSlotWindow(slot) {
-  const value = String(slot || '');
-  let match = value.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
-  if (match) return { start: +match[1] * 60 + +match[2], end: +match[3] * 60 + +match[4] };
-  match = value.toLowerCase().match(/^(\d{1,2})(am|pm)-(\d{1,2})(am|pm)$/);
-  if (!match) return null;
-  const minutes = (hourText, period) => {
-    let hour = Number(hourText) % 12;
-    if (period === 'pm') hour += 12;
-    return hour * 60;
-  };
-  return { start: minutes(match[1], match[2]), end: minutes(match[3], match[4]) };
-}
-
-function normalizePickupWhatsAppPhone(raw) {
-  let phone = String(raw || '').replace(/\D/g, '');
-  if (phone.startsWith('00')) phone = phone.slice(2);
-  if (phone.startsWith('0') && phone.length === 11) phone = '92' + phone.slice(1);
-  else if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
-  return phone;
-}
 
 function renderDelivery() {
   const requests = DB.all('pickupRequests');
@@ -63,7 +22,8 @@ function renderDelivery() {
 
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn ${deliveryFilter.tab==='requests'?'btn-primary':'btn-secondary'}" id="tabReq">📋 Pickup Requests</button>
-      <button class="btn ${deliveryFilter.tab==='drivers'?'btn-primary':'btn-secondary'}" id="tabDrv">👨‍✈️ Drivers</button>
+      <button class="btn ${deliveryFilter.tab==='drivers'?'btn-primary':'btn-secondary'}" id="tabDrv">👨‍✈️ Captains</button>
+      <button class="btn btn-secondary" id="pickupSetupBtn">⚙️ Slot &amp; WhatsApp Setup</button>
       <button class="btn btn-success" id="newReqBtn" style="margin-left:auto;">+ New Pickup Request</button>
     </div>
 
@@ -75,6 +35,7 @@ function renderDelivery() {
   $('#tabReq').onclick = () => { deliveryFilter.tab = 'requests'; renderDelivery(); };
   $('#tabDrv').onclick = () => { deliveryFilter.tab = 'drivers'; renderDelivery(); };
   $('#newReqBtn').onclick = () => openPickupRequestForm();
+  $('#pickupSetupBtn').onclick = () => openPickupSetup();
 
   if (deliveryFilter.tab === 'requests') renderRequestsTab();
   else renderDriversTab();
@@ -103,14 +64,18 @@ function renderRequestsTab() {
             <td><b>#${r.id.slice(-6).toUpperCase()}</b></td>
             <td><b>${escapeHtml(r.customerName)}</b><br><small style="color:var(--text-soft);">${escapeHtml(r.customerPhone)}</small></td>
             <td style="font-size:12px;">${escapeHtml(r.address)}</td>
-            <td><b>${escapeHtml(r.pickupDate||'-')}</b><br><small>${escapeHtml(pickupSlotLabel(r.pickupSlot))}</small></td>
-            <td>${r.driverId ? '🛵 '+escapeHtml((drivers.find(d=>d.id===r.driverId)||{}).name||'-') : '<span style="color:var(--text-soft);">Not assigned</span>'}</td>
+            <td><b>${escapeHtml(r.pickupDate||'-')}</b><br><small>${escapeHtml(r.pickupSlot||'-')}</small></td>
+            <td>${r.driverId ? '🛵 ' + escapeHtml((drivers.find(d=>d.id===r.driverId)||{}).name||'-') +
+                  '<br><small style="color:var(--text-soft);">' + escapeHtml((drivers.find(d=>d.id===r.driverId)||{}).phone||'no number') + '</small>'
+                  : '<span style="color:var(--text-soft);">Not assigned</span>'}</td>
             <td><span class="badge ${statusColors[r.status]||'pending'}">${r.status}</span></td>
             <td>${r.rating?('⭐'.repeat(r.rating)):'-'}</td>
             <td style="white-space:nowrap;">
               ${r.status === 'pending' ? `<button class="btn btn-success btn-sm" data-act="assign" data-id="${r.id}">👨‍✈️ Assign</button>` : ''}
               ${r.status === 'assigned' ? `<button class="btn btn-primary btn-sm" data-act="pickup" data-id="${r.id}">📦 Mark Picked Up</button>` : ''}
               ${r.status === 'picked' ? `<button class="btn btn-success btn-sm" data-act="deliver" data-id="${r.id}">✅ Complete</button>` : ''}
+              ${r.driverId ? `<button class="btn btn-secondary btn-sm" data-act="sheet" data-id="${r.id}" title="Job sheet / WhatsApp">🧾</button>` : ''}
+              ${r.customerPhone ? `<button class="btn btn-success btn-sm" data-act="wacust" data-id="${r.id}" title="WhatsApp the customer">📱</button>` : ''}
               <button class="btn btn-secondary btn-sm" data-act="edit" data-id="${r.id}">✏️</button>
               ${DB.currentUser().role === 'admin' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${r.id}">🗑️</button>` : ''}
             </td>
@@ -124,6 +89,16 @@ function renderRequestsTab() {
     const id = b.dataset.id;
     const act = b.dataset.act;
     if (act === 'assign') openAssignDriverDialog(id);
+    else if (act === 'sheet') openJobSheet(id);
+    else if (act === 'wacust') {
+      const rq = DB.get('pickupRequests', id);
+      if (!rq) return;
+      const drv = rq.driverId ? DB.get('drivers', rq.driverId) : null;
+      const sh = window.PICKUP_OPS ? PICKUP_OPS.jobSheet(rq, drv) : null;
+      if (!sh) { toast('Pickup module not loaded', 'error'); return; }
+      PICKUP_OPS.openWhatsApp(sh.customerPhone, sh.customerMessage);
+      if (typeof logAction === 'function') logAction('pickup.waCustomer', id);
+    }
     else if (act === 'pickup') updateRequestStatus(id, 'picked');
     else if (act === 'deliver') openCompleteDeliveryDialog(id);
     else if (act === 'edit') openPickupRequestForm(DB.get('pickupRequests', id));
@@ -179,11 +154,7 @@ function renderDriversTab() {
 }
 
 function openPickupRequestForm(existing) {
-  const r = existing || { customerName:'', customerPhone:'', address:'', pickupDate: isoDay(new Date(Date.now()+86400000)), pickupSlot:'09:00-11:00', notes:'', status:'pending' };
-  const slotOptions = PICKUP_TIME_SLOTS.map(slot => `<option value="${slot.value}" ${r.pickupSlot===slot.value?'selected':''}>${slot.label}</option>`).join('');
-  const legacySlotOption = r.pickupSlot && !PICKUP_TIME_SLOTS.some(slot => slot.value === r.pickupSlot)
-    ? `<option value="${escapeHtml(r.pickupSlot)}" selected>${escapeHtml(pickupSlotLabel(r.pickupSlot))} (existing request)</option>`
-    : '';
+  const r = existing || { customerName:'', customerPhone:'', address:'', pickupDate: isoDay(new Date(Date.now()+86400000)), pickupSlot:'', notes:'', status:'pending' };
   openModal(`
     <h3>${existing?'Edit':'+ New'} Pickup Request</h3>
     <div class="form-row">
@@ -196,9 +167,8 @@ function openPickupRequestForm(existing) {
     <div class="form-row">
       <div class="field"><label>Pickup Date *</label><input type="date" id="rDate" value="${r.pickupDate}"/></div>
       <div class="field"><label>Time Slot</label>
-        <select id="rSlot">
-          ${legacySlotOption}${slotOptions}
-        </select>
+        <select id="rSlot"><option value="${escapeHtml(r.pickupSlot||'')}">${escapeHtml(r.pickupSlot || 'Loading…')}</option></select>
+        <small id="rSlotNote" style="color:var(--text-soft);"></small>
       </div>
     </div>
     <div class="form-row cols-1">
@@ -209,6 +179,33 @@ function openPickupRequestForm(existing) {
       <button class="btn btn-primary" id="saveReqBtn">💾 Save</button>
     </div>
   `, { onOpen(m) {
+    /* Slot list = slots that are still sellable (2h lead time, 1 order per slot). */
+    const refreshSlots = () => {
+      const sel = $('#rSlot', m);
+      const note = $('#rSlotNote', m);
+      const dateISO = $('#rDate', m).value;
+      if (!window.PICKUP_OPS) { sel.innerHTML = '<option value="10am-2pm">10 AM - 2 PM</option>'; return; }
+      const res = PICKUP_OPS.slotsForDay(dateISO);
+      if (!res.slots.length) {
+        const why = res.reason === 'closed' ? 'Shop closed on this day — choose another date.'
+          : res.reason === 'late' ? 'Too late today — first slot starts ' + PICKUP_OPS.config().leadHours + 'h from now.'
+          : res.reason === 'past' ? 'This date has already passed.'
+          : 'All slots for this day are booked (1 order per slot). Try the next date.';
+        sel.innerHTML = '<option value="">No slots available</option>';
+        note.textContent = why;
+        note.style.color = 'var(--danger)';
+        return;
+      }
+      const keep = sel.value;
+      sel.innerHTML = res.slots.map(sl =>
+        `<option value="${escapeHtml(sl.value)}" ${sl.value === keep || sl.value === r.pickupSlot ? 'selected' : ''}>🕒 ${escapeHtml(sl.label)}</option>`
+      ).join('');
+      note.textContent = 'Each slot takes ONE pickup — booked slots are hidden automatically.';
+      note.style.color = 'var(--text-soft)';
+    };
+    $('#rDate', m).onchange = refreshSlots;
+    refreshSlots();
+
     $('#saveReqBtn', m).onclick = () => {
       const data = {
         customerName: $('#rName', m).value.trim(),
@@ -220,14 +217,15 @@ function openPickupRequestForm(existing) {
         status: r.status
       };
       if (!data.customerName || !data.customerPhone || !data.address) { toast('Name, phone & address required','error'); return; }
-      if (!data.pickupDate || !data.pickupSlot) { toast('Pickup date and slot are required','error'); return; }
-      const requestedWindow = pickupSlotWindow(data.pickupSlot);
-      const slotConflict = DB.all('pickupRequests').find(request => {
-        if (request.id === (existing && existing.id) || request.status === 'cancelled' || request.pickupDate !== data.pickupDate) return false;
-        const bookedWindow = pickupSlotWindow(request.pickupSlot);
-        return requestedWindow && bookedWindow && requestedWindow.start < bookedWindow.end && requestedWindow.end > bookedWindow.start;
-      });
-      if (slotConflict) { toast('This pickup slot is already booked. Choose another date or time.','error'); return; }
+      if (!data.pickupSlot) { toast('Pick an available time slot','error'); return; }
+      // one order per slot — block a double booking even if two staff edit at once
+      if (window.PICKUP_OPS && !PICKUP_OPS.slotFree(data.pickupDate, data.pickupSlot)) {
+        const clash = DB.all('pickupRequests').find(x => x.id !== (existing && existing.id) &&
+          x.status !== 'cancelled' && x.pickupDate === data.pickupDate && String(x.pickupSlot) === data.pickupSlot);
+        toast('That slot is already booked' + (clash ? ' for ' + clash.customerName : '') + ' — pick another', 'error');
+        return;
+      }
+      // keep the captain if he was already assigned (edit must not wipe the assignment)
       if (existing) DB.update('pickupRequests', existing.id, data);
       else DB.insert('pickupRequests', data);
       closeModal(); toast('Saved','success');
@@ -279,92 +277,274 @@ function openDriverForm(existing) {
   }});
 }
 
-function openAssignDriverDialog(requestId) {
-  const drivers = DB.all('drivers').filter(d => d.active !== false);
-  if (!drivers.length) { toast('Add a driver first', 'error'); return; }
+
+/* ============================================================
+   SLOT & WHATSAPP SETUP
+   ============================================================ */
+function openPickupSetup() {
+  const s = DB.settings();
+  const ops = window.PICKUP_OPS;
+  const cfg = ops ? ops.config() : {};
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
   openModal(`
-    <h3>👨‍✈️ Assign Driver</h3>
-    <p class="sub">Pick a driver for this pickup request.</p>
-    <div style="display:flex;flex-direction:column;gap:8px;">
+    <h3>⚙️ Pickup Slot &amp; WhatsApp Setup</h3>
+    <p class="sub">Controls how the customer sees slots on the portal, and what the captain / customer receive.</p>
+
+    <div style="font-weight:800;margin:14px 0 8px;">🕒 Slot rules</div>
+    <div class="form-row">
+      <div class="field">
+        <label>Minimum lead time (hours)</label>
+        <input type="number" id="psLead" min="0" max="24" value="${cfg.leadHours != null ? cfg.leadHours : 2}"/>
+        <small style="color:var(--text-soft);">Slots start this many hours from now (2 = rider free by then).</small>
+      </div>
+      <div class="field">
+        <label>Orders per slot</label>
+        <input type="number" id="psCap" min="1" max="10" value="${cfg.capacity || 1}"/>
+        <small style="color:var(--text-soft);">1 = one customer per slot (recommended).</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label>Slot length (minutes)</label>
+        <select id="psLen">
+          ${[60,90,120,180].map(n => `<option value="${n}" ${cfg.slotMinutes==n?'selected':''}>${n} min</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Working hours</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="time" id="psStart" value="${escapeHtml(cfg.dayStart||'10:00')}" style="flex:1;"/>
+          <span>to</span>
+          <input type="time" id="psEnd" value="${escapeHtml(cfg.dayEnd||'20:00')}" style="flex:1;"/>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Open days</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${dayNames.map((n, i) => `
+          <label style="display:flex;align-items:center;gap:4px;padding:6px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;">
+            <input type="checkbox" class="ps-day" value="${i}" ${(cfg.openDays||[]).indexOf(i) !== -1 ? 'checked' : ''}/> ${n.slice(0,3)}
+          </label>`).join('')}
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;">
+      <input type="checkbox" id="psFri" ${cfg.fridayBreak !== false ? 'checked' : ''}/> Skip 1:30 – 2:00 PM slots on Friday (prayer break)
+    </label>
+
+    <div style="font-weight:800;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:14px;">📱 WhatsApp on assignment</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;">
+      <input type="checkbox" id="psAutoCap" ${cfg.autoCaptain ? 'checked' : ''}/> Automatically message the captain (job sheet)
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;">
+      <input type="checkbox" id="psAutoCust" ${cfg.autoCustomer ? 'checked' : ''}/> Automatically confirm to the customer
+    </label>
+
+    <div class="field">
+      <label>Captain message template</label>
+      <textarea id="psTplCap" rows="8" style="width:100%;font-family:monospace;font-size:11.5px;">${escapeHtml(s.waTemplateCaptain || (ops ? ops.DEFAULT_CAPTAIN_TPL : ''))}</textarea>
+      <small style="color:var(--text-soft);">{shop} {request} {name} {phone} {address} {date} {slot} {notes}</small>
+    </div>
+    <div class="field">
+      <label>Customer message template</label>
+      <textarea id="psTplCust" rows="8" style="width:100%;font-family:monospace;font-size:11.5px;">${escapeHtml(s.waTemplateCustomer || (ops ? ops.DEFAULT_CUSTOMER_TPL : ''))}</textarea>
+      <small style="color:var(--text-soft);">{name} {date} {slot} {captain} {captain_phone} {vehicle} {shop} {shop_phone}</small>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-secondary" id="psResetTpl">↺ Default messages</button>
+      <button class="btn btn-primary" id="psSave">💾 Save</button>
+    </div>
+  `, { large: true, onOpen(m) {
+    $('#psResetTpl', m).onclick = () => {
+      if (!ops) return;
+      $('#psTplCap', m).value = ops.DEFAULT_CAPTAIN_TPL;
+      $('#psTplCust', m).value = ops.DEFAULT_CUSTOMER_TPL;
+    };
+    $('#psSave', m).onclick = () => {
+      const days = [...m.querySelectorAll('.ps-day:checked')].map(cb => +cb.value);
+      DB.saveSettings({
+        pickupLeadHours: Math.max(0, Math.min(24, +$('#psLead', m).value || 0)),
+        pickupSlotCapacity: Math.max(1, Math.min(10, +$('#psCap', m).value || 1)),
+        pickupSlotMinutes: +$('#psLen', m).value || 120,
+        pickupDayStart: $('#psStart', m).value || '10:00',
+        pickupDayEnd: $('#psEnd', m).value || '20:00',
+        pickupOpenDays: days,
+        pickupFridayBreak: $('#psFri', m).checked,
+        autoWhatsAppCaptain: $('#psAutoCap', m).checked,
+        autoWhatsAppCustomer: $('#psAutoCust', m).checked,
+        waTemplateCaptain: $('#psTplCap', m).value.trim(),
+        waTemplateCustomer: $('#psTplCust', m).value.trim()
+      });
+      closeModal(); toast('Pickup setup saved', 'success');
+      if (typeof logAction === 'function') logAction('pickup.setup', 'slot rules updated');
+      renderDelivery();
+    };
+  }});
+}
+
+function openAssignDriverDialog(requestId) {
+  const req = DB.get('pickupRequests', requestId);
+  if (!req) return;
+  const drivers = DB.all('drivers').filter(d => d.active !== false);
+  if (!drivers.length) { toast('Add a captain first (Drivers tab)', 'error'); return; }
+
+  const ops = window.PICKUP_OPS;
+  const cf = ops ? ops.config() : { autoCaptain: true, autoCustomer: true };
+
+  openModal(`
+    <h3>👨‍✈️ Assign Captain</h3>
+    <p class="sub">The full job details go to the captain on WhatsApp — and a confirmation goes to the customer.</p>
+
+    <div style="background:var(--surface-alt);border-radius:10px;padding:12px;margin-bottom:12px;font-size:12.5px;line-height:1.8;">
+      <div><b>Contact person:</b> ${escapeHtml(req.customerName || '-')}</div>
+      <div><b>Contact number:</b> ${escapeHtml(req.customerPhone || '-')}</div>
+      <div><b>Address:</b> ${escapeHtml(req.address || '-')}</div>
+      <div><b>Pickup:</b> ${escapeHtml(req.pickupDate || '-')} · ${escapeHtml(req.pickupSlot || '-')}</div>
+      ${req.notes ? `<div><b>Notes:</b> ${escapeHtml(req.notes)}</div>` : ''}
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
       ${drivers.map(d => `
-        <label style="display:flex;align-items:center;gap:10px;padding:12px;border:2px solid var(--border);border-radius:10px;cursor:pointer;">
+        <label class="drv-pick" style="display:flex;align-items:center;gap:10px;padding:12px;border:2px solid var(--border);border-radius:10px;cursor:pointer;">
           <input type="radio" name="drv" value="${d.id}"/>
           <div style="flex:1;">
             <div style="font-weight:700;">🛵 ${escapeHtml(d.name)}</div>
-            <div style="font-size:11px;color:var(--text-soft);">${escapeHtml(d.phone||'')} • ${escapeHtml(d.vehicle||'No vehicle')}</div>
+            <div style="font-size:11px;color:var(--text-soft);">${escapeHtml(d.phone || 'NO NUMBER — cannot WhatsApp')} • ${escapeHtml(d.vehicle || 'No vehicle')}</div>
           </div>
         </label>
       `).join('')}
     </div>
+
+    <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:12px;font-size:12px;line-height:1.9;color:#14532d;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="waCaptain" ${cf.autoCaptain ? 'checked' : ''}/>
+        <span><b>Send job sheet to captain</b> on WhatsApp</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px;">
+        <input type="checkbox" id="waCustomer" ${cf.autoCustomer ? 'checked' : ''}/>
+        <span><b>Confirm to customer</b> with captain's name &amp; number</span>
+      </label>
+      <div style="font-size:11px;color:#166534;margin-top:6px;">WhatsApp opens with the message ready — just press send.</div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="assignBtn">✅ Assign</button>
+      <button class="btn btn-primary" id="assignBtn">✅ Assign &amp; Send</button>
     </div>
   `, { onOpen(m) {
+    // highlight the picked captain
+    m.querySelectorAll('input[name="drv"]').forEach(inp => {
+      inp.onchange = () => m.querySelectorAll('.drv-pick').forEach(l => {
+        const on = l.querySelector('input').checked;
+        l.style.borderColor = on ? 'var(--primary)' : 'var(--border)';
+        l.style.background = on ? 'var(--primary-light)' : 'transparent';
+      });
+    });
+
     $('#assignBtn', m).onclick = () => {
       const sel = m.querySelector('input[name="drv"]:checked');
-      if (!sel) { toast('Pick a driver', 'error'); return; }
+      if (!sel) { toast('Pick a captain', 'error'); return; }
+      const sendCaptain = $('#waCaptain', m).checked;
+      const sendCustomer = $('#waCustomer', m).checked;
+      const driver = DB.get('drivers', sel.value);
+
       DB.update('pickupRequests', requestId, {
         driverId: sel.value,
         status: 'assigned',
         assignedAt: new Date().toISOString()
       });
-      closeModal(); toast('Driver assigned', 'success');
-      if (typeof logAction === 'function') logAction('pickup.assign', requestId);
+
+      const updated = DB.get('pickupRequests', requestId);
+      closeModal();
+
+      if (ops) {
+        if (sendCaptain || sendCustomer) {
+          setTimeout(() => {
+            const sent = ops.notifyAssignment(updated, driver, { captain: sendCaptain, customer: sendCustomer });
+            const bits = [];
+            if (sent.captain) bits.push('captain');
+            if (sent.customer) bits.push('customer');
+            toast(bits.length ? ('WhatsApp opened for ' + bits.join(' + ')) : 'Assigned (no WhatsApp number)', bits.length ? 'success' : 'warning');
+          }, 200);
+        } else {
+          toast('Captain assigned', 'success');
+        }
+      }
+
+      if (typeof logAction === 'function') logAction('pickup.assign', `${requestId} → ${driver ? driver.name : sel.value}`);
       renderDelivery();
-      setTimeout(() => openPickupAssignmentWhatsApp(requestId), 250);
+
+      // show the job sheet so it can be re-sent / printed any time
+      setTimeout(() => openJobSheet(requestId), 500);
     };
   }});
 }
 
-function openPickupAssignmentWhatsApp(requestId) {
-  const request = DB.get('pickupRequests', requestId);
-  if (!request) return;
-  const driver = DB.get('drivers', request.driverId) || {};
-  const captainPhone = normalizePickupWhatsAppPhone(driver.phone);
-  const customerPhone = normalizePickupWhatsAppPhone(request.customerPhone);
-  const slot = pickupSlotLabel(request.pickupSlot);
-  const date = request.pickupDate || 'To be confirmed';
-  const notes = request.notes ? `\nNotes: ${request.notes}` : '';
-
-  const captainMessage = `Hi ${driver.name || 'Captain'}, a new pickup request has been assigned to you.\n\nCustomer: ${request.customerName || '-'}\nCustomer phone: ${request.customerPhone || '-'}\nPickup address: ${request.address || '-'}\nPickup date: ${date}\nPickup slot: ${slot}${notes}\n\nPlease contact the customer if needed.`;
-  const customerMessage = `Hello ${request.customerName || 'Customer'}, your pickup request is confirmed.\n\nCaptain/driver: ${driver.name || 'To be confirmed'}\nCaptain phone: ${driver.phone || 'Unavailable'}\nPickup date: ${date}\nPickup slot: ${slot}\nPickup address: ${request.address || '-'}\n\nThank you!`;
+/* ============================================================
+   JOB SHEET — everything the captain needs, re-sendable
+   ============================================================ */
+function openJobSheet(requestId) {
+  const req = DB.get('pickupRequests', requestId);
+  if (!req) return;
+  const driver = req.driverId ? DB.get('drivers', req.driverId) : null;
+  const ops = window.PICKUP_OPS;
+  const sheet = ops ? ops.jobSheet(req, driver) : null;
+  if (!sheet) return;
 
   openModal(`
-    <h3>📱 Notify Captain &amp; Customer</h3>
-    <p class="sub">Pickup #${String(request.id || '').slice(-6).toUpperCase()} • ${escapeHtml(date)} • ${escapeHtml(slot)}</p>
-    <div style="background:var(--surface-alt);padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text-soft);">
-      Review or edit each message, then open WhatsApp. Messages are pre-filled; tap WhatsApp's send arrow to send them.
+    <h3>🧾 Job Sheet — #${escapeHtml(String(req.id).slice(-6).toUpperCase())}</h3>
+    <p class="sub">${driver ? 'Captain: <b>' + escapeHtml(driver.name) + '</b>' : 'No captain assigned yet'}</p>
+
+    <div style="background:var(--surface-alt);border-radius:10px;padding:12px;font-size:13px;line-height:1.9;margin-bottom:12px;">
+      <div><b>Contact person:</b> ${escapeHtml(req.customerName || '-')}</div>
+      <div><b>Contact number:</b> <a href="tel:${escapeHtml((req.customerPhone||'').replace(/[^\d+]/g,''))}">${escapeHtml(req.customerPhone || '-')}</a></div>
+      <div><b>Address:</b> ${escapeHtml(req.address || '-')}</div>
+      <div><b>Pickup date:</b> ${escapeHtml(ops ? ops.prettyDate(req.pickupDate) : req.pickupDate || '-')}</div>
+      <div><b>Time slot:</b> ${escapeHtml(req.pickupSlot || '-')}</div>
+      ${req.notes ? `<div><b>Notes:</b> ${escapeHtml(req.notes)}</div>` : ''}
+      ${driver ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);"><b>Captain:</b> ${escapeHtml(driver.name)} · ${escapeHtml(driver.phone || '-')}${driver.vehicle ? ' · ' + escapeHtml(driver.vehicle) : ''}</div>` : ''}
     </div>
-    <div class="field">
-      <label>Captain message — ${escapeHtml(driver.name || 'Captain')} (${escapeHtml(driver.phone || 'no phone')})</label>
-      <textarea id="captainWaMessage" rows="7" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font:inherit;">${escapeHtml(captainMessage)}</textarea>
-      ${!captainPhone ? '<small style="color:var(--danger);">A valid captain phone number is required to open WhatsApp.</small>' : ''}
-    </div>
-    <div class="field">
-      <label>Customer confirmation — ${escapeHtml(request.customerName || 'Customer')} (${escapeHtml(request.customerPhone || 'no phone')})</label>
-      <textarea id="customerWaMessage" rows="7" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font:inherit;">${escapeHtml(customerMessage)}</textarea>
-      ${!customerPhone ? '<small style="color:var(--danger);">A valid customer phone number is required to open WhatsApp.</small>' : ''}
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Done</button>
-      <button class="btn btn-secondary" id="captainWaBtn" ${captainPhone?'':'disabled'}>📱 WhatsApp Captain</button>
-      <button class="btn btn-success" id="customerWaBtn" ${customerPhone?'':'disabled'}>📱 WhatsApp Customer</button>
+
+    ${driver ? `
+      <div class="field">
+        <label>Message for the captain</label>
+        <textarea id="jsCaptain" rows="8" style="width:100%;font-size:12px;font-family:monospace;">${escapeHtml(sheet.captainMessage)}</textarea>
+      </div>
+      <div class="field">
+        <label>Message for the customer</label>
+        <textarea id="jsCustomer" rows="8" style="width:100%;font-size:12px;font-family:monospace;">${escapeHtml(sheet.customerMessage)}</textarea>
+      </div>
+    ` : `<div style="background:#fff7ed;border:1px solid #fdba74;padding:10px;border-radius:8px;font-size:12px;color:#7c2d12;">Assign a captain to generate the WhatsApp messages.</div>`}
+
+    <div class="modal-footer" style="flex-wrap:wrap;gap:6px;">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      ${driver ? `
+        <button class="btn btn-secondary" id="jsCopyCap">📋 Copy captain msg</button>
+        <button class="btn btn-success" id="jsSendCap">📱 Captain</button>
+        <button class="btn btn-primary" id="jsSendCust">📱 Customer</button>
+      ` : ''}
     </div>
   `, { large: true, onOpen(m) {
-    const openChat = (recipient, phone, messageSelector) => {
-      if (!phone) { toast('Recipient phone number is missing or invalid','error'); return; }
-      const message = $(messageSelector, m).value;
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
-      const current = DB.get('pickupRequests', requestId) || request;
-      const notifyLog = Array.isArray(current.whatsappNotifyLog) ? [...current.whatsappNotifyLog] : [];
-      notifyLog.push({ recipient, openedAt: new Date().toISOString(), by: DB.currentUser()?.username || 'unknown' });
-      DB.update('pickupRequests', requestId, { whatsappNotifyLog: notifyLog });
-      toast(`Opening WhatsApp for ${recipient === 'captain' ? 'captain' : 'customer'}...`, 'success');
+    if (!driver) return;
+    const capMsg = () => $('#jsCaptain', m).value;
+    const custMsg = () => $('#jsCustomer', m).value;
+
+    $('#jsCopyCap', m).onclick = () => {
+      navigator.clipboard.writeText(capMsg()).then(() => toast('Copied','success')).catch(() => toast('Copy failed','error'));
     };
-    $('#captainWaBtn', m).onclick = () => openChat('captain', captainPhone, '#captainWaMessage');
-    $('#customerWaBtn', m).onclick = () => openChat('customer', customerPhone, '#customerWaMessage');
+    $('#jsSendCap', m).onclick = () => {
+      if (!sheet.captainPhone) { toast('Captain has no phone number saved', 'error'); return; }
+      ops.openWhatsApp(sheet.captainPhone, capMsg());
+      if (typeof logAction === 'function') logAction('pickup.waCaptain', requestId);
+    };
+    $('#jsSendCust', m).onclick = () => {
+      if (!sheet.customerPhone) { toast('Customer has no phone number', 'error'); return; }
+      ops.openWhatsApp(sheet.customerPhone, custMsg());
+      if (typeof logAction === 'function') logAction('pickup.waCustomer', requestId);
+    };
   }});
 }
 

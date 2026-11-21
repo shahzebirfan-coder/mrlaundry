@@ -1,0 +1,38 @@
+Modern Dry Cleaners — Cloud Sync: Firebase Config (jo config box mein paste hoti hai)
+======================================================================================
+
+Agar config ghalti se badal gaya ho to DO TAREEQAY:
+
+(A) SAB SE ASAAN: software khud wapas le aata hai
+    POS → Settings → Cloud Sync Settings kholein → "♻️ Default config wapas laayein"
+    → phir "☁️ Cloud Sync ON karein (1 click)"
+
+(B) MANUAL: yeh poora JSON copy kar ke config box mein paste karein
+    (Console → Project settings → General → Your apps → Web app ke "firebaseConfig" jaisa hi hai)
+
+{
+  "apiKey": "AIzaSyDENRfrIpq0cEQJokXQcRFTNv7ldcVxLiw",
+  "authDomain": "maundrylaundrypos.firebaseapp.com",
+  "projectId": "maundrylaundrypos",
+  "storageBucket": "maundrylaundrypos.firebasestorage.app",
+  "messagingSenderId": "194444859124",
+  "appId": "1:194444859124:web:d01c1fa1038e896fd9f0a1",
+  "measurementId": "G-VPWTRXT56V",
+  "databaseURL": "https://maundrylaundrypos-default-rtdb.asia-southeast1.firebasedatabase.app"
+}
+
+Shop ID (isi box ke barabar wala field):  modern-laundry-main
+
+Kya NA paste karein
+-------------------
+❌ service-account / admin key wali JSON (jis mein "type": "service_account" aur
+   "-----BEGIN PRIVATE KEY-----" hota hai) — woh server ke liye hai, browser ke liye NAHI.
+   Software aisi key ko pehchan kar mana kar deta hai.
+❌ Rules wala text (rules_version / service cloud.firestore) — woh Rules tab mein jata hai.
+❌ Sirf apiKey akela — poora JSON chahiye.
+
+Ghalti ki nishani
+-----------------
+• Box khaali / adhoora → "Config khali hai" ya "Invalid config — apiKey ya projectId nahi mila"
+• "client is offline" → internet/firewall ya databaseURL ghalat (upar wala URL sahi hai)
+• "Permission denied" → Rules publish karne hain (FIREBASE-RULES-REALTIME.txt)

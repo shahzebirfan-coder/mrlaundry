@@ -19,8 +19,10 @@ function escapeHtml(str){
 
 function fmtMoney(n) {
   const s = DB.settings();
-  const v = (Number(n) || 0).toFixed(0);
-  return `${s.currency} ${Number(v).toLocaleString()}`;
+  const num = Number(n) || 0;
+  const sign = num < 0 ? '-' : '';
+  const v = Math.abs(Math.round(num));
+  return `${sign}${s.currency} ${v.toLocaleString()}`;
 }
 
 function fmtDate(iso) {
@@ -52,31 +54,119 @@ function toast(msg, type='success') {
   setTimeout(() => div.remove(), 2500);
 }
 
-/* ====== Modal ====== */
-function openModal(innerHtml, opts={}) {
+/* ====== Modal ======
+   Data-entry safety:
+   • clicking the dark backdrop does NOT close a form any more (that is how
+     entered data used to disappear by accident)
+   • a form closes only via the ✕ button, the Esc key, or its own Save/Cancel
+   • if the user has typed anything, ✕ / Esc first asks "discard?" and the
+     form stays exactly as it was if they choose to keep editing
+   ================================================================== */
+let _modalDirty = false;
+let _modalOpts = {};
+let _modalHintAt = 0;
+
+function openModal(innerHtml, opts = {}) {
   closeModal();
-  const wrap = el(`<div class="modal-backdrop"><div class="modal ${opts.large?'lg':''}"></div></div>`);
-  wrap.querySelector('.modal').innerHTML = innerHtml;
-  $('#modal-root').appendChild(wrap);
-  // NOTE: Clicking outside the box does NOT close it anymore. This prevents
-  // losing an in-progress form (e.g. adding an expense) when the user
-  // accidentally clicks the background. The modal only closes via its own
-  // Cancel / Close / Save buttons. A small shake gives feedback instead.
-  // Set opts.closeOnBackdrop = true to restore old behaviour for a specific modal.
-  if (opts.closeOnBackdrop === true) {
-    wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
-  } else {
-    wrap.addEventListener('click', (e) => {
-      if (e.target === wrap) {
-        const box = wrap.querySelector('.modal');
-        if (box) { box.classList.remove('modal-shake'); void box.offsetWidth; box.classList.add('modal-shake'); }
-      }
-    });
+  const wrap  = el(`<div class="modal-backdrop"><div class="modal-shell ${opts.large ? 'lg' : ''}"><div class="modal ${opts.large ? 'lg' : ''}"></div></div></div>`);
+  const shell = wrap.querySelector('.modal-shell');
+  const card  = wrap.querySelector('.modal');
+  card.innerHTML = innerHtml;
+
+  /* ✕ close button — always available unless explicitly disabled */
+  if (opts.closable !== false) {
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'modal-x';
+    x.setAttribute('aria-label', 'Close');
+    x.title = 'Close (Esc)';
+    x.textContent = '✕';
+    x.onclick = (ev) => { ev.stopPropagation(); attemptCloseModal(); };
+    shell.appendChild(x);
   }
-  if (opts.onOpen) opts.onOpen(wrap.querySelector('.modal'));
-  return wrap.querySelector('.modal');
+
+  $('#modal-root').appendChild(wrap);
+
+  /* remember whether the user typed / changed anything */
+  _modalDirty = false;
+  const markDirty = (e) => {
+    const t = e.target;
+    if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) _modalDirty = true;
+  };
+  card.addEventListener('input',  markDirty, true);
+  card.addEventListener('change', markDirty, true);
+
+  /* backdrop click: keep the form open, give a short hint instead */
+  wrap.addEventListener('click', (e) => {
+    if (e.target !== wrap) return;
+    if (opts.backdropClose === true) { attemptCloseModal(); return; }
+    nudgeModal(shell);
+  });
+
+  _modalOpts = opts;
+  if (opts.onOpen) opts.onOpen(card);
+  return card;
 }
-function closeModal() { $('#modal-root').innerHTML = ''; }
+
+function closeModal() {
+  _modalDirty = false;
+  _modalOpts = {};
+  $('#modal-root').innerHTML = '';
+}
+
+/* User-initiated close (✕ / Esc / backdrop). Asks before losing typed data. */
+function attemptCloseModal() {
+  const card = document.querySelector('#modal-root .modal');
+  if (!card) { closeModal(); return; }
+  if (_modalDirty && _modalOpts.dirtyGuard !== false) {
+    askDiscard(card);
+    return;
+  }
+  closeModal();
+}
+
+/* inline confirm strip inside the modal — never destroys the form */
+function askDiscard(card) {
+  if (card.querySelector('.modal-discard')) {
+    card.querySelector('.modal-discard [data-keep]').focus();
+    return;
+  }
+  const bar = document.createElement('div');
+  bar.className = 'modal-discard';
+  bar.innerHTML = `
+    <span>⚠️ You have entered information that has not been saved.</span>
+    <div class="modal-discard-actions">
+      <button type="button" class="btn btn-ghost btn-sm" data-keep>Keep editing</button>
+      <button type="button" class="btn btn-danger btn-sm" data-discard>Discard &amp; close</button>
+    </div>`;
+  bar.querySelector('[data-keep]').onclick = () => bar.remove();
+  bar.querySelector('[data-discard]').onclick = () => { _modalDirty = false; closeModal(); };
+  card.appendChild(bar);
+  try { bar.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+}
+
+/* small shake + one short toast so it is obvious the backdrop is not a close button */
+function nudgeModal(shell) {
+  if (!shell) return;
+  shell.classList.remove('modal-nudge');
+  void shell.offsetWidth;
+  shell.classList.add('modal-nudge');
+  const now = Date.now();
+  if (now - _modalHintAt > 4000) {
+    _modalHintAt = now;
+    toast('Form stays open — use ✕ or press Esc to close', 'warning');
+  }
+}
+
+/* Esc closes the modal (and only the modal), ahead of any other shortcut */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' && e.keyCode !== 27) return;
+  if (!document.querySelector('#modal-root .modal')) return;
+  if (document.querySelector('.photo-viewer, .pv-overlay')) return; // full-screen viewer handles its own Esc
+  e.preventDefault();
+  e.stopPropagation();
+  attemptCloseModal();
+}, true);
 
 /* ====== Confirm ====== */
 function confirmDialog(msg, onYes) {
@@ -144,6 +234,48 @@ function autoLabelTableCells() {
 /* === Universal print helper — bulletproof version ===
    Inlines all images (data URLs) and styles so print window has zero load time.
    Works perfectly with thermal printers and all browsers. */
+/* ============================================================
+   THERMAL TEXT SAFETY
+   Thermal printers have no colour and no emoji font. Any emoji
+   in the slip prints as a blank box or garbage, so they are
+   removed before printing. Symbols that DO render on thermal
+   (stars, arrows, bullets) are kept.
+   ============================================================ */
+function thermalSafeText(str) {
+  if (!str) return str;
+  const KEEP = new Set([0x2605, 0x2606, 0x2022, 0x00B7, 0x2192, 0x2190, 0x2191, 0x2193,
+                        0x2713, 0x2717, 0x25B8, 0x25C2, 0x2500, 0x2502]);
+  let out = '';
+  for (const ch of String(str)) {
+    const cp = ch.codePointAt(0);
+    if (KEEP.has(cp)) { out += ch; continue; }
+    // drop emoji / pictographs / variation selectors
+    if ((cp >= 0x1F000 && cp <= 0x1FAFF) ||   // emoji blocks
+        (cp >= 0x2600 && cp <= 0x27BF) ||     // misc symbols + dingbats
+        (cp >= 0x2B00 && cp <= 0x2BFF) ||     // ⭐ etc.
+        (cp >= 0xFE00 && cp <= 0xFE0F) ||     // variation selectors
+        cp === 0x200D ||                      // zero-width joiner
+        cp === 0x20E3) {                      // keycap
+      continue;
+    }
+    out += ch;
+  }
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.:;])/g, '$1');
+}
+
+/* Walk every text node in a cloned print element and strip emoji. */
+function thermalCleanTextNodes(root) {
+  if (!root || !root.ownerDocument) return;
+  const doc = root.ownerDocument;
+  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */, null);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(n => {
+    const cleaned = thermalSafeText(n.nodeValue);
+    if (cleaned !== n.nodeValue) n.nodeValue = cleaned;
+  });
+}
+
 async function printElement(elementOrSelector, options) {
   options = options || {};
   let el;
@@ -152,7 +284,7 @@ async function printElement(elementOrSelector, options) {
   } else {
     el = elementOrSelector;
   }
-  if (!el) { alert('Print content not found'); return; }
+  if (!el) { alert('Print content not found'); return false; }
 
   // Clone the element to manipulate safely
   const clone = el.cloneNode(true);
@@ -171,6 +303,27 @@ async function printElement(elementOrSelector, options) {
       } catch(e) {}
     }
   });
+
+  // Step 2b-pre: thermal logo must be READY before printing.
+  // The processed 1-bit bitmap is built asynchronously; if it is not cached yet
+  // the receipt would print the raw colour logo (grey, oversized, washed out).
+  if (options.awaitThermal !== false && typeof THERMAL !== 'undefined') {
+    try { await THERMAL.prepare(); } catch (e) {}
+  }
+
+  // Refresh every thermal logo in the clone with the freshly processed bitmap.
+  try {
+    const st = (typeof DB !== 'undefined' && DB.settings) ? DB.settings() : {};
+    const tin = (typeof THERMAL !== 'undefined') ? THERMAL.info(st) : null;
+    if (tin && st.invoiceLogoMono !== false) {
+      clone.querySelectorAll('img.inv-logo').forEach(img => {
+        img.setAttribute('src', tin.dataUrl);
+        img.setAttribute('style',
+          'width:' + tin.mm + 'mm;max-width:' + tin.mm + 'mm;height:auto;max-height:' +
+          tin.mmH + 'mm;object-fit:contain;background:#fff;padding:0;image-rendering:pixelated;display:block;margin:0 auto;');
+      });
+    }
+  } catch (e) {}
 
   // Step 2: Convert all <img> src to absolute URLs OR data URLs
   const images = clone.querySelectorAll('img');
@@ -198,30 +351,71 @@ async function printElement(elementOrSelector, options) {
   });
   await Promise.all(imagePromises);
 
+  // Step 2b: thermal printers cannot render emoji — strip them
+  let paper = '80', marginMm = 2, isThermal = true;
+  try {
+    const st = (typeof DB !== 'undefined' && DB.settings) ? DB.settings() : {};
+    paper = st.invoicePaper === '58' ? '58' : '80';
+    marginMm = (st.invoiceMarginMm != null) ? Math.max(0, Math.min(10, +st.invoiceMarginMm)) : 2;
+    isThermal = (options.paper !== 'laser') && (st.invoicePaper !== 'laser');
+  } catch (e) {}
+  if (isThermal) thermalCleanTextNodes(clone);
+
   // Step 3: Get HTML with all images inlined
   const html = clone.outerHTML;
 
-  // Step 4: Inline ALL stylesheets
-  let styleText = '';
-  for (const sheet of document.styleSheets) {
-    try {
-      for (const rule of sheet.cssRules) {
-        styleText += rule.cssText + '\n';
-      }
-    } catch(e) {
-      // External stylesheet — fetch it
-      if (sheet.href) {
-        try {
-          const r = await fetch(sheet.href);
-          if (r.ok) styleText += await r.text() + '\n';
-        } catch(e) {}
+  // Step 4: Inline the stylesheets — but ONLY the parts that apply to paper.
+  //
+  // Why: the app's own stylesheet contains
+  //     @media print { body * { visibility: hidden }  #printArea, #printArea * { visibility: visible } }
+  // which is right for printing the live screen, but this window prints a
+  // DETACHED slip. Copying that rule here made every detached slip (partial
+  // delivery, payment receipt, challan, PO, claim…) invisible on paper and in
+  // "Save as PDF" — the print preview on screen looked fine, the PDF was blank.
+  // So: keep everything outside @media blocks + all @media print blocks, and
+  // drop @media screen blocks (app-shell cosmetics, never printed).
+  const MEDIA_RULE = (typeof CSSRule !== 'undefined' && CSSRule.MEDIA_RULE) || 4;
+  const SUPPORTS_RULE = (typeof CSSRule !== 'undefined' && CSSRule.SUPPORTS_RULE) || 12;
+  const keepForPrint = (rules, out) => {
+    for (const rule of rules) {
+      if (rule.type === MEDIA_RULE) {
+        const mt = (rule.conditionText || rule.media && rule.media.mediaText || '').toLowerCase();
+        if (mt.indexOf('print') !== -1) out.push(rule.cssText);
+        else if (rule.cssRules && rule.cssRules.length) keepForPrint(rule.cssRules, out);
+      } else if (rule.type === SUPPORTS_RULE) {
+        if (rule.cssRules) keepForPrint(rule.cssRules, out);
+      } else {
+        out.push(rule.cssText);
       }
     }
-  }
+  };
+  let styleText = '';
+  try {
+    const acc = [];
+    for (const sheet of document.styleSheets) {
+      try {
+        keepForPrint(sheet.cssRules, acc);
+      } catch(e) {
+        // External stylesheet — fetch it
+        if (sheet.href) {
+          try {
+            const r = await fetch(sheet.href);
+            if (r.ok) {
+              const text = await r.text();
+              // strip @media screen blocks, keep the rest
+              acc.push(text.replace(/@media[^{]*screen[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/gi,
+                m => (/@media[^{]*print/i.test(m) ? m : '')));
+            }
+          } catch(e) {}
+        }
+      }
+    }
+    styleText = acc.join('\n');
+  } catch (e) { styleText = ''; }
 
   // Step 5: Open print window with everything pre-loaded
   const win = window.open('', '_blank', 'width=420,height=700');
-  if (!win) { alert('Please allow popups for printing!'); return; }
+  if (!win) { alert('Please allow popups for printing!'); return false; }
 
   const printDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>${options.title || 'Print'}</title>
@@ -233,7 +427,13 @@ html, body {
   margin: 0 !important; padding: 0 !important;
   background: #fff !important; color: #000 !important;
   font-family: Arial, 'Helvetica Neue', sans-serif !important;
+  visibility: visible !important;
 }
+/* This window prints ONE detached slip — never let an inherited
+   "hide everything except #printArea" rule blank the paper. */
+#printArea, #printArea * { visibility: visible !important; }
+/* Controls / buttons that must never reach paper */
+.no-print, .no-print *, .modal-footer, .modal-header .btn { display: none !important; }
 .no-print, .modal-backdrop, .modal-footer, .modal > div:first-child[class*="no-print"] { display: none !important; }
 .invoice-page {
   display: block !important;
@@ -272,6 +472,17 @@ img {
   max-width: 100%;
   display: inline-block;
   visibility: visible !important;
+  /* Printers must not stretch a bitmap beyond its real pixel width, otherwise
+     a ~400-dot logo gets blown up to 576 dots and turns into a blurry block. */
+  image-rendering: -webkit-optimize-contrast;
+  -ms-interpolation-mode: nearest-neighbor;
+}
+/* Thermal brand logo: physical size in mm, never wider than the paper */
+.inv-logo {
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  display: block !important;
 }
 table { width: 100%; border-collapse: collapse; }
 .print-slip {
@@ -284,18 +495,41 @@ table { width: 100%; border-collapse: collapse; }
 .print-slip:last-child { page-break-after: auto; break-after: auto; }
 .print-page-break { page-break-after: always; break-after: page; height: 0; }
 @media print {
-  @page { margin: __PAGE_MARGIN__; size: __PAGE_SIZE__; }
+  @page { size: ${paper}mm auto; margin: ${marginMm}mm; }
+  /* "Save as PDF" on an 80mm roll used to open a full A4 page with the slip
+     squeezed into one corner. A fixed, roll-sized page keeps the PDF identical
+     to the printed receipt. */
+  html { width: 100%; }
+  html, body {
+    width: ${paper === '58' ? '58mm' : '80mm'} !important;
+    max-width: ${paper === '58' ? '58mm' : '80mm'} !important;
+  }
   body { padding: 0 !important; background: #fff !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  __THERMAL_CSS__
+  .invoice-page {
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    /* never let the browser shrink-to-fit the receipt — that is what makes
+       thermal text come out tiny or the logo oversized */
+    transform: none !important;
+    zoom: 1 !important;
+  }
+  .inv-logo-wrap, .inv-logo { page-break-inside: avoid !important; }
+  /* small counter slips (partial delivery, payment receipt) keep a receipt shape
+     even when the PDF paper is A4 — never a stretched, half-empty page */
+  .inv-slip { max-width: 88mm !important; margin: 0 auto !important; }
 }
 @media screen {
   body { padding: 20px; background: #f0f4ff; }
   .invoice-page { box-shadow: 0 4px 12px rgba(0,0,0,.1); border-radius: 8px; max-width: 380px; }
+  /* slips that were built with their own width keep it in the preview */
+  .invoice-page[style*="width"] { max-width: 100%; }
 }
 </style>
 </head><body>
-${html}
+<div id="printArea">${html}</div>
 <script>
   // Wait for all images to load before printing
   function doPrint() {
@@ -322,65 +556,10 @@ ${html}
 </` + `script>
 </body></html>`;
 
-  // Decide page geometry. Thermal roll printers need a fixed WIDTH and an
-  // "auto" (continuous) HEIGHT so a long invoice prints as one strip instead
-  // of being split across A4 pages with a big blank gap. For A4/A5 paper we
-  // keep normal auto sizing.
-  const thermalWidthMm = (typeof options.thermalWidthMm === 'number') ? options.thermalWidthMm : 80;
-  const isThermal = options.thermal !== false; // default: treat receipts as thermal
-  let pageSize, pageMargin, thermalCss;
-  if (isThermal) {
-    pageSize = `${thermalWidthMm}mm auto`;
-    pageMargin = '0';
-    // IMPORTANT for continuous roll printing:
-    //  - Do NOT use page-break-inside:avoid on the whole invoice. On a roll a
-    //    long invoice that is taller than one "page" would otherwise be pushed
-    //    entirely onto the next page, leaving the first page half-empty (that
-    //    is exactly the 2-page / big-gap problem). Content must flow freely.
-    //  - Force the invoice body width to the FULL roll width and center it, so
-    //    text is centered instead of shifted to the left.
-    thermalCss = `
-      html, body {
-        width: ${thermalWidthMm}mm !important;
-        margin: 0 auto !important;
-        padding: 0 !important;
-      }
-      #printWrapper, .print-slip {
-        width: 100% !important;
-        margin: 0 auto !important;
-      }
-      /* Override the inline max-width:360px so the invoice fits the roll width
-         exactly and stays centered (was shifting left & getting cut). */
-      .invoice-page, .invoice-customer, .invoice-office {
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        margin: 0 auto !important;
-        padding: 1.5mm 2mm !important;
-        box-sizing: border-box !important;
-        text-align: center !important;
-        /* let it flow across the roll — no forced page breaks */
-        page-break-inside: auto !important;
-        break-inside: auto !important;
-      }
-      .invoice-page table { width: 100% !important; }
-      /* Only keep small rows from splitting mid-line (a single item row),
-         NOT the whole invoice. */
-      .invoice-page tr { page-break-inside: avoid; break-inside: avoid; }
-    `;
-  } else {
-    pageSize = 'auto';
-    pageMargin = '4mm';
-    thermalCss = '';
-  }
-  const finalDoc = printDoc
-    .replace('__PAGE_SIZE__', pageSize)
-    .replace('__PAGE_MARGIN__', pageMargin)
-    .replace('__THERMAL_CSS__', thermalCss);
-
   win.document.open();
-  win.document.write(finalDoc);
+  win.document.write(printDoc);
   win.document.close();
+  return true;
 }
 
 
@@ -392,13 +571,9 @@ function productImageHTML(image, size, classes) {
   classes = classes || '';
   const fallback = '🧺';
   const img = image || fallback;
-  // If it's a URL or data URI, render as <img> that fills its container.
-  // Performance: lazy-load + async decode so opening the POS grid does NOT
-  // download all product images at once (that was hanging the POS when many
-  // products had image links). Only images near the viewport load; the rest
-  // load as the user scrolls.
+  // If it's a URL or data URI, render as <img> that fills its container
   if (typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http') || img.startsWith('/') || img.startsWith('assets/'))) {
-    return `<img src="${img}" class="${classes}" loading="lazy" decoding="async" fetchpriority="low" referrerpolicy="no-referrer" onerror="this.outerHTML='<span>${fallback}</span>'" alt=""/>`;
+    return `<img src="${img}" class="${classes}" onerror="this.outerHTML='<span>${fallback}</span>'" alt=""/>`;
   }
   // Otherwise treat as emoji/text — let CSS handle size
   return `<span>${img}</span>`;
@@ -471,3 +646,175 @@ function openEmojiPicker(onPick) {
   }});
 }
 window.openEmojiPicker = openEmojiPicker;
+
+/* ============================================================
+   EASY NUMBER INPUT — click par poora value select, seedha type
+   Cashier ko pehle 0 delete karne ki zaroorat nahi parti.
+   window.easyNumber(input, { min, max, onChange })
+   min/max function bhi ho sakte hain (live settings ke liye).
+   ============================================================ */
+function easyNumber(el, opts = {}) {
+  if (!el) return;
+  const { digits = 0, onChange = () => {} } = opts;
+  const lim = () => {
+    const mn = typeof opts.min === 'function' ? opts.min() : (opts.min == null ? 0 : opts.min);
+    const mx = typeof opts.max === 'function' ? opts.max() : (opts.max == null ? Infinity : opts.max);
+    return { mn: Math.max(0, mn), mx: Math.max(mn, mx) };
+  };
+  const clamp = (v) => {
+    const { mn, mx } = lim();
+    let n = parseFloat(String(v).replace(/[^\d.]/g, ''));
+    if (!isFinite(n)) n = 0;
+    return Math.min(mx, Math.max(mn, digits ? +n.toFixed(digits) : n));
+  };
+  let justFocused = false;
+  el.addEventListener('focus', () => {
+    try { el.select(); } catch (e) {}
+    justFocused = true;
+    setTimeout(() => { justFocused = false; }, 400);
+  });
+  el.addEventListener('mouseup', (e) => {
+    if (justFocused) { e.preventDefault(); try { el.select(); } catch (err) {} }
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      el.value = clamp((parseFloat(el.value) || 0) + (e.key === 'ArrowUp' ? 1 : -1));
+      onChange(clamp(el.value));
+    } else if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+  });
+  el.addEventListener('input', () => {
+    const v = clamp(el.value);
+    if (parseFloat(el.value) > lim().mx) el.value = v;
+    onChange(v);
+  });
+  el.addEventListener('blur', () => {
+    if (el.value !== '') el.value = clamp(el.value);
+    onChange(clamp(el.value));
+  });
+}
+window.easyNumber = easyNumber;
+
+/* ============================================================
+   Auto Status Logic (Pending -> Washing at 5 PM)
+   ============================================================ */
+function getCalculatedStatus(order) {
+  if (order.status !== 'pending') return order.status;
+  if (!order.createdAt) return order.status;
+
+  const d = new Date(order.createdAt);
+  // Create Date object for 5 PM on the day the order was booked
+  let washDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 17, 0, 0);
+
+  // If booked after 5 PM, wash day is tomorrow at 5 PM
+  if (d.getHours() >= 17) {
+    washDay.setDate(washDay.getDate() + 1);
+  }
+
+  // If wash day is Sunday (0), push to Monday at 5 PM
+  if (washDay.getDay() === 0) {
+    washDay.setDate(washDay.getDate() + 1);
+  }
+
+  // If current time is past wash day, it should be 'washing'
+  if (new Date() >= washDay) {
+    return 'washing';
+  }
+
+  return 'pending';
+}
+
+function autoUpdateWashingStatus() {
+  if (typeof DB === 'undefined' || !DB.all || typeof DB.update !== 'function') return;
+  const orders = DB.all('orders');
+  if (!orders) return;
+  
+  let changed = false;
+  orders.forEach(o => {
+    if (o.status === 'pending') {
+      const calc = getCalculatedStatus(o);
+      if (calc === 'washing') {
+        DB.update('orders', o.id, { status: 'washing' });
+        changed = true;
+      }
+    }
+  });
+  
+  // If we changed something and are currently on a page that shows orders, we could reload,
+  // but it's okay to just let it quietly sync in the background.
+}
+// Run periodically (every 5 minutes)
+if (typeof window !== 'undefined') {
+  setTimeout(autoUpdateWashingStatus, 1500);
+  setInterval(autoUpdateWashingStatus, 5 * 60 * 1000);
+}
+
+/* Ask for the IT-Admin password and hand back TRUE/FALSE.
+   The password itself is never compared here — it is checked against a
+   PBKDF2 verifier (MDC_CODE_VAULT), so the value is not readable in storage. */
+function promptPasswordModal(title, onVerified) {
+  openModal(`
+    <h3>${escapeHtml(title)}</h3>
+    <div class="field">
+      <label>IT ADMIN Password</label>
+      <input type="password" id="itAdminPwd" placeholder="Enter password..." autocomplete="off"/>
+      <small style="color:var(--text-soft);">Protected — stored as a one-way hash, never as text.</small>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="itAdminSubmit">Unlock</button>
+    </div>
+  `, {
+    onOpen(m) {
+      const inp = m.querySelector('#itAdminPwd');
+      const btn = m.querySelector('#itAdminSubmit');
+      inp.focus();
+      const submit = async () => {
+        const val = inp.value;
+        if (!val) return;
+        btn.disabled = true; btn.textContent = 'Checking…';
+        const ok = (typeof verifyITAdminPassword === 'function')
+          ? await verifyITAdminPassword(val)
+          : false;
+        btn.disabled = false; btn.textContent = 'Unlock';
+        if (!ok) { toast('Incorrect IT ADMIN Password!', 'error'); inp.select(); return; }
+        closeModal();
+        if (typeof onVerified === 'function') onVerified(true);
+      };
+      inp.addEventListener('keyup', (e) => { if (e.key === 'Enter') submit(); });
+      btn.onclick = submit;
+    }
+  });
+}
+
+/* IT-Admin unlock: hashed verifier first, build-time seed as a one-time bootstrap. */
+async function verifyITAdminPassword(pwd) {
+  if (!pwd) return false;
+  try {
+    if (window.MDC_CODE_VAULT) {
+      if (await MDC_CODE_VAULT.has('itadmin') && await MDC_CODE_VAULT.check('itadmin', pwd)) return true;
+      // first run on this profile (or a fresh build) → bootstrap from the seed
+      const seed = (window._IT_BRAND && typeof window._IT_BRAND.seedPassword === 'function')
+        ? window._IT_BRAND.seedPassword() : '';
+      if (seed && pwd === seed) {
+        await MDC_CODE_VAULT.set('itadmin', pwd);
+        return true;
+      }
+      return false;
+    }
+    const legacy = (window._IT_BRAND && typeof window._IT_BRAND.seedPassword === 'function')
+      ? window._IT_BRAND.seedPassword() : '';
+    return !!legacy && pwd === legacy;
+  } catch (e) { return false; }
+}
+
+function isAppExpired() {
+  if (typeof DB === 'undefined' || !DB.settings) return false;
+  const s = DB.settings();
+  // Lifetime is an explicit flag — anything other than literal `true` is NOT lifetime
+  if (s.lifetimeLicense === true) return false;
+  const expiry = Number(s.subscriptionExpiry) || 0;
+  // No expiry at all is NOT "unlimited" — an unlicensed install is expired
+  if (!expiry) return true;
+  return Date.now() >= expiry;
+}

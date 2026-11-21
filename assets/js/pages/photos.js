@@ -11,7 +11,7 @@ function openOrderPhotos(orderId) {
   const o = DB.get('orders', orderId);
   if (!o) { toast('Order not found','error'); return; }
   const c = DB.get('customers', o.customerId) || { name:'Walk-in' };
-  const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+  const invNo = DB.invoiceLabel(o);
   const photos = o.photos || [];
 
   openModal(`
@@ -187,7 +187,7 @@ function askForLabel(defaultText) {
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;">
           <button id="skipBtn" style="padding:8px 14px;background:transparent;border:none;cursor:pointer;color:#666;">Skip</button>
-          <button id="okBtn" style="padding:8px 18px;background:#4f7cff;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Save</button>
+          <button id="okBtn" style="padding:8px 18px;background:#0b3f80;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Save</button>
         </div>
       </div>
     `;

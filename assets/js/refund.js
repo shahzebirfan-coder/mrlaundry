@@ -20,7 +20,7 @@ const REFUND_REASONS = [
 function confirmVoidWithReason(orderId, actionType, callback) {
   const o = DB.get('orders', orderId);
   if (!o) return;
-  const invNo = o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase();
+  const invNo = (typeof DB !== 'undefined' && DB.invoiceLabel) ? DB.invoiceLabel(o) : ('INV-' + (o.invoiceNo || o.id.slice(-6).toUpperCase()));
   const isDelete = actionType === 'delete';
   const c = DB.get('customers', o.customerId) || {};
 
@@ -121,7 +121,7 @@ function openRefundLog() {
   const rows = refunds.length ? refunds.slice(0, 200).map(r => `
     <tr>
       <td style="font-size:11px;">${fmtDate(r.createdAt)}</td>
-      <td><b>${escapeHtml(r.invoiceNo ? 'INV-' + r.invoiceNo : '-')}</b></td>
+      <td><b>${escapeHtml(r.invoiceNo ? (DB.invoiceLabel ? DB.invoiceLabel({invoiceNo:r.invoiceNo}) : 'INV-'+r.invoiceNo) : '-')}</b></td>
       <td>${escapeHtml(r.customerName||'-')}</td>
       <td><span class="badge ${r.actionType==='delete'?'cancelled':'pending'}">${r.actionType.toUpperCase()}</span></td>
       <td>${escapeHtml(r.reasonText)}</td>

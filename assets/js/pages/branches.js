@@ -29,7 +29,7 @@ function renderBranches() {
         return `
           <div class="card">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-              <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,${b.color||'#4f7cff'},#6a5cff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;">🏢</div>
+              <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,${b.color||'#0b3f80'},#0e9ad2);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;">🏢</div>
               <div style="flex:1;">
                 <div style="font-weight:800;font-size:15px;">${escapeHtml(b.name)}</div>
                 <div style="font-size:11px;color:var(--text-soft);">${escapeHtml(b.address||'-')}</div>
@@ -100,7 +100,7 @@ function renderBranches() {
 }
 
 function openBranchForm(existing) {
-  const b = existing || { name:'', address:'', phone:'', color:'#4f7cff' };
+  const b = existing || { name:'', address:'', phone:'', color:'#0b3f80' };
   openModal(`
     <h3>${existing?'Edit':'Add'} Branch</h3>
     <div class="form-row">
@@ -111,7 +111,7 @@ function openBranchForm(existing) {
       <div class="field"><label>Address</label><input id="bAddr" value="${escapeHtml(b.address||'')}"/></div>
     </div>
     <div class="form-row">
-      <div class="field"><label>Color (for charts)</label><input type="color" id="bColor" value="${b.color||'#4f7cff'}"/></div>
+      <div class="field"><label>Color (for charts)</label><input type="color" id="bColor" value="${b.color||'#0b3f80'}"/></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>

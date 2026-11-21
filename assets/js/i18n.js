@@ -99,7 +99,7 @@ const TRANSLATIONS = {
   // Order statuses
   'status.pending':      { en: 'Pending',     ur: 'زیرِ التواء',  rmn: 'Pending' },
   'status.washing':      { en: 'Washing',     ur: 'دھلائی میں',  rmn: 'Dho Rahe Hain' },
-  'status.press':        { en: 'Press',       ur: 'استری',        rmn: 'Press / Istri' },
+  'status.ironing':      { en: 'Press (Ironing)', ur: 'پریس (استری)', rmn: 'Press (Istri)' },
   'status.ready':        { en: 'Ready',       ur: 'تیار',         rmn: 'Tayyar' },
   'status.delivered':    { en: 'Delivered',   ur: 'ڈیلیور ہو گیا', rmn: 'Deliver Ho Gaya' },
   'status.cancelled':    { en: 'Cancelled',   ur: 'منسوخ',        rmn: 'Cancel' },
@@ -120,7 +120,21 @@ const TRANSLATIONS = {
   'login.password':      { en: 'Password',        ur: 'پاس ورڈ',                     rmn: 'Password' },
   'login.invalid':       { en: 'Invalid username or password', ur: 'یوزر نیم یا پاس ورڈ غلط ہے', rmn: 'Galat username ya password' },
   'login.forgot':        { en: 'Forgot Password?',          ur: 'پاس ورڈ بھول گئے؟',          rmn: 'Password Bhool Gaye?' },
-  'login.bootMessage':   { en: 'Getting your dashboard ready…', ur: 'آپ کا ڈیش بورڈ تیار کیا جا رہا ہے…', rmn: 'Aap ka dashboard tayyar ho raha hai…' },
+  'login.welcome':       { en: 'Welcome to',                ur: 'خوش آمدید',                   rmn: 'Khush Aamdeed' },
+  'login.portal':        { en: 'Portal',                    ur: 'پورٹل',                       rmn: 'Portal' },
+  'login.subcopy':       { en: 'Manage your orders, track your laundry, and stay connected — all in one place.', ur: 'اپنے آرڈرز سنبھالیں، لانڈری ٹریک کریں اور جڑے رہیں — سب ایک جگہ۔', rmn: 'Apne orders sambhalen, laundry track karein aur juray rahein — sab ek jagah.' },
+  'login.claim1':        { en: 'Cleaner Clothes',           ur: 'صاف کپڑے',                    rmn: 'Saaf Kapray' },
+  'login.claim2':        { en: 'Happier You',               ur: 'خوش آپ',                      rmn: 'Khush Aap' },
+  'login.script':        { en: 'Your Laundry, Our Priority', ur: 'آپ کی لانڈری، ہماری ترجیح',   rmn: 'Aap ki Laundry, Hamari Priority' },
+  'login.lede':          { en: 'Please enter your credentials to continue.', ur: 'جاری رکھنے کے لیے اپنی تفصیلات درج کریں۔', rmn: 'Jari rakhne ke liye apni details darj karein.' },
+  'login.usernameHint':  { en: 'e.g. your username',        ur: 'مثلاً آپ کا یوزر نیم',         rmn: 'e.g. aap ka username' },
+  'login.needHelp':      { en: 'Need Help? Contact IT Department', ur: 'مدد چاہیے؟ آئی ٹی ڈیپارٹمنٹ سے رابطہ کریں', rmn: 'Madad chahiye? IT Department se rabta karein' },
+  'login.poweredBy':     { en: 'Powered by:',               ur: 'تیار کردہ:',                    rmn: 'Powered by:' },
+  'login.forcesync':     { en: 'Force Cloud Sync',          ur: 'کلاؤڈ سنک کریں',              rmn: 'Force Cloud Sync' },
+  'login.feature.track': { en: 'Track<br>Orders',           ur: 'آرڈر<br>ٹریک کریں',           rmn: 'Order<br>Track' },
+  'login.feature.pickup':{ en: 'Book<br>Pickup',            ur: 'پک اپ<br>بک کریں',            rmn: 'Pickup<br>Book' },
+  'login.feature.pay':   { en: 'Pay<br>Bills',              ur: 'بل<br>ادا کریں',              rmn: 'Bill<br>Ada' },
+  'login.feature.updates':{en: 'Real-Time<br>Updates',      ur: 'ریئل ٹائم<br>اپڈیٹس',         rmn: 'Real-Time<br>Updates' },
 
   // Language picker
   'lang.title':          { en: 'Choose Language',           ur: 'زبان منتخب کریں',           rmn: 'Zubaan Chunein' },
@@ -222,7 +236,6 @@ const TRANSLATIONS = {
   'ord.items':           { en: 'Items',                            ur: 'اشیاء',                       rmn: 'Items' },
   'ord.total':           { en: 'Total',                            ur: 'کل',                          rmn: 'Total' },
   'ord.paid':            { en: 'Paid',                             ur: 'ادا',                         rmn: 'Paid' },
-  'ord.paymentReceivedDate': { en: 'Payment Received Date', ur: 'ادائیگی وصول ہونے کی تاریخ', rmn: 'Payment receive ki date' },
   'ord.due':             { en: 'Due',                              ur: 'باقی',                        rmn: 'Baqi' },
   'ord.status':          { en: 'Status',                           ur: 'حالت',                        rmn: 'Status' },
   'ord.booked':          { en: 'Booked',                           ur: 'بکنگ',                       rmn: 'Booking' },
@@ -317,7 +330,7 @@ function openLanguagePicker() {
     return `<button class="lang-option ${active?'active':''}" data-lang="${code}" type="button" style="
       display:flex;align-items:center;gap:14px;
       padding:18px;background:${active?'#dbeafe':'#fff'};
-      border:2px solid ${active?'#4f7cff':'#e5e9f2'};
+      border:2px solid ${active?'#0b3f80':'#e5e9f2'};
       border-radius:14px;cursor:pointer;width:100%;
       font-family:inherit;transition:.15s;
     ">
@@ -326,7 +339,7 @@ function openLanguagePicker() {
         <div style="font-weight:800;font-size:18px;${code==='ur'?'font-family:&quot;Noto Nastaliq Urdu&quot;,serif;':''}">${meta.nativeName}</div>
         <div style="font-size:12px;color:#666;">${meta.name} ${meta.dir==='rtl'?'(دائیں سے بائیں)':''}</div>
       </div>
-      ${active ? '<div style="color:#4f7cff;font-size:22px;">✓</div>' : '<div style="color:#aaa;">→</div>'}
+      ${active ? '<div style="color:#0b3f80;font-size:22px;">✓</div>' : '<div style="color:#aaa;">→</div>'}
     </button>`;
   }).join('');
 

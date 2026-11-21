@@ -1,20 +1,42 @@
 /* ============================================================
-   Mr Laundry POS — Database (localStorage abstraction)
+   Modern Dry Cleaners — Database (localStorage abstraction)
    Swap functions in this file later to use real backend (PHP/MySQL).
    ============================================================ */
 
 const DB_KEY = 'mrLaundryDB';
 const SESSION_KEY = 'mrLaundrySession';
 
-// Locked shop profile for this installation. Keep these values as the
-// permanent defaults so a new browser/device shows correct shop details
-// immediately and accidental edits cannot overwrite them.
-const LOCKED_SHOP_PROFILE = {
-  shopName: 'Mr Laundry',
-  phone: '+923343691210',
-  address: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan',
-  shopLocation: 'Shop 04, Gulistan E Zafar, Smchs, Block B, Karachi, Pakistan'
-};
+/* ============================================================
+   BRAND IDENTITY  —  Modern Dry Cleaners
+   ============================================================
+   The shop's own brand assets ship inside the app, so a fresh
+   install is branded with no manual logo upload needed.
+
+   "Locking" rule: the logo is genuinely editable in
+   Settings → Shop Information (owner choice), but it falls back
+   to the bundled art whenever it is empty or was never changed.
+   ============================================================ */
+const LEGACY_LOGOS = ['assets/img/logo.jpeg', 'assets/img/logo.png'];
+const LEGACY_NAMES = ['Modern Dry Cleaners', 'Mr Laundry'];
+
+const BRAND = (function () {
+  const cfg = (typeof CLIENT_CONFIG !== 'undefined') ? CLIENT_CONFIG : {};
+  return {
+    version:    '2026.11.19-mdc1',
+    shopName:   cfg.shopName   || 'Modern Dry Cleaners',
+    tagline:    cfg.tagline    || 'Quality Dry Cleaner Service',
+    address:    cfg.address    || 'Z-45, Memon Co-operative Housing Society, Karachi',
+    phone:      cfg.phone      || '021-34388398',
+    whatsapp:   cfg.whatsapp   || '03428096622',
+    facebook:   cfg.facebook   || '',
+    logoImage:  'assets/img/brand-logo.png',   // bundled Modern Dry Cleaners lockup
+    logoSquare: 'assets/img/logo.png',         // square icon (app / PWA)
+    timingText: cfg.shopTimingText || '',
+    color:      cfg.brandColor       || '#0b3f80',
+    accent:     cfg.brandColorAccent || '#0e9ad2'
+  };
+})();
+window.BRAND_INFO = BRAND;
 
 const DB = {
   _data: null,
@@ -24,159 +46,153 @@ const DB = {
     if (raw) {
       try { this._data = JSON.parse(raw); }
       catch(e){ this._data = this._seed(); this.save(); }
-      // Migration: ensure all required top-level tables exist. Important:
-      // cloud/live safety recovery can restore only orders/customers/expenses,
-      // so missing core tables (users/products/categories) must be re-seeded
-      // instead of leaving the app blank on next load.
+      // Migration: ensure new top-level tables exist
       const seed = this._seed();
-      ['users','categories','products','customers','orders','expenses','ownerDrawings','vendors','purchaseOrders','inventory','inventoryMovements','dayClosures','auditLog','branches','messages','paymentProofs','promoCodes','reviews','pushSubs','claims','vouchers','drivers','pickupRequests','refundReasons','autoReplyRules','reportTemplates','factoryClients','factoryEntries','factoryDeliveries','factoryPayments','factoryEmployees','factoryExpenses','factoryInvestments'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
-      if (!Array.isArray(this._data.users) || !this._data.users.length) this._data.users = seed.users;
-      // Guarantee the built-in staff accounts always exist on every device,
-      // even if a cloud merge/reset ever dropped them. Existing accounts (and
-      // any password changes made in the app) are left untouched.
-      (seed.users || []).forEach(su => {
-        const exists = this._data.users.some(u => u && (u.id === su.id || (u.username && su.username && u.username.toLowerCase() === su.username.toLowerCase())));
-        if (!exists) this._data.users.push({ ...su });
-      });
-      if (!Array.isArray(this._data.categories) || !this._data.categories.length) this._data.categories = seed.categories;
-      if (!Array.isArray(this._data.products) || !this._data.products.length) this._data.products = seed.products;
-      if (!Array.isArray(this._data.customers) || !this._data.customers.length) this._data.customers = seed.customers;
-      if (!Array.isArray(this._data.orders)) this._data.orders = [];
-      if (!Array.isArray(this._data.expenses)) this._data.expenses = [];
-      if (!Array.isArray(this._data.vendors) || !this._data.vendors.length) this._data.vendors = seed.vendors;
-      if (!Array.isArray(this._data.purchaseOrders)) this._data.purchaseOrders = [];
+    const now = '2024-01-01T00:00:00.000Z'; // Fixed date so remote data always overwrites local defaults on a fresh device!
       // Ensure default Hanger & Shopper inventory items exist (auto-add if missing)
       const inv = this._data.inventory;
       if (!inv.find(i => i.autoDeduct === 'hanger')) {
-        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: new Date().toISOString() });
+        inv.push({ id: 'inv_hanger', name: 'Hangers', unit: 'pcs', stock: 100, minStock: 20, unitCost: 5, autoDeduct: 'hanger', createdAt: '2024-01-01T00:00:00.000Z' });
       }
       if (!inv.find(i => i.autoDeduct === 'shopper')) {
-        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() });
+        inv.push({ id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: '2024-01-01T00:00:00.000Z' });
       }
       ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
-      this._data.settings = Object.assign({}, seed.settings, this._data.settings, LOCKED_SHOP_PROFILE);
+      this._data.settings = Object.assign({}, seed.settings, this._data.settings);
       // Smart fill: if payment fields are empty/missing, copy defaults from seed
-      ['jazzcashName','jazzcashNumber','easypaisaName','easypaisaNumber','portalTerms'].forEach(k => {
+      ['portalTerms'].forEach(k => {
         if (!this._data.settings[k] || this._data.settings[k] === '') {
           this._data.settings[k] = seed.settings[k];
         }
       });
       this._data._counters = this._data._counters || { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
       if (!this._data.branches || !this._data.branches.length) {
-        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }];
+        this._data.branches = [{ id: 'main', name: 'Main Branch', address: '', phone: '', color: '#0b3f80', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }];
       }
+      
+      
+      // Client Migration: align the admin username with client-config
+      if (this._data.users) {
+        let adminUser = this._data.users.find(u => u.username === 'demo' || u.role === 'admin');
+        if (adminUser && typeof CLIENT_CONFIG !== 'undefined') {
+          adminUser.username = CLIENT_CONFIG.adminUsername;
+          adminUser.name = CLIENT_CONFIG.adminName;
+        }
+      }
+
+      /* Credential scrub (security):
+         older builds stored users[].password in plain text — and mirrored the
+         whole DB into IndexedDB every 30 seconds. Move every readable password
+         into the hashed vault once, then delete the plaintext everywhere. */
+      if (this._data.users) {
+        let scrubbed = false;
+        this._data.users.forEach(u => {
+          if (u && Object.prototype.hasOwnProperty.call(u, 'password')) {
+            if (u.password && window.MDC_VAULT && MDC_VAULT.has(u.username) === false) {
+              try { MDC_VAULT.set(u.username, u.password); } catch (e) {}
+            }
+            delete u.password;
+            scrubbed = true;
+          }
+        });
+        if (scrubbed) this.save();
+      }
+      const isLegacyBrand = this._data.settings &&
+        (LEGACY_NAMES.includes(this._data.settings.shopName) ||
+         this._data.settings.shopName === BRAND.shopName);
+      const logoIsBundled = this._data.settings &&
+        (!this._data.settings.logoImage || LEGACY_LOGOS.includes(String(this._data.settings.logoImage).trim()));
+
+      // Brand migration: pull the shop identity + bundled brand logo from CLIENT_CONFIG.
+      // Runs on every load (idempotent) so an old browser profile converges to
+      // the Modern Dry Cleaners brand instead of keeping a stale name/logo.
+      if (this._data.settings && isLegacyBrand) {
+        this._data.settings.shopName  = BRAND.shopName;
+        this._data.settings.tagline   = BRAND.tagline;
+        this._data.settings.phone     = BRAND.phone;
+        this._data.settings.address   = BRAND.address;
+        this._data.settings.facebook  = BRAND.facebook;
+        this._data.settings.whatsapp  = BRAND.whatsapp;
+      }
+      if (this._data.settings && logoIsBundled) {
+        this._data.settings.logoImage = BRAND.logoImage;
+      }
+      if (this._data.settings && BRAND.timingText) {
+        this._data.settings.shopTimingText = this._data.settings.shopTimingText || BRAND.timingText;
+      }
+      // Always refresh the bundled (un-locked) brand assets
+      if (this._data.settings) {
+        this._data.settings.brandBundleVersion = BRAND.version;
+      }
+
+      /* Invoice numbering — start at 001, and keep counting from wherever the
+         shop already is. Old builds began at 1001, so an existing profile is
+         carried over from its highest invoice instead of jumping backwards. */
+      if (this._data.settings && this._data.settings.invoiceNextNumber == null) {
+        this._data.settings.invoiceNextNumber = this._highestInvoiceNo() + 1;
+        if (this._data.settings.invoicePrefix == null) this._data.settings.invoicePrefix = 'INV-';
+        if (this._data.settings.invoicePad == null) this._data.settings.invoicePad = 3;
+        this.save();
+      }
+
       if (this._data._counters.po == null) this._data._counters.po = 1000;
+      if (this._data._counters.expense == null) this._data._counters.expense = 1000;
+
+      // Expense categories became editable — seed the table for older installs
+      if (!Array.isArray(this._data.expenseCategories) || !this._data.expenseCategories.length) {
+        this._data.expenseCategories = [
+          { id:'rent',        label:'🏠 Rent',                        color:'#ef4444', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'salary',      label:'👤 Salary / Wages',              color:'#f59e0b', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'utilities',   label:'💡 Utilities (Bills)',           color:'#3b82f6', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'supplies',    label:'🧴 Supplies (Detergent, etc.)',  color:'#06b6d4', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'maintenance', label:'🔧 Maintenance / Repair',        color:'#8b5cf6', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'transport',   label:'🚚 Transport / Fuel',            color:'#ec4899', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'marketing',   label:'📢 Marketing / Ads',             color:'#10b981', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'tax',         label:'🧾 Tax / Govt Fee',              color:'#dc2626', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'food',        label:'🍵 Food / Tea for Staff',        color:'#eab308', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'rawmaterial', label:'🧺 Raw Material',                color:'#0ea5e9', createdAt:'2024-01-01T00:00:00.000Z' },
+          { id:'other',       label:'📦 Other',                       color:'#6b7280', createdAt:'2024-01-01T00:00:00.000Z' }
+        ];
+        this.save();
+      }
+
+      // Thermal printer defaults — applied once, never overrides a client's own choice.
+      // This makes an existing install plug & play with a receipt printer too.
+      const st = this._data.settings;
+      if (st && !st._thermalDefaults) {
+        if (st.invoicePaper == null)    st.invoicePaper = '80';
+        if (st.invoiceLogoSize == null) st.invoiceLogoSize = 70;
+        if (st.invoiceLogoMono == null) st.invoiceLogoMono = true;
+        if (st.invoiceMarginMm == null) st.invoiceMarginMm = 2;
+        if (st.invoiceShowLogo == null) st.invoiceShowLogo = true;
+        st._thermalDefaults = 1;
+        this.save();
+      }
+
+      /* Print defaults v2 — "print comes out too big" fix.
+         Saves a sane, shop-ready print setup once: 80mm roll, 70% logo width,
+         20mm logo height cap, 2mm margin. Everything stays editable in
+         Settings → Invoice Customizer. */
+      if (st && (+st._printDefaultsVersion || 0) < 2) {
+        st.invoicePaper        = st.invoicePaper || '80';
+        st.invoiceLogoSize     = 70;                    // 70% of paper width
+        st.invoiceLogoMaxMm    = st.invoiceLogoMaxMm || 20;
+        st.invoiceLogoThreshold = st.invoiceLogoThreshold || 185;
+        if (st.invoiceMarginMm == null) st.invoiceMarginMm = 2;
+        if (st.invoiceFontSize == null) st.invoiceFontSize = 13;
+        if (st.invoiceWidth == null)    st.invoiceWidth = 360;
+        st._printDefaultsVersion = 2;
+        this.save();
+      }
     } else {
       this._data = this._seed();
       this.save();
     }
-    if (this._data && this._data.settings) {
-      this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
-    }
-    // Repair serial counters after backup restore/cloud merge so invoice numbers
-    // always continue from the highest existing invoice.
-    this.repairCounters();
-    // Immediately compact old offline/local photo-heavy DB after update.
-    this.save();
     return this._data;
   },
 
-  _storageSafeCopy(data, aggressive = false) {
-    const copy = JSON.parse(JSON.stringify(data || {}));
-
-    // Online-only build: never put heavy base64 files into browser localStorage.
-    // They are the main reason Chrome shows QUOTA_EXCEEDED / critical storage errors.
-    (copy.orders || []).forEach(o => {
-      if (o.photos && o.photos.length) {
-        o.photos = [];
-        o.photosStoredInCloudOnly = true;
-      }
-    });
-    (copy.paymentProofs || []).forEach(p => {
-      if (p.screenshot && String(p.screenshot).startsWith('data:')) {
-        p.screenshot = '';
-        p.screenshotStoredInCloudOnly = true;
-      }
-    });
-    (copy.claims || []).forEach(c => {
-      if (c.slipPhoto && String(c.slipPhoto).startsWith('data:')) {
-        c.slipPhoto = '';
-        c.slipPhotoStoredInCloudOnly = true;
-      }
-    });
-
-    if (copy.settings && copy.settings.logoImage && String(copy.settings.logoImage).startsWith('data:')) {
-      copy.settings.logoImage = 'assets/img/logo.jpeg';
-      copy.settings.logoImageStoredInCloudOnly = true;
-    }
-
-    if (aggressive) {
-      // If quota is still full, remove heavy embedded base64 images from the
-      // LOCAL cache only — but NOT from products/categories. Product & category
-      // reference images are core to the POS (cashiers rely on them to book
-      // orders) and must never be silently dropped, otherwise every device ends
-      // up showing only emojis. Recommended usage is to store product images as
-      // URLs (tiny), which are never stripped anyway. Customers/vendors/drivers
-      // avatars are non-critical, so those may still be trimmed locally.
-      ['customers', 'vendors', 'drivers'].forEach(tbl => {
-        (copy[tbl] || []).forEach(r => {
-          ['image', 'photo', 'avatar', 'logo', 'signature'].forEach(k => {
-            if (r[k] && String(r[k]).startsWith('data:')) r[k] = '';
-          });
-        });
-      });
-    }
-    return copy;
-  },
-
-  _freeLocalStorageSpace() {
-    // Remove old/offline-only caches. Session/login remains untouched.
-    [
-      'mrLaundryLastBackup',
-      'mrLaundryLastPhotoCleanup',
-      'mrLaundryLocalVersion',
-      'mrLaundryGDriveToken',
-      'mrLaundryGDriveFolderId',
-      'mrLaundryDB'
-    ].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
-
-    // If browser quota is still blocked, clear old app keys except locked cloud
-    // config/session. Firebase is source of truth, so this is safe for online POS.
-    try {
-      const keep = new Set(['mrLaundryFirebaseCfg','mrLaundryShopId','mrLaundryCloudEnabled','mrLaundryTheme','mrLaundryLang','mrLaundryPortalLang']);
-      Object.keys(localStorage).forEach(k => {
-        if (k.startsWith('mrLaundry') && !keep.has(k)) localStorage.removeItem(k);
-      });
-    } catch(_) {}
-  },
-
   save() {
-    // Keep DB._data complete in memory for immediate Firebase push, but only keep
-    // a lightweight cache in localStorage. This fixes the storage error and makes
-    // the POS effectively online-first instead of offline-photo-heavy.
-    const writePayload = (payload) => {
-      try { localStorage.removeItem(DB_KEY); } catch(_){}
-      localStorage.setItem(DB_KEY, JSON.stringify(payload));
-    };
-
-    try {
-      writePayload(this._storageSafeCopy(this._data, false));
-      return true;
-    } catch (e) {
-      console.warn('[DB] localStorage quota hit; retrying with aggressive online-only cache:', e);
-      try {
-        this._freeLocalStorageSpace();
-        writePayload(this._storageSafeCopy(this._data, true));
-        try { if (typeof toast === 'function') toast('Browser storage cleaned — invoice data saved safely', 'success'); } catch(_){}
-        return true;
-      } catch (e2) {
-        console.warn('[DB] Could not write local cache. Continuing online-only; Firebase sync will still be attempted.', e2);
-        // Do NOT block cashier and do NOT show repeated cache-full popups.
-        // The live in-memory data will still be pushed by Cloud Sync after DB.save returns.
-        try { localStorage.removeItem(DB_KEY); } catch(_){}
-        return false;
-      }
-    }
+    localStorage.setItem(DB_KEY, JSON.stringify(this._data));
   },
 
   reset() {
@@ -187,11 +203,25 @@ const DB = {
   _seed() {
     const now = new Date().toISOString();
     return {
-      _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 },
+      expenseCategories: [
+        { id:'rent',        label:'🏠 Rent',                        color:'#ef4444', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'salary',      label:'👤 Salary / Wages',              color:'#f59e0b', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'utilities',   label:'💡 Utilities (Bills)',           color:'#3b82f6', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'supplies',    label:'🧴 Supplies (Detergent, etc.)',  color:'#06b6d4', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'maintenance', label:'🔧 Maintenance / Repair',        color:'#8b5cf6', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'transport',   label:'🚚 Transport / Fuel',            color:'#ec4899', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'marketing',   label:'📢 Marketing / Ads',             color:'#10b981', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'tax',         label:'🧾 Tax / Govt Fee',              color:'#dc2626', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'food',        label:'🍵 Food / Tea for Staff',        color:'#eab308', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'rawmaterial', label:'🧺 Raw Material',                color:'#0ea5e9', createdAt:'2024-01-01T00:00:00.000Z' },
+        { id:'other',       label:'📦 Other',                       color:'#6b7280', createdAt:'2024-01-01T00:00:00.000Z' }
+      ],
+      _counters: { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000, expense: 1000 },
       users: [
-        { id: 'u1', name: 'Shahzeb (Owner)', username: 'adminshahzeb', password: 'Celine2026', role: 'admin', createdAt: now },
-        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', password: 'aibot123', role: 'cashier', createdAt: now },
-        { id: 'u3', name: 'Kashif', username: 'kashif', password: '123456', role: 'cashier', createdAt: now }
+        // No password field on purpose — credentials live in the hashed vault
+        // (assets/js/vault.js). A readable password never enters storage again.
+        { id: 'u1', name: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.adminName : 'Admin', username: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.adminUsername : 'admin', role: 'admin', createdAt: now },
+        { id: 'u2', name: 'AI Bot Cashier', username: 'aibot', role: 'cashier', createdAt: now }
       ],
       categories: [
         { id: 'cgents',  name: 'Gents Wear',  icon: '👔' },
@@ -210,12 +240,12 @@ const DB = {
         { id: 'v1', name: 'Sample Laundry Vendor', contactPerson: '', phone: '', address: '', openingBalance: 0, createdAt: now }
       ],
       branches: [
-        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#4f7cff', isActive: true, createdAt: new Date().toISOString() }
+        { id: 'main', name: 'Main Branch', address: '', phone: '', color: '#0b3f80', isActive: true, createdAt: '2024-01-01T00:00:00.000Z' }
       ],
       purchaseOrders: [],
       inventory: [
-        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: new Date().toISOString() },
-        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: new Date().toISOString() }
+        { id: 'inv_hanger',  name: 'Hangers',  unit: 'pcs', stock: 100, minStock: 20, unitCost: 5,  autoDeduct: 'hanger',  createdAt: '2024-01-01T00:00:00.000Z' },
+        { id: 'inv_shopper', name: 'Shoppers (Plastic Bags)', unit: 'pcs', stock: 100, minStock: 20, unitCost: 3, autoDeduct: 'shopper', createdAt: '2024-01-01T00:00:00.000Z' }
       ],
       inventoryMovements: [],
       dayClosures: [],
@@ -233,36 +263,41 @@ const DB = {
       autoReplyRules: [
         { id:'ar1', trigger:'order|status|where', reply:'Thank you for contacting us! Please share your invoice number and we will check the status immediately.', active:true },
         { id:'ar2', trigger:'price|rate|cost|kitna', reply:'For pricing, please visit our portal or send us the item name. Standard rates: Shirt Rs.150, Pant Rs.150, Suit Rs.1000.', active:true },
-        { id:'ar3', trigger:'closed|hours|timing|open', reply:'We are open Mon-Sat: 9:00 AM - 9:00 PM, Sunday Closed. Thank you!', active:true }
+        { id:'ar3', trigger:'closed|hours|timing|open', reply:'We are open Mon-Sat: 9:00 AM - 1:00 PM & 2:00 PM - 8:00 PM (Friday 2:00 PM - 8:00 PM / winter 2:00 PM - 7:30 PM). Sunday Closed. Thank you!', active:true }
       ],
       reportTemplates: [],
-      factoryClients: [],
-      factoryEntries: [],
-      factoryDeliveries: [],
-      factoryPayments: [],
-      factoryEmployees: [],
-      factoryExpenses: [],
-      factoryInvestments: [],
       settings: {
-        shopName: LOCKED_SHOP_PROFILE.shopName,
-        tagline: 'Quality Dry Cleaner Service',
-        address: LOCKED_SHOP_PROFILE.address,
-        phone: LOCKED_SHOP_PROFILE.phone,
+        shopName: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.shopName : 'Modern Dry Cleaners',
+        tagline: typeof CLIENT_CONFIG !== 'undefined' ? (CLIENT_CONFIG.tagline || '') : '',
+        address: typeof CLIENT_CONFIG !== 'undefined' ? (CLIENT_CONFIG.address || '') : '',
+        phone: typeof CLIENT_CONFIG !== 'undefined' ? (CLIENT_CONFIG.phone || '') : '',
+        facebook: typeof CLIENT_CONFIG !== 'undefined' ? (CLIENT_CONFIG.facebook || '') : '',
         currency: 'Rs.',
+        // === Invoice numbering ===
+        invoicePrefix: 'INV-',        // printed before the number → INV-001
+        invoicePad: 3,                // digits → 001
+        invoiceNextNumber: 1,         // next number that will be issued
         taxPercent: 0,
         logo: '🧺',
-        logoImage: 'assets/img/logo.jpeg',
-        invoiceFooter: 'Thank you for choosing Mr Laundry!',
+        logoImage: BRAND.logoImage,
+        invoiceFooter: 'Thank you for choosing Modern Dry Cleaners!',
         baseUrl: '',
         defaultDeliveryDays: 2,
         loyaltyPrefix: 'MRL',
         defaultLoyaltyDiscountPercent: 10,
         autoBackupReminder: true,
         poPrefix: 'PO',
-        factoryRatePerKg: 200,
         // ===== INVOICE CUSTOMIZATION =====
-        invoiceFontSize: 14,           // base font size in px
+        invoiceFontSize: 13,           // base font size in px
         invoiceWidth: 360,             // max width in px (thermal=300, A6=420, A5=560)
+        // ===== THERMAL RECEIPT DEFAULTS (plug & play) =====
+        invoicePaper: '80',            // '58' = 58mm roll, '80' = 80mm roll
+        invoiceLogoSize: 70,           // logo width as % of paper width (70 = tidy header)
+        invoiceLogoMono: true,         // 1-bit black & white for thermal heads
+        invoiceLogoMaxMm: 20,          // max logo height on paper (mm) — stops huge logos
+        invoiceLogoThreshold: 185,     // 1-bit cut-off: higher = bolder / keeps hairlines
+        invoiceMarginMm: 2,            // page margin in mm
+        _thermalDefaults: 1,           // marks that defaults were applied
         invoiceQtyCircle: true,        // show big quantity circle
         invoiceShowLogo: true,
         invoiceShowAddress: true,
@@ -286,18 +321,45 @@ const DB = {
         photoRetentionDays: 30,        // auto-cleanup photos older than X days after delivery
         photoAutoCleanup: true,
         // === Portal-specific settings ===
-        shopHours: 'Mon-Sat: 9:00 AM - 9:00 PM\nSunday: Closed',
-        shopLocation: LOCKED_SHOP_PROFILE.shopLocation,
+        shopHours: (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.shopHours)
+          ? CLIENT_CONFIG.shopHours
+          : 'Mon-Sat: 9:00 AM - 8:00 PM\nSunday: Closed',
+        shopTimingText: (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.shopTimingText) || '',
+        // === Pickup & Delivery scheduling ===
+        pickupLeadHours: 2,              // slots start at least this many hours from now
+        pickupSlotCapacity: 1,           // ONE order per slot (rider can be at one door only)
+        pickupSlotMinutes: 120,          // slot length
+        pickupDayStart: '10:00',
+        pickupDayEnd: '20:00',
+        pickupOpenDays: [1, 2, 3, 4, 5, 6],  // Mon–Sat (0 = Sunday)
+        pickupFridayBreak: true,         // 1:30–2:00 PM Friday break
+        autoWhatsAppCaptain: true,       // message the captain on assignment
+        autoWhatsAppCustomer: true,      // confirm to the customer too
+        // === Occasion themes (Pakistan gazetted holidays on the login screen) ===
+        occasionThemes: true,            // automatic festive login / portal look
+        occasionLeadDays: 4,             // start this many days before the occasion
+        occasionPortal: true,            // show it on the customer portal too
+        occasionLang: 'both',            // 'both' | 'en' | 'ur'
+        occasionPlan: [],                // shop's edits (dates / on-off / own events)
+        occasionPlanRemoved: [],         // built-in occasions the shop switched off
+        // === Pickup & Delivery charges (charged AFTER discount) ===
+        deliveryChargeEnabled: true,     // show the field on the booking screen
+        deliveryChargeLabel: 'Delivery Charges',
+        defaultDeliveryCharge: 0,        // pre-filled amount (0 = blank)
+        deliveryChargeMin: 0,            // guard rails on what a cashier can enter
+        deliveryChargeMax: 5000,
+        deliveryChargeTaxable: false,    // keep tax on items only (default)
+        shopLocation: '',
         shopMapUrl: '',
         portalLang: 'en',
         // === Payment settings ===
         bankName: '',
-        bankAccountTitle: 'Shahzeb Vakani',
+        bankAccountTitle: '',
         bankAccountNumber: '',
-        jazzcashName: 'Shahzeb Vakani',
-        jazzcashNumber: '0302 8244803',
-        easypaisaName: 'Shahzeb Vakani',
-        easypaisaNumber: '0302 8244803',
+        jazzcashName: '',
+        jazzcashNumber: '',
+        easypaisaName: '',
+        easypaisaNumber: '',
         paymentInstructions: 'Please pay to the above account and upload screenshot below. We will verify and mark your invoice as PAID within 30 minutes.',
         // === Loyalty / Referral ===
         referralDiscountPercent: 10,
@@ -321,10 +383,10 @@ const DB = {
         showPublicReviews: true,
         minReviewStars: 4,                // only show reviews with 4+ stars publicly
         claimTerms: 'Claim valid only with original purchase slip. Voucher valid for 7 free wash services within 6 months from issue date. Non-transferable. Cannot be exchanged for cash.',
-        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from delivery date will not be the responsibility of Mr Laundry.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
+        portalTerms: '1. Customer is requested to check articles before delivery; complaints will not be entertained afterwards.\n2. Articles not collected within 30 days from delivery date will not be the responsibility of Modern Dry Cleaners.\n3. We are not responsible for shrinkage, color fading, or damage to delicate fabrics (silk, wool, embroidery, beads, sequins, leather).\n4. Buttons, beads, or any decorative items that come off during washing/cleaning are not our responsibility.\n5. In case of any loss or damage caused by us, compensation will be limited to a maximum of 5 times the laundry charge of that article, OR as per our Claim Policy (30% of original purchase price with valid receipt).\n6. Pre-existing stains, tears, color bleeding, or hidden damage are NOT our liability.\n7. We take all reasonable care, but articles are accepted at the owner\'s risk.\n8. Payment must be made at the time of delivery unless agreed otherwise.\n9. Pickup & delivery timing may vary on Sundays, public holidays, and during heavy load.\n10. Cash on Delivery (COD) orders must be paid in full to the rider.\n11. By giving us your articles for service, you agree to these Terms & Conditions.\n12. Management reserves the right to update these terms at any time without prior notice.',
         // === Push notifications ===
         pushVapidPublicKey: '',
-        whatsappTemplate: 'Hello {name}, thank you for your order at {shop}!\n\nInvoice: {invoice}\nTotal Pcs: {pcs}\nPick Up & Delivery Charge: {pickupDeliveryCharge}\nAmount: {total}\nPaid: {paid}\nDue: {due}\nDelivery: {delivery} ({type})\n\n{footer}'
+        whatsappTemplate: 'Hello {name}, thank you for your order at {shop}!\n\nInvoice: {invoice}\nTotal Pcs: {pcs}\nAmount: {total}\nPaid: {paid}\nDue: {due}\nDelivery: {delivery} ({type})\n\n{footer}'
       }
     };
   },
@@ -353,58 +415,137 @@ const DB = {
     return true;
   },
 
-  _ensureCounters() {
-    this._data._counters = this._data._counters || {};
-    const defaults = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
-    for (const k of Object.keys(defaults)) {
-      if (!Number.isFinite(+this._data._counters[k]) || +this._data._counters[k] < defaults[k]) {
-        this._data._counters[k] = defaults[k];
-      } else {
-        this._data._counters[k] = +this._data._counters[k];
-      }
-    }
-    return this._data._counters;
+  nextLoyaltyNumber() {
+    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
+    this._data._counters.loyalty += 1;
+    this.save();
+    const prefix = (this._data.settings.loyaltyPrefix || 'MRL').toUpperCase();
+    return `${prefix}-${this._data._counters.loyalty}`;
+  },
+  
+  /* ---------- INVOICE NUMBERING ----------
+     Everything is driven by Settings → Invoice Numbering:
+       invoicePrefix      'INV-'  → printed before the number
+       invoicePad         3       → 001, 002, 003 …
+       invoiceNextNumber  1       → the next number this shop will issue
+
+     The counter only moves when an invoice is actually issued, so previews,
+     print tests and "customer only" re-prints never burn a number. If the shop
+     ever needs to restart (e.g. sample invoices were entered before hand-over)
+     they set the next number back to 1 in Settings → Invoice Numbering. */
+
+  invoicePrefix() {
+    const p = (this._data && this._data.settings && this._data.settings.invoicePrefix);
+    return (p == null ? 'INV-' : String(p));
   },
 
-  _maxNumberFrom(list, fields) {
+  invoicePad() {
+    const p = +((this._data && this._data.settings && this._data.settings.invoicePad) || 3);
+    return Math.max(1, Math.min(8, p));
+  },
+
+  formatInvoiceNo(n) {
+    const num = Math.max(0, parseInt(n, 10) || 0);
+    return this.invoicePrefix() + String(num).padStart(this.invoicePad(), '0');
+  },
+
+  /* Highest numeric invoice already used (or 0 on a fresh install). */
+  _highestInvoiceNo() {
     let max = 0;
-    (list || []).forEach(row => {
-      fields.forEach(f => {
-        const raw = row && row[f];
-        if (raw == null) return;
-        const n = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
-        if (Number.isFinite(n) && n > max) max = n;
-      });
+    (this._data && this._data.orders ? this._data.orders : []).forEach(o => {
+      if (o && o.invoiceNo != null) {
+        const digits = String(o.invoiceNo).replace(/\D/g, '');
+        if (digits && +digits > max) max = +digits;
+      }
     });
     return max;
   },
 
-  repairCounters() {
-    // Fix invoice serial after backup restore/import/cloud merge.
-    // If _counters.invoice is old (e.g. 1005) but existing invoices are 1200+,
-    // the next invoice must continue from the highest existing invoiceNo.
-    const c = this._ensureCounters();
-    c.invoice = Math.max(c.invoice, this._maxNumberFrom(this._data.orders, ['invoiceNo']));
-    c.loyalty = Math.max(c.loyalty, this._maxNumberFrom(this._data.customers, ['loyaltyNo']));
-    c.po      = Math.max(c.po,      this._maxNumberFrom(this._data.purchaseOrders, ['poNo', 'poNumber']));
-    c.claim   = Math.max(c.claim,   this._maxNumberFrom(this._data.claims, ['claimNo', 'claimNumber']));
-    c.voucher = Math.max(c.voucher, this._maxNumberFrom(this._data.vouchers, ['voucherNo', 'voucherNumber']));
-    return c;
+  /* Next number that would be issued — safe to show, nothing is consumed. */
+  peekInvoiceNumber() {
+    const st = this._data.settings || {};
+    let n = +st.invoiceNextNumber;
+    if (!isFinite(n) || n < 1) n = this._highestInvoiceNo() + 1;
+    return this.formatInvoiceNo(n);
   },
 
-  nextLoyaltyNumber() {
-    const counters = this.repairCounters();
-    counters.loyalty += 1;
-    this.save();
-    const prefix = (this._data.settings.loyaltyPrefix || 'MRL').toUpperCase();
-    return `${prefix}-${counters.loyalty}`;
+  /* Pretty label for an existing order (handles old numeric-only records). */
+  invoiceLabel(o) {
+    const raw = (o && o.invoiceNo != null) ? String(o.invoiceNo).trim() : '';
+    if (!raw) return '#' + String((o && o.id) || '').slice(-6).toUpperCase();
+    if (/[A-Za-z]/.test(raw)) return raw;          // already 'INV-001' / 'MDC/24/07'
+    const digits = raw.replace(/\D/g, '');
+    return digits ? this.formatInvoiceNo(+digits) : raw;
   },
+
+  /* Counter summary for the Settings screen. */
+  invoiceCounterInfo() {
+    const st = this._data.settings || {};
+    const used = this._highestInvoiceNo();
+    return {
+      prefix: this.invoicePrefix(),
+      pad: this.invoicePad(),
+      next: this.peekInvoiceNumber(),
+      nextNumber: (+st.invoiceNextNumber > 0) ? +st.invoiceNextNumber : used + 1,
+      highest: used,
+      issued: (this._data.orders || []).length
+    };
+  },
+
+  /* Set where numbering continues from. Returns true on success. */
+  setInvoiceNextNumber(n) {
+    const num = parseInt(n, 10);
+    if (!isFinite(num) || num < 1) return false;
+    this._data.settings.invoiceNextNumber = num;
+    this._data._counters = this._data._counters || {};
+    this._data._counters.invoice = num - 1;
+    this.save();
+    return true;
+  },
+
+  /* Deleting the HIGHEST invoice gives its number back, so a test invoice made
+     just before hand-over does not silently eat INV-001. Numbers in the middle
+     of the run are never recycled (that would create duplicates). */
+  reclaimInvoiceNo(invoiceNo) {
+    if (invoiceNo == null) return false;
+    const digits = parseInt(String(invoiceNo).replace(/\D/g, ''), 10);
+    if (!isFinite(digits) || digits < 1) return false;
+    const st = this._data.settings;
+    if (!st) return false;
+    const highest = this._highestInvoiceNo();
+    const next = +st.invoiceNextNumber || (highest + 1);
+    if (digits === next - 1 && digits > highest) {
+      st.invoiceNextNumber = digits;
+      if (this._data._counters) this._data._counters.invoice = digits - 1;
+      this.save();
+      return true;
+    }
+    return false;
+  },
+
   nextInvoiceNumber() {
-    const counters = this.repairCounters();
-    counters.invoice += 1;
+    const st = this._data.settings || {};
+    if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 0, po: 1000, claim: 1000, voucher: 1000 };
+
+    let n = +st.invoiceNextNumber;
+    if (!isFinite(n) || n < 1) n = this._highestInvoiceNo() + 1;
+
+    // Never issue a number that is already on a live invoice.
+    const taken = new Set();
+    (this._data.orders || []).forEach(o => {
+      if (o && o.invoiceNo != null) {
+        const d = String(o.invoiceNo).replace(/\D/g, '');
+        if (d) taken.add(+d);
+      }
+    });
+    while (taken.has(n)) n++;
+
+    st.invoiceNextNumber = n + 1;
+    this._data._counters.invoice = n;
     this.save();
-    return counters.invoice;
+    return this.formatInvoiceNo(n);
   },
+
   nextClaimNumber() {
     if (!this._data._counters) this._data._counters = { loyalty: 1000, invoice: 1000, po: 1000, claim: 1000, voucher: 1000 };
     this._data._counters.claim = (this._data._counters.claim || 1000) + 1;
@@ -427,33 +568,133 @@ const DB = {
     return `${prefix}-${this._data._counters.po}`;
   },
 
-  settings() { return this._data.settings; },
-  saveSettings(patch) {
-    // Shop name/contact/location are locked for this private POS build.
-    this._data.settings = { ...this._data.settings, ...patch, ...LOCKED_SHOP_PROFILE };
-    this.save();
+  /* Keep the shop identity on-brand and non-empty.
+     The logo is bundled with the app (locked brand asset) — if the owner
+     removes it, the clean Modern Dry Cleaners artwork comes back instead of
+     leaving invoices / boot screen / portal with a blank mark. */
+  _enforceBrand(st) {
+    if (!st) return st;
+    if (!st.shopName || LEGACY_NAMES.includes(st.shopName)) st.shopName = BRAND.shopName;
+    if (!st.tagline) st.tagline = BRAND.tagline;
+    if (!st.address) st.address = BRAND.address;
+    if (!st.phone)   st.phone   = BRAND.phone;
+    if (!st.whatsapp) st.whatsapp = BRAND.whatsapp;
+    if (!st.logoImage || LEGACY_LOGOS.includes(String(st.logoImage).trim())) {
+      st.logoImage = BRAND.logoImage;
+    }
+    if (!st.invoiceFooter || /Laundry POS/i.test(st.invoiceFooter)) {
+      st.invoiceFooter = 'Thank you for choosing ' + BRAND.shopName + '!';
+    }
+    return st;
   },
 
-  login(username, password) {
-    const u = this._data.users.find(x => x.username === username && x.password === password);
-    if (!u) {
-      // Log failed attempt
+  settings() { return this._data.settings; },
+
+  /* ============================================================
+     PICKUP & DELIVERY CHARGES  (added AFTER discount, never inside it)
+     ------------------------------------------------------------
+     Order money model:
+        subtotal  = items
+        discount  = manual + loyalty      (discount % applies to items only)
+        tax       = on (subtotal - discount)
+        deliveryCharge  ← pickup/delivery charges, added after everything
+        total     = (subtotal - discount) + tax + deliveryCharge
+     ============================================================ */
+  orderCharges(o) {
+    const charge = Math.max(0, Math.round(+(o && (o.deliveryCharge != null ? o.deliveryCharge : o.deliveryFee)) || 0));
+    const sub = +(o && o.subtotal) || 0;
+    const disc = +(o && o.discount) || 0;
+    const tax = +(o && o.tax) || 0;
+    let total = +(o && o.total);
+    /* legacy rows saved before charges existed: derive the same way */
+    if (!isFinite(total)) total = sub - disc + tax;
+    return { charge, total, gross: sub - disc + tax };
+  },
+
+  /* Total of a freshly-calculated cart (shared by POS cart + booking form). */
+  totalWithCharges(t) {
+    const charge = Math.max(0, Math.round(+(t && t.deliveryCharge) || 0));
+    return Math.max(0, (+(t && t.total) || 0) + charge);
+  },
+
+  /* Default pickup & delivery charge (Settings → Delivery). 0 = counter pick. */
+  defaultDeliveryCharge(kind) {
+    const s = this._data.settings || {};
+    if (kind === 'delivery' && s.defaultDeliveryCharge != null) return +s.defaultDeliveryCharge || 0;
+    if (kind === 'pickup' && s.defaultPickupCharge != null) return +s.defaultPickupCharge || 0;
+    return 0;
+  },
+
+  /* Human label used on slips: "Pickup & Delivery" or the custom name. */
+  /* ---------- Order status mastery (levels) ----------
+     Work flow: pending → washing → ironing(Press) → ready → delivered.
+     Level = kitna kaam ho chuka hai (1..4). Isi se "washing list" jaise
+     filters decide hote hain, is liye naya status (Press) add karna safe hai. */
+  ORDER_STATUS_LEVEL: { pending: 1, washing: 2, ironing: 3, ready: 4, delivered: 5, cancelled: 0 },
+
+  statusLevel(status) {
+    const lv = DB.ORDER_STATUS_LEVEL[status];
+    return lv == null ? 1 : lv;
+  },
+
+  /* Kya order abhi bhi washing/ironing line mein hai? (kaam baqi) */
+  isInWork(status) {
+    return ['pending', 'washing', 'ironing'].includes(status);
+  },
+
+  /* Press ki line — sirf "mojooda status" ke barabar (ready ke baad Press nahi) */
+  isAtPress(status) {
+    return status === 'ironing';
+  },
+
+  deliveryChargeLabel() {
+    const s = this._data.settings || {};
+    return (s.deliveryChargeLabel || 'Delivery Charges').trim();
+  },
+  saveSettings(patch) { 
+    patch._settingsUpdatedAt = new Date().toISOString();
+    this._data.settings = { ...this._data.settings, ...patch }; 
+    this._data.settings = this._enforceBrand(this._data.settings);
+    this.save(); 
+    // Brand logo / paper settings changed → rebuild the thermal print logo
+    if (window.THERMAL && ('logoImage' in patch || 'invoicePaper' in patch ||
+        'invoiceLogoSize' in patch || 'invoiceLogoMono' in patch ||
+        'invoiceLogoMaxMm' in patch || 'invoiceLogoThreshold' in patch)) {
       try {
-        this._data.auditLog = this._data.auditLog || [];
-        this._data.auditLog.push({
-          id: 'a'+Date.now().toString(36),
-          action: 'login.failed',
-          details: 'Username: '+username,
-          username, userName: username, role: 'unknown',
-          timestamp: new Date().toISOString(),
-          createdAt: new Date().toISOString()
-        });
-        this.save();
-      } catch(e){}
-      return null;
+        THERMAL.clearCache();
+        THERMAL.prime();                 // rebuild the 1-bit bitmap immediately
+        window._thermalLogoReady = true; // ready flag for the print path
+      } catch (e) {}
     }
+  },
+
+  /* Resolve a user record by username (used by the vault + recovery). */
+  userByUsername(username) {
+    const un = String(username || '').trim().toLowerCase();
+    return (this._data.users || []).find(x => String(x.username || '').toLowerCase() === un) || null;
+  },
+
+  /* Async login — the password is verified against the hashed vault,
+     never compared with a stored plaintext value. */
+  login(username, password) {
+    const un = String(username || '').trim().toLowerCase();
+    const u = this.userByUsername(un);
+    if (!u) return Promise.resolve(null);
+
+    const vault = window.MDC_VAULT;
+    const check = vault
+      ? vault.verify(un, password)
+      : Promise.resolve({ ok: false });   // no vault → no login (fail closed)
+
+    return check.then(res => {
+      if (!res || !res.ok) return this._loginFailed(username);
+      return this._loginOk(u, res.legacy);
+    });
+  },
+
+  _loginOk(u, wasLegacy) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id: u.id, name: u.name, username: u.username, role: u.role }));
-    // Log successful login
+    if (wasLegacy && window.MDC_VAULT) MDC_VAULT.retireSeed();
     try {
       this._data.auditLog = this._data.auditLog || [];
       this._data.auditLog.push({
@@ -468,6 +709,24 @@ const DB = {
     } catch(e){}
     return u;
   },
+
+  _loginFailed(username) {
+      // Log failed attempt
+      try {
+        this._data.auditLog = this._data.auditLog || [];
+        this._data.auditLog.push({
+          id: 'a'+Date.now().toString(36),
+          action: 'login.failed',
+          details: 'Username: '+username,
+          username, userName: username, role: 'unknown',
+          timestamp: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+        this.save();
+      } catch(e){}
+      return null;
+    },
+
   logout() {
     const u = this.currentUser();
     if (u) {
@@ -495,10 +754,7 @@ const DB = {
   exportJSON() { return JSON.stringify(this._data, null, 2); },
   importJSON(json) {
     const parsed = typeof json === 'string' ? JSON.parse(json) : json;
-    this._data = parsed;
-    if (this._data.settings) this._data.settings = { ...this._data.settings, ...LOCKED_SHOP_PROFILE };
-    this.repairCounters();
-    this.save();
+    this._data = parsed; this.save();
   }
 };
 
@@ -675,7 +931,7 @@ function cleanupOldPhotos(force) {
   const lastRun = localStorage.getItem('mrLaundryLastPhotoCleanup');
   if (lastRun && Date.now() - new Date(lastRun).getTime() < 24*60*60*1000) return;
   const result = cleanupOldPhotos(false);
-  if (result.removed > 0) console.log(`[Mr Laundry] Auto-cleanup: removed ${result.removed} old photos (${Math.round(result.freed/1024)} KB freed)`);
+  if (result.removed > 0) console.log(`[Modern Dry Cleaners] Auto-cleanup: removed ${result.removed} old photos (${Math.round(result.freed/1024)} KB freed)`);
   localStorage.setItem('mrLaundryLastPhotoCleanup', new Date().toISOString());
 })();
 
@@ -683,7 +939,7 @@ function brandLogoHTML(size = 40, rounded = true) {
   const s = DB.settings();
   const radius = Math.max(10, Math.round(size * 0.2));
   if (s.logoImage) {
-    return `<img class="logo" src="${s.logoImage}" alt="logo" style="width:${size}px;height:${size}px;object-fit:contain;${rounded?'border-radius:'+radius+'px;':''}background:#000;padding:${Math.round(size*0.07)}px;box-shadow:0 8px 22px rgba(0,0,0,0.18);" onerror="this.outerHTML='<div class=\\'logo\\' style=\\'width:${size}px;height:${size}px;border-radius:${radius}px;background:linear-gradient(135deg,#4f7cff,#6a5cff);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(size*0.55)}px;\\'>${s.logo||'🧺'}</div>'"/>`;
+    return `<img class="logo" src="${s.logoImage}" alt="logo" style="width:${size}px;height:${size}px;object-fit:contain;${rounded?'border-radius:'+radius+'px;':''}background:#000;padding:${Math.round(size*0.07)}px;box-shadow:0 8px 22px rgba(0,0,0,0.18);" onerror="this.outerHTML='<div class=\\'logo\\' style=\\'width:${size}px;height:${size}px;border-radius:${radius}px;background:linear-gradient(135deg,#0b3f80,#0e9ad2);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(size*0.55)}px;\\'>${s.logo||'🧺'}</div>'"/>`;
   }
-  return `<div class="logo" style="width:${size}px;height:${size}px;border-radius:${radius}px;background:linear-gradient(135deg,#4f7cff,#6a5cff);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(size*0.55)}px;box-shadow:0 8px 22px rgba(79,124,255,0.35);">${s.logo||'🧺'}</div>`;
+  return `<div class="logo" style="width:${size}px;height:${size}px;border-radius:${radius}px;background:linear-gradient(135deg,#0b3f80,#0e9ad2);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(size*0.55)}px;box-shadow:0 8px 22px rgba(79,124,255,0.35);">${s.logo||'🧺'}</div>`;
 }

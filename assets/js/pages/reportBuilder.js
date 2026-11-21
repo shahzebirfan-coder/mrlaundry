@@ -240,7 +240,7 @@ function renderRawRows(source, rows) {
     return `<table class="tbl"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Status</th><th>Total</th><th>Paid</th><th>Due</th></tr></thead><tbody>
       ${rows.slice(0,500).map(o => {
         const c = DB.get('customers', o.customerId) || {};
-        return `<tr><td><b>INV-${o.invoiceNo||o.id.slice(-6)}</b></td><td>${fmtDateShort(o.createdAt)}</td><td>${escapeHtml(c.name||'-')}</td><td>${o.status}</td><td><b>${fmtMoney(o.total)}</b></td><td>${fmtMoney(o.paid)}</td><td style="color:var(--danger);">${fmtMoney(o.due)}</td></tr>`;
+        return `<tr><td><b>${DB.invoiceLabel(o)}</b></td><td>${fmtDateShort(o.createdAt)}</td><td>${escapeHtml(c.name||'-')}</td><td>${o.status}</td><td><b>${fmtMoney(o.total)}</b></td><td>${fmtMoney(o.paid)}</td><td style="color:var(--danger);">${fmtMoney(o.due)}</td></tr>`;
       }).join('')}
     </tbody></table>${rows.length>500?`<p style="text-align:center;color:var(--text-soft);">Showing 500 of ${rows.length}</p>`:''}`;
   } else if (source === 'expenses') {

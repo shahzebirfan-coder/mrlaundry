@@ -52,7 +52,9 @@ function renderUsersBody() {
     else if (b.dataset.act === 'reset') openAdminResetPassword(id);
     else if (b.dataset.act === 'del') confirmDialog('Delete this user?', () => {
       if (typeof logAction === 'function') logAction('user.delete', id);
+      const du = DB.get('users', id);
       DB.remove('users', id);
+      if (window.MDC_VAULT && du) MDC_VAULT.remove(du.username);   // drop the credential too
       renderUsersBody();
     });
   });
@@ -120,8 +122,7 @@ function openUserForm(existing) {
       if (!name || !username || (!existing && !password)) { toast('All fields required','error'); return; }
       const dup = DB.all('users').find(x => x.username === username && x.id !== (existing?existing.id:null));
       if (dup) { toast('Username already exists','error'); return; }
-      const data = { name, username, role };
-      if (password) data.password = password;
+      const data = { name, username, role };   // password never goes into the DB
       // Security question
       const secQ = $('#uSecQ', m).value;
       const secA = $('#uSecA', m).value.trim();
@@ -135,18 +136,24 @@ function openUserForm(existing) {
           ? ALL_PERMISSIONS.filter(p => p.defaultCashier).map(p => p.id)
           : ['pos','orders','customers'];
       }
+      // Username changed → carry the credential over to the new key
+      const oldUsername = existing ? existing.username : null;
+
       if (existing) DB.update('users', existing.id, data);
-      else DB.insert('users', { ...data, password });
+      else DB.insert('users', data);
+
+      // Credential goes to the hashed vault (PBKDF2), never to the DB record.
+      if (window.MDC_VAULT) {
+        if (password) MDC_VAULT.set(username, password);
+        else if (oldUsername && oldUsername !== username && MDC_VAULT.has(oldUsername)) {
+          toast('Username changed — set a new password so the credential follows the new name', 'error');
+          MDC_VAULT.remove(oldUsername);
+        }
+      } else {
+        toast('This browser cannot secure passwords — use Chrome / Edge', 'error');
+      }
       closeModal(); toast('Saved','success'); renderUsersBody();
       if (typeof logAction === 'function') logAction(existing?'user.edit':'user.add', name);
-      // Immediately push the new/updated user to cloud so it can never be lost
-      // to a sync race (this was causing new cashier IDs to disappear and fail
-      // to log in on other devices / after refresh).
-      try {
-        if (typeof CLOUD !== 'undefined' && CLOUD.isEnabled && CLOUD.isEnabled() && CLOUD.isReady && CLOUD.isReady()) {
-          CLOUD.push({ manual: true }).catch(e => console.warn('User push failed:', e));
-        }
-      } catch(e) { console.warn('User cloud push error:', e); }
     };
   }});
 }

@@ -2,721 +2,792 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mr Laundry — Live Dashboard</title>
-  <meta name="theme-color" content="#4f7cff" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <!-- Prevent browser from caching this page (so updates show immediately on mobile) -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>Modern Dry Cleaners — Live Dashboard</title>
+  <link rel="icon" href="assets/img/logo.png" />
   <style>
-    :root {
-      color-scheme: light;
-      --ink: #171a2b;
-      --muted: #73798a;
-      --line: #e4e6eb;
-      --paper: #fffefa;
-      --canvas: #eef0f4;
-      --navy: #191d43;
-      --navy-2: #2b315a;
-      --blue-slate: #71869b;
-      --gold: #dfc17e;
-      --coral: #c86d72;
-      --green: #2d9b75;
-      --shadow: 0 16px 42px rgba(27, 34, 56, .09);
-      --shadow-soft: 0 8px 24px rgba(27, 34, 56, .055);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { min-height: 100%; background: var(--canvas); }
-    body {
+    /* ============================================================
+       MR LAUNDRY — LIVE DASHBOARD (Secret Page)
+       Read-only owner dashboard with PIN protection.
+       Reads data DIRECTLY from Firebase (no manual sync needed).
+       ============================================================ */
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f1f5f9;
+      color: #0f172a;
       min-height: 100vh;
-      color: var(--ink);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
-      background: radial-gradient(ellipse at 9% 0%, rgba(255,255,255,.9), transparent 34%), var(--canvas);
       -webkit-font-smoothing: antialiased;
     }
-    button { font: inherit; }
-    .wrap { width: min(100%, 1510px); margin: 0 auto; padding: 22px clamp(16px, 2.5vw, 38px) 30px; }
 
-    .topbar {
-      display: flex; align-items: center; justify-content: space-between; gap: 20px;
-      padding: 15px 18px; margin-bottom: 18px; border-radius: 22px;
-      background: rgba(255,255,255,.9); border: 1px solid rgba(35,42,62,.09);
-      box-shadow: var(--shadow-soft); backdrop-filter: blur(12px);
+    /* ---------- PIN LOCK SCREEN ---------- */
+    .lock-screen {
+      position: fixed; inset: 0;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 999; padding: 20px;
     }
-    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
-    .brand-logo {
-      display: grid; flex: 0 0 54px; width: 54px; height: 54px; place-items: center;
-      overflow: hidden; border-radius: 17px; color: #fff;
-      background: linear-gradient(145deg, #263b66, #131a3e);
-      box-shadow: 0 8px 18px rgba(23,32,69,.2);
+    .lock-box {
+      background: #fff; border-radius: 18px; padding: 30px 24px;
+      max-width: 340px; width: 100%; text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,.3);
     }
-    .brand-logo img { display: block; width: 100%; height: 100%; padding: 5px; object-fit: contain; }
-    .brand-logo-fallback { display: grid; width: 100%; height: 100%; place-items: center; font-size: 27px; }
-    .brand-copy { min-width: 0; }
-    .brand-kicker { color: #657189; font-size: 9px; font-weight: 850; letter-spacing: .18em; text-transform: uppercase; margin-bottom: 3px; }
-    .brand h1 { color: #171a35; font-size: clamp(20px, 2.5vw, 30px); line-height: 1.08; font-weight: 850; letter-spacing: -.045em; }
-    .brand-sub { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; }
-    .brand-sub svg { width: 13px; height: 13px; flex: 0 0 auto; fill: none; stroke: #8990a0; stroke-width: 1.8; }
-    .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
-    .connection-pill, .clock-chip {
-      display: inline-flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 13px;
-      border: 1px solid #e2e4e9; border-radius: 13px; background: #fff; color: #555d70;
-      font-size: 11px; font-weight: 750; white-space: nowrap;
+    .lock-box .logo {
+      width: 70px; height: 70px; border-radius: 16px; background: #0f172a;
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-bottom: 14px; overflow: hidden;
     }
-    .connection-pill { border-color: #e8dfc8; background: #fbf8ef; color: #5f5438; }
-    .live-dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: #30a878; box-shadow: 0 0 0 4px rgba(48,168,120,.12); }
-    .clock-chip svg, .refresh-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-    .clock-date { padding-left: 8px; margin-left: 1px; border-left: 1px solid #e7e8ed; color: #8a8f9d; font-size: 10px; }
-    .refresh-btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px;
-      padding: 0 16px; border: 1px solid #1d234b; border-radius: 13px;
-      background: linear-gradient(125deg, #202650, #171b3d); color: #fff; font-weight: 750; font-size: 12px;
-      box-shadow: 0 7px 16px rgba(25,30,68,.18); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease;
+    .lock-box .logo img { width: 100%; height: 100%; object-fit: contain; padding: 8px; }
+    .lock-box h2 { margin: 0 0 6px; font-size: 20px; }
+    .lock-box p { margin: 0 0 18px; font-size: 13px; color: #64748b; }
+    .pin-input {
+      width: 100%; padding: 16px; font-size: 24px; text-align: center;
+      letter-spacing: 12px; border: 2px solid #e2e8f0; border-radius: 12px;
+      outline: none; margin-bottom: 12px;
+      font-family: 'Courier New', monospace;
     }
-    .refresh-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 20px rgba(25,30,68,.24); }
-    .refresh-btn:active { transform: translateY(0); }
-
-    .primary-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin-bottom: 14px; }
-    .kpi-card {
-      --accent: #fff;
-      position: relative; isolation: isolate; overflow: hidden; min-height: 198px; padding: 19px;
-      border: 1px solid rgba(34,42,65,.08); border-radius: 22px; box-shadow: var(--shadow);
-      transition: transform .18s ease, box-shadow .18s ease;
+    .pin-input:focus { border-color: #0f172a; }
+    .pin-btn {
+      width: 100%; padding: 14px; font-size: 16px; font-weight: 700;
+      background: #0f172a; color: #fff; border: none; border-radius: 12px;
+      cursor: pointer; transition: background .15s;
     }
-    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 20px 44px rgba(27,34,56,.13); }
-    .kpi-card::after { content: ""; position: absolute; z-index: -1; width: 174px; height: 174px; right: -65px; top: -78px; border-radius: 50%; background: rgba(255,255,255,.075); }
-    .kpi-orders { color: #fff; --accent: #f1d38d; background: linear-gradient(145deg, #171b3d, #292f58); }
-    .kpi-sales { color: #fff; --accent: #f0d28a; background: linear-gradient(145deg, #6f8296, #536b83); }
-    .kpi-recovery { color: #202238; --accent: #232749; background: linear-gradient(145deg, #fffef9, #f0eee5); }
-    .kpi-expenses { color: #fff; --accent: #f3d99c; background: linear-gradient(145deg, #d17b7e, #bd626a); }
-    .kpi-head { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    .kpi-label { font-size: 10px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; opacity: .79; }
-    .kpi-icon { display: grid; flex: 0 0 39px; width: 39px; height: 39px; place-items: center; border-radius: 13px; color: currentColor; background: rgba(255,255,255,.12); }
-    .kpi-recovery .kpi-icon { background: #efede4; color: #25294e; }
-    .kpi-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-    .kpi-main { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; }
-    .kpi-value { font-size: clamp(25px, 2.8vw, 36px); line-height: 1.05; font-weight: 850; letter-spacing: -.045em; color: var(--accent); white-space: nowrap; }
-    .kpi-value.count { font-size: clamp(35px, 3.5vw, 45px); }
-    .kpi-description { margin-top: 7px; font-size: 11px; line-height: 1.45; opacity: .76; }
-    .kpi-foot { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 15px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,.16); font-size: 10px; opacity: .86; }
-    .kpi-recovery .kpi-foot { border-color: rgba(35,39,73,.12); }
-    .kpi-foot strong { font-size: 11px; font-weight: 850; color: var(--accent); }
-    .kpi-sales .kpi-main { margin-top: 4px; }
-    .collection-ring { display: grid; flex: 0 0 78px; width: 78px; aspect-ratio: 1; place-items: center; border-radius: 50%; background: conic-gradient(var(--gold) var(--progress), rgba(255,255,255,.2) var(--progress)); transform: rotate(-36deg); }
-    .collection-ring::before { content: ""; grid-area: 1 / 1; width: 62px; aspect-ratio: 1; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; background: #60768d; }
-    .collection-ring > div { grid-area: 1 / 1; z-index: 1; display: flex; flex-direction: column; align-items: center; transform: rotate(36deg); color: #fff; }
-    .collection-ring strong { font-size: 15px; line-height: 1.1; }
-    .collection-ring span { font-size: 7px; opacity: .76; text-transform: uppercase; letter-spacing: .08em; }
-    .progress-track { height: 6px; margin-top: 14px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.22); }
-    .kpi-recovery .progress-track { background: rgba(35,39,73,.12); }
-    .progress-track span { display: block; width: var(--progress,0%); height: 100%; border-radius: inherit; background: var(--accent); }
+    .pin-btn:hover { background: #1e293b; }
+    .pin-error { color: #dc2626; font-size: 13px; margin-top: 10px; min-height: 18px; }
 
-    .quick-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 17px; }
-    .metric-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 13px 15px; border: 1px solid rgba(34,42,65,.08); border-radius: 17px; background: rgba(255,255,255,.88); box-shadow: 0 7px 18px rgba(27,34,56,.04); }
-    .metric-icon { display: grid; flex: 0 0 38px; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: #f0f1f6; color: #4b5577; }
-    .metric-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-    .metric-copy { min-width: 0; }
-    .metric-label { color: #7b8090; font-size: 9px; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; }
-    .metric-value { margin-top: 3px; color: #20233e; font-size: clamp(17px, 1.8vw, 23px); font-weight: 850; letter-spacing: -.035em; white-space: nowrap; }
-    .metric-caption { margin-top: 2px; color: #989cab; font-size: 9px; }
-    .metric-card.net .metric-icon { background: #e9f4ee; color: #347859; }
-    .metric-card.workflow .metric-icon { background: #f7f0df; color: #876a28; }
-    .metric-card.due .metric-icon { background: #edf1f7; color: #58657b; }
-    .metric-card.outstanding .metric-icon { background: #f5e9e9; color: #a2525b; }
+    /* ---------- HEADER ---------- */
+    .top-bar {
+      background: #0f172a; color: #fff;
+      padding: 16px 20px; display: flex; align-items: center; gap: 14px;
+      position: sticky; top: 0; z-index: 10;
+      box-shadow: 0 2px 8px rgba(0,0,0,.1);
+    }
+    .top-bar .logo-box {
+      width: 44px; height: 44px; border-radius: 10px; background: #fff;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+      flex-shrink: 0;
+    }
+    .top-bar .logo-box img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
+    .top-bar .title-block { flex: 1; min-width: 0; }
+    .top-bar .title-block h1 {
+      margin: 0; font-size: 17px; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .top-bar .title-block .sub { font-size: 11px; opacity: .7; margin-top: 2px; }
+    .live-dot {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(34,197,94,.15); color: #4ade80;
+      padding: 5px 10px; border-radius: 14px;
+      font-size: 11px; font-weight: 700;
+    }
+    .live-dot::before {
+      content: ''; width: 7px; height: 7px; border-radius: 50%;
+      background: #4ade80; animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: .3; }
+    }
 
-    .insights-grid { display: grid; grid-template-columns: minmax(208px,.78fr) minmax(0,1.72fr) minmax(250px,.96fr); gap: 15px; margin-bottom: 17px; align-items: stretch; }
-    .panel { min-width: 0; padding: 18px; border: 1px solid rgba(34,42,65,.08); border-radius: 21px; background: var(--paper); box-shadow: var(--shadow-soft); }
-    .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
-    .panel-title { color: #202238; font-size: 15px; line-height: 1.25; font-weight: 850; letter-spacing: -.025em; }
-    .panel-subtitle { margin-top: 4px; color: #9297a3; font-size: 10px; line-height: 1.4; }
-    .panel-tag { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 9px; border-radius: 99px; background: #f2f3f6; color: #666d7c; font-size: 9px; font-weight: 800; }
-    .panel-tag .live-dot { width: 6px; height: 6px; box-shadow: none; }
+    /* ---------- MAIN CONTAINER ---------- */
+    .container { max-width: 720px; margin: 0 auto; padding: 16px; }
 
-    .flow-list { display: grid; gap: 12px; }
-    .flow-row { display: grid; grid-template-columns: 10px minmax(0,1fr) auto; align-items: center; column-gap: 9px; row-gap: 6px; }
-    .flow-dot { width: 9px; height: 31px; border-radius: 99px; background: #c4c8d1; }
-    .flow-dot.pending { background: #d9b870; }.flow-dot.washing { background: #718aa5; }.flow-dot.press { background: #987cc5; }.flow-dot.ready { background: #4b9b79; }
-    .flow-name { color: #33374a; font-size: 11px; font-weight: 780; }
-    .flow-count { color: #73798a; font-size: 10px; font-weight: 750; }
-    .flow-track { grid-column: 2 / 4; height: 4px; overflow: hidden; border-radius: 99px; background: #f0f1f3; }
-    .flow-track span { display: block; width: var(--flow-width,0%); height: 100%; border-radius: inherit; background: #697590; }
-    .flow-row.pending .flow-track span { background: #d0ae5f; }.flow-row.washing .flow-track span { background: #718aa5; }.flow-row.press .flow-track span { background: #9275c0; }.flow-row.ready .flow-track span { background: #4b9b79; }
-    .flow-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #efeff1; color: #8b909c; font-size: 9px; }
-    .flow-footer strong { color: #282c44; font-size: 11px; }
+    .date-banner {
+      background: #fff; border-radius: 14px; padding: 14px 18px;
+      margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;
+      box-shadow: 0 2px 8px rgba(15,23,42,.05);
+    }
+    .date-banner .label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+    .date-banner .value { font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .date-banner .right { text-align: right; }
+    .date-banner .right .label { font-size: 11px; }
+    .date-banner .right .value { font-size: 13px; color: #64748b; font-weight: 600; }
 
-    .chart-panel { color: #fff; border-color: rgba(29,44,68,.2); background: linear-gradient(145deg, #203954, #657c94); box-shadow: 0 15px 34px rgba(41,64,91,.17); }
-    .chart-panel .panel-title { color: #fff; }.chart-panel .panel-subtitle { color: rgba(255,255,255,.6); }
-    .chart-panel .panel-tag { color: #f1dda9; background: rgba(255,255,255,.1); }
-    .chart-total { margin: 2px 0 -2px; color: #f4d992; font-size: 24px; font-weight: 850; letter-spacing: -.04em; }
-    .chart-total-caption { color: rgba(255,255,255,.62); font-size: 9px; }
-    .sales-chart { display: block; width: 100%; height: auto; margin-top: 7px; overflow: visible; }
-    .sales-chart .chart-gridline { stroke: rgba(255,255,255,.12); stroke-width: 1; }
-    .sales-chart .chart-area { fill: url(#liveChartFill); }
-    .sales-chart .chart-line { fill: none; stroke: url(#liveChartLine); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-    .sales-chart .chart-point { fill: #f7d990; stroke: #fff; stroke-width: 2; }
-    .chart-labels { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 3px; margin-top: -4px; }
-    .chart-label { min-width: 0; text-align: center; }
-    .chart-label b { display: block; color: rgba(255,255,255,.85); font-size: 9px; }
-    .chart-label span { display: block; margin-top: 3px; overflow: hidden; color: rgba(255,255,255,.55); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    /* ---------- STAT CARDS GRID ---------- */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    @media (min-width: 600px) {
+      .grid { grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    }
 
-    .month-panel { background: #fffef9; }
-    .mini-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
-    .mini { min-width: 0; padding: 12px; border: 1px solid #eeece4; border-radius: 14px; background: #faf9f4; }
-    .mini:nth-child(1) { background: #f4e4bb; border-color: #ead7a5; }
-    .mini:nth-child(2) { background: #eef1f4; border-color: #e5e8ec; }
-    .mini:nth-child(3) { background: #f4f0e5; }
-    .mini:nth-child(4) { background: #f7e8e7; border-color: #f0dddd; }
-    .mini-k { overflow: hidden; color: #737583; font-size: 8px; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; text-overflow: ellipsis; white-space: nowrap; }
-    .mini-v { overflow: hidden; margin-top: 5px; color: #282a43; font-size: clamp(15px,1.5vw,20px); font-weight: 850; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }
+    .card {
+      background: #fff; border-radius: 14px; padding: 18px 16px;
+      box-shadow: 0 2px 8px rgba(15,23,42,.05);
+      border-left: 4px solid #cbd5e1;
+      position: relative;
+      min-height: 110px;
+    }
+    .card .icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; margin-bottom: 10px;
+    }
+    .card .lbl {
+      font-size: 11px; color: #64748b; text-transform: uppercase;
+      letter-spacing: 1px; font-weight: 700; margin-bottom: 4px;
+    }
+    .card .val {
+      font-size: 22px; font-weight: 800; color: #0f172a;
+      line-height: 1.1; word-break: break-word;
+    }
+    .card .sub { font-size: 11px; color: #94a3b8; margin-top: 4px; }
 
-    .lower-grid { display: grid; grid-template-columns: minmax(0,1.45fr) minmax(320px,.82fr); gap: 15px; align-items: start; }
-    .data-panel { padding: 0; overflow: hidden; }
-    .data-panel .panel-header { margin: 0; padding: 17px 18px 13px; align-items: center; }
-    .section-count { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 25px; padding: 0 8px; border-radius: 8px; color: #5c6272; background: #f0f1f4; font-size: 10px; font-weight: 850; }
-    .table-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #c9cdd5 transparent; }
-    .data-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
-    .data-table th { padding: 10px 13px; color: #747a89; background: #f6f7f8; border-top: 1px solid #eceef1; border-bottom: 1px solid #e8eaee; font-size: 8px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; white-space: nowrap; }
-    .data-table td { padding: 11px 13px; color: #424657; border-bottom: 1px solid #eff0f2; vertical-align: middle; }
-    .data-table tbody tr:last-child td { border-bottom: 0; }
-    .data-table tbody tr:hover td { background: #fcfcfa; }
-    .data-table td b { color: #272a3d; font-weight: 820; }
-    .data-table .right { text-align: right; white-space: nowrap; }
-    .invoice-code { display: block; color: #272a43; font-size: 10px; font-weight: 850; white-space: nowrap; }
-    .muted-cell { display: block; margin-top: 3px; color: #9095a1; font-size: 9px; }
-    .badge { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 99px; font-size: 9px; font-weight: 800; text-transform: capitalize; white-space: nowrap; }
-    .badge.pending { color: #775b20; background: #f4e7c4; }
-    .badge.washing { color: #3f5f80; background: #e1eaf2; }
-    .badge.press { color: #6d5498; background: #eee7f8; }
-    .badge.ready { color: #327b5c; background: #e3f1e9; }
-    .badge.delivered, .badge.paid { color: #3d6673; background: #e5f0f1; }
-    .badge.cancelled { color: #a44f58; background: #f7e4e4; }
-    .badge.other { color: #626779; background: #eceef2; }
-    .empty { padding: 28px 18px !important; color: #8a909d !important; text-align: center; font-size: 11px; }
-    .side-panels { display: grid; gap: 15px; }
-    .small-panel .panel-header { padding-bottom: 12px; }
-    .payment-method { color: #697080; font-size: 10px; text-transform: capitalize; }
-    .mobile-list { display: none; }
+    .card.sales    { border-left-color: #3b82f6; }
+    .card.sales    .icon { background: #dbeafe; color: #1d4ed8; }
+    .card.orders   { border-left-color: #8b5cf6; }
+    .card.orders   .icon { background: #ede9fe; color: #6d28d9; }
+    .card.cash     { border-left-color: #22c55e; }
+    .card.cash     .icon { background: #dcfce7; color: #15803d; }
+    .card.expense  { border-left-color: #ef4444; }
+    .card.expense  .icon { background: #fee2e2; color: #b91c1c; }
+    .card.due      { border-left-color: #f59e0b; }
+    .card.due      .icon { background: #fef3c7; color: #b45309; }
+    .card.profit   { border-left-color: #10b981; }
+    .card.profit   .icon { background: #d1fae5; color: #047857; }
 
-    .footer-meta { margin: 17px 2px 0; color: #9196a2; text-align: center; font-size: 9px; line-height: 1.6; }
-    .footer-meta strong { color: #727887; font-weight: 750; }
-    .loader { display: flex; min-height: 72vh; flex-direction: column; align-items: center; justify-content: center; gap: 13px; color: #34384c; text-align: center; }
-    .loader h2 { font-size: 18px; font-weight: 800; }
-    .loader .sub { color: #858b9a; font-size: 12px; }
-    .spin { width: 44px; height: 44px; border: 4px solid #dfe3ec; border-top-color: #303b63; border-radius: 50%; animation: spin .8s linear infinite; }
+    /* ---------- LOADING / EMPTY / ERROR ---------- */
+    .status-box {
+      background: #fff; border-radius: 14px; padding: 30px 20px;
+      text-align: center; box-shadow: 0 2px 8px rgba(15,23,42,.05);
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #e2e8f0; border-top-color: #0f172a;
+      border-radius: 50%; animation: spin .8s linear infinite;
+      margin: 0 auto 14px;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .error { margin: 18px 0; padding: 16px 18px; border: 1px solid #f2c8cc; border-radius: 17px; background: #fff4f4; color: #923e49; box-shadow: var(--shadow-soft); line-height: 1.55; }
-    .error button, .wrap > button { margin: 0 7px 7px 0; padding: 10px 13px; border: 0; border-radius: 11px; color: #fff; background: #24294f; font-weight: 750; cursor: pointer; }
-    .error button.secondary, .wrap > button.secondary { color: #33384b; background: #fff; border: 1px solid #e1e3e8; }
+    .status-box .msg { color: #64748b; font-size: 14px; }
+    .status-box.error { background: #fef2f2; border: 1px solid #fecaca; }
+    .status-box.error .msg { color: #b91c1c; }
 
-    @media (max-width: 1180px) {
-      .insights-grid { grid-template-columns: minmax(205px,.82fr) minmax(0,1.7fr); }
-      .month-panel { grid-column: 1 / -1; }
-      .month-panel .mini-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    /* ---------- FOOTER ---------- */
+    .footer {
+      text-align: center; padding: 20px; font-size: 11px; color: #94a3b8;
     }
-    @media (max-width: 1050px) {
-      .primary-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); }
-      .quick-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
-      .lower-grid { grid-template-columns: minmax(0,1fr); }
-      .side-panels { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .footer .updated { font-weight: 600; color: #64748b; margin-bottom: 4px; }
+    .refresh-btn {
+      background: #fff; border: 1px solid #e2e8f0; color: #0f172a;
+      padding: 8px 14px; border-radius: 10px; font-size: 12px; font-weight: 600;
+      cursor: pointer; margin-top: 8px;
     }
-    @media (max-width: 760px) {
-      .wrap { padding: 14px 13px 24px; }
-      .topbar { align-items: flex-start; flex-direction: column; gap: 13px; padding: 13px; border-radius: 18px; }
-      .brand-logo { flex-basis: 46px; width: 46px; height: 46px; border-radius: 14px; }
-      .brand h1 { font-size: 21px; }
-      .brand-kicker { font-size: 8px; }
-      .brand-sub { align-items: flex-start; font-size: 10px; }
-      .top-actions { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
-      .connection-pill, .clock-chip { justify-content: center; min-height: 39px; padding: 0 8px; font-size: 10px; }
-      .clock-date { display: none; }
-      .refresh-btn { grid-column: 1 / -1; min-height: 39px; }
-      .primary-kpis { gap: 10px; }
-      .kpi-card { min-height: 176px; padding: 14px; border-radius: 18px; }
-      .kpi-icon { flex-basis: 34px; width: 34px; height: 34px; border-radius: 11px; }
-      .kpi-icon svg { width: 17px; height: 17px; }
-      .kpi-label { font-size: 8px; letter-spacing: .1em; }
-      .kpi-value { font-size: clamp(20px,5.4vw,28px); }
-      .kpi-value.count { font-size: 35px; }
-      .kpi-description { font-size: 9px; }
-      .kpi-foot { font-size: 8px; margin-top: 11px; padding-top: 9px; }
-      .collection-ring { flex-basis: 60px; width: 60px; }
-      .collection-ring::before { width: 48px; }
-      .collection-ring strong { font-size: 12px; }
-      .collection-ring span { font-size: 6px; }
-      .progress-track { margin-top: 11px; }
-      .quick-metrics { gap: 8px; }
-      .metric-card { gap: 8px; padding: 10px; border-radius: 14px; }
-      .metric-icon { flex-basis: 32px; width: 32px; height: 32px; border-radius: 10px; }
-      .metric-icon svg { width: 16px; height: 16px; }
-      .metric-label { font-size: 8px; }
-      .metric-value { font-size: clamp(15px,4vw,20px); }
-      .metric-caption { font-size: 8px; }
-      .insights-grid { grid-template-columns: minmax(0,1fr); gap: 10px; }
-      .month-panel { grid-column: auto; }
-      .month-panel .mini-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-      .panel { padding: 14px; border-radius: 18px; }
-      .panel-header { margin-bottom: 12px; }
-      .chart-panel { min-height: 0; }
-      .chart-total { font-size: 21px; }
-      .sales-chart { margin-top: 0; }
-      .chart-label span { display: none; }
-      .lower-grid { gap: 10px; }
-      .side-panels { grid-template-columns: minmax(0,1fr); gap: 10px; }
-      .data-panel .panel-header { padding: 14px 14px 11px; }
-      .desktop-table { display: none; }
-      .mobile-list { display: grid; padding: 0 14px 9px; }
-      .mobile-item { padding: 12px 0; border-top: 1px solid #eff0f2; }
-      .mobile-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-      .mobile-item-title { color: #292c40; font-size: 11px; font-weight: 850; }
-      .mobile-item-sub { display: block; margin-top: 3px; color: #858b98; font-size: 10px; }
-      .mobile-item-meta { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-top: 10px; }
-      .mobile-meta-cell { min-width: 0; }
-      .mobile-meta-cell span { display: block; color: #959aa5; font-size: 8px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
-      .mobile-meta-cell b { display: block; overflow: hidden; margin-top: 3px; color: #34384a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-      .mobile-item .badge { font-size: 8px; }
-      .footer-meta { margin-top: 13px; font-size: 8px; }
-    }
-    @media (max-width: 390px) {
-      .wrap { padding-right: 10px; padding-left: 10px; }
-      .kpi-card { min-width: 0; padding: 12px; }
-      .kpi-value { font-size: 19px; }
-      .kpi-value.count { font-size: 31px; }
-      .kpi-foot { letter-spacing: -.02em; }
-      .metric-card { padding: 9px 8px; }
-      .metric-icon { flex-basis: 29px; width: 29px; height: 29px; }
-      .month-panel .mini-grid { gap: 7px; }
-      .mini { padding: 10px; }
-    }
-    @media (max-width: 360px) {
-      .primary-kpis, .quick-metrics { grid-template-columns: minmax(0,1fr); }
-      .kpi-card { min-height: 164px; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-    }
+    .refresh-btn:hover { background: #f8fafc; }
+
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div id="root"><div class="loader"><div class="spin"></div><h2>Loading Live Dashboard...</h2><p class="sub">Connecting to Firebase sync data</p></div></div>
 
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <!-- ============== PIN LOCK SCREEN ============== -->
+  <div class="lock-screen" id="lockScreen">
+    <div class="lock-box">
+      <div class="logo">
+        <img src="assets/img/logo.png" alt="" onerror="this.parentElement.innerHTML='🧺'"/>
+      </div>
+      <h2>Live Dashboard</h2>
+      <p>Enter PIN to continue</p>
+      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+             class="pin-input" id="pinInput" placeholder="••••" autofocus />
+      <button class="pin-btn" id="pinBtn">Unlock</button>
+      <div class="pin-error" id="pinError"></div>
+    </div>
+  </div>
+
+  <!-- ============== MAIN DASHBOARD ============== -->
+  <div id="dashboard" class="hidden">
+    <div class="top-bar">
+      <div class="logo-box">
+        <img src="assets/img/logo.png" alt="" onerror="this.parentElement.innerHTML='🧺'"/>
+      </div>
+      <div class="title-block">
+        <h1 id="shopName">Modern Dry Cleaners</h1>
+        <div class="sub">Live Owner Dashboard</div>
+      </div>
+      <div class="live-dot">LIVE</div>
+    </div>
+
+    <div class="container">
+      <div class="date-banner">
+        <div>
+          <div class="label">Today</div>
+          <div class="value" id="todayDate">—</div>
+        </div>
+        <div class="right">
+          <div class="label">Current Time</div>
+          <div class="value" id="currentTime">—</div>
+        </div>
+      </div>
+
+      <div id="contentArea">
+        <div class="status-box">
+          <div class="spinner"></div>
+          <div class="msg">Loading live data from cloud...</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div class="updated" id="lastUpdate">—</div>
+        <div>Auto-refreshing every 30 seconds</div>
+        <button class="refresh-btn" id="refreshBtn">🔄 Refresh Now</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const firebaseConfig = {
-      apiKey: 'AIzaSyDU5jnvxfvqIB-JoVZzRUSLJdxZgJ2tiuY',
-      authDomain: 'mr-laundry-pos-a6740.firebaseapp.com',
-      projectId: 'mr-laundry-pos-a6740',
-      storageBucket: 'mr-laundry-pos-a6740.firebasestorage.app',
-      messagingSenderId: '927434668958',
-      appId: '1:927434668958:web:2516175f4046edcfbcf48f'
+    /* ============================================================
+       🔐 SECRET DASHBOARD CONFIG  — EDIT ONLY THESE LINES
+       ============================================================ */
+
+    // 1) PIN — NOT stored here.
+    //    The owner sets it once on this page (first run) and only a PBKDF2
+    //    verifier is kept in the browser vault (key: 'livepin'). To change or
+    //    reset it: Settings → Data & Security → Live Dashboard PIN, or clear
+    //    the browser storage for this page and set a fresh PIN.
+    //    Legacy builds had the PIN hard-coded in this file — if one is found
+    //    in mdcCodeVaultV1 it is used, otherwise the first visitor sets it.
+
+    // 2) Firebase config — LEFT BLANK ON PURPOSE.
+    //    This page reads the Firebase project that the shop owner already saved
+    //    in the POS:   Settings → Cloud Sync → paste firebaseConfig → Connect.
+    //    So a new owner only configures Firebase ONCE, in the POS.
+    //
+    //    Only fill this block in if you deliberately want to hard-code a
+    //    different project for this page alone.
+    const HARDCODED_FIREBASE_CFG = {
+      apiKey:            "AIzaSyDENRfrIpq0cEQJokXQcRFTNv7ldcVxLiw",
+      authDomain:        "maundrylaundrypos.firebaseapp.com",
+      projectId:         "maundrylaundrypos",
+      storageBucket:     "maundrylaundrypos.firebasestorage.app",
+      messagingSenderId: "194444859124",
+      appId:             "1:194444859124:web:d01c1fa1038e896fd9f0a1",
+      measurementId:     "G-VPWTRXT56V",
+      databaseURL:       "https://maundrylaundrypos-default-rtdb.asia-southeast1.firebasedatabase.app"
     };
-    const SHOP_ID = 'shahzeb-laundry-private-pos';
-    const MAX_DOC_SIZE = 800000;
-    let db, unsub, lastData = null, lastUpdated = null, lastFetchAt = 0, __refreshing = false, __errRetries = 0, __inited = false;
 
-    function esc(v){return String(v ?? '').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
-    function money(n){return 'Rs. ' + Math.round(Number(n||0)).toLocaleString('en-PK');}
-    function dayKey(d=new Date()){
-      const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    }
-    function safeDate(v){ const d = new Date(v || Date.now()); return isNaN(d) ? new Date() : d; }
-    function rowDate(v){ return (v || '').slice(0,10); }
-    function orderDay(o){ return o.bookingDate || rowDate(o.createdAt); }
-    function expenseDay(e){ return e.date || rowDate(e.createdAt); }
-    function customerName(data, id){ const c=(data.customers||[]).find(x=>x.id===id); return c?.name || 'Walk-in'; }
+    // 3) Shop ID — also taken automatically from the POS Cloud Sync settings.
+    const HARDCODED_SHOP_ID = 'modern-laundry-main';
 
-    /* The POS writes the compact live doc in CHUNKS when it ever grows past
-       Firestore's ~1MB per-document hard cap (that cap is what silently froze
-       live.html on stale data once history crossed 1MB). Reassemble here. */
-    async function assembleLivePayload(tablesRef, payload){
-      let raw = payload.data;
-      const n = +payload.chunks || 1;
-      if (n > 1) {
-        const parts = await Promise.all(Array.from({length: n - 1}, (_, i) => tablesRef.doc(`_liveDashboard__x${i+1}`).get()));
-        const extra = parts.map(p => p.exists ? p.data().data : null);
-        if (extra.some(x => x == null)) throw new Error('Live data chunks incomplete — retry');
-        raw += extra.join('');
-      }
-      return JSON.parse(raw);
-    }
-
-    async function loadLiveDashboardPack(forceServer){
-      const tablesRef = db.collection('shops').doc(SHOP_ID).collection('tables');
-      const doc = await tablesRef.doc('_liveDashboard').get(forceServer ? {source:'server'} : undefined);
-      if (!doc.exists) return null;
-      const p = doc.data();
-      if (!p.data) return null;
-      lastUpdated = p.updatedAt?.toDate ? p.updatedAt.toDate() : new Date();
-      return { data: await assembleLivePayload(tablesRef, p), version: +p.version || 0 };
-    }
-
-    /* If the compact doc is older than the POS's last real push, it is stale
-       (e.g. a device still running old code, or a write that was rejected).
-       The POS writes the compact doc and the main meta with the SAME version
-       number, so a smaller version = frozen doc → fall back to reading the
-       real tables. live.html then NEVER shows yesterday's numbers. */
-    async function getMainMetaVersion(){
+    /* ---- resolved at runtime from what the POS saved (cloudsync.js) ---- */
+    function readSavedFirebaseCfg() {
       try {
-        const meta = await db.collection('shops').doc(SHOP_ID).get();
-        return meta.exists ? (+meta.data().version || 0) : 0;
-      } catch(e) { return 0; }
+        const raw = localStorage.getItem('mrLaundryFirebaseCfg');
+        if (!raw) return null;
+        const cfg = JSON.parse(raw);
+        return (cfg && cfg.apiKey) ? cfg : null;
+      } catch (e) { return null; }
     }
-    async function validateCompactPack(pack){
-      if (!pack || !pack.data) return null;
-      const mv = await getMainMetaVersion();
-      if (mv && (+pack.version || 0) < mv) return null; // stale → caller falls back
-      return pack.data;
+    const FIREBASE_CFG = HARDCODED_FIREBASE_CFG.apiKey
+      ? HARDCODED_FIREBASE_CFG
+      : (readSavedFirebaseCfg() || HARDCODED_FIREBASE_CFG);
+    const SHOP_ID = HARDCODED_SHOP_ID || (localStorage.getItem('mrLaundryShopId') || '');
+
+    /* ============================================================ */
+
+    const AUTO_REFRESH_MS = 30000; // 30 seconds
+    const SESSION_KEY = 'mrLaundryLiveUnlocked';
+
+    /* ----- PIN GATE ----- */
+    const lockScreen = document.getElementById('lockScreen');
+    const dashboard  = document.getElementById('dashboard');
+    const pinInput   = document.getElementById('pinInput');
+    const pinBtn     = document.getElementById('pinBtn');
+    const pinError   = document.getElementById('pinError');
+
+    function unlock() {
+      lockScreen.classList.add('hidden');
+      dashboard.classList.remove('hidden');
+      sessionStorage.setItem(SESSION_KEY, '1');
+      /* startDashboard neeche define hai (let _refreshTimer bhi neeche) — is liye
+         isi tick par call karte hain, warna "before initialization" error aata tha */
+      setTimeout(startDashboard, 0);
     }
+    /* ---- PIN verifier (PBKDF2, no plaintext in storage) ---- */
+    const CODE_KEY = 'mdcCodeVaultV1';
 
-    async function loadCloudData(){
-      // Fast fallback: only load tables needed by this dashboard.
-      // Old version loaded every POS table (products, inventory, photos, claims, etc.)
-      // which made live.html slow. These 4 are enough for live dashboard metrics.
-      const REQUIRED_TABLES = ['settings', 'orders', 'customers', 'expenses'];
-      const mainRef = db.collection('shops').doc(SHOP_ID);
-      const mainDoc = await mainRef.get();
-      if (!mainDoc.exists) throw new Error('No cloud data found for this Shop ID: '+SHOP_ID);
-      const meta = mainDoc.data();
-      let result = {};
-
-      if (meta._format === 'chunked-v1' && meta.tables) {
-        const tablesRef = mainRef.collection('tables');
-        const loadTable = async (tbl) => {
-          const info = meta.tables[tbl];
-          if (!info) return;
-          if ((info.chunks || 1) === 1) {
-            const doc = await tablesRef.doc(tbl).get();
-            if (doc.exists) result[tbl] = JSON.parse(doc.data().data);
-          } else {
-            const docs = await Promise.all(Array.from({length: info.chunks}, (_, i) => tablesRef.doc(`${tbl}__c${i}`).get()));
-            const chunks = docs.map(d => d.exists ? d.data().data : null);
-            if (chunks.every(x => x != null)) result[tbl] = JSON.parse(chunks.join(''));
-          }
-        };
-        await Promise.all(REQUIRED_TABLES.map(loadTable));
-      } else if (meta.data) {
-        const all = JSON.parse(meta.data);
-        for (const t of REQUIRED_TABLES) result[t] = all[t];
-      } else {
-        throw new Error('Cloud data format not recognized');
-      }
-
-      lastUpdated = meta.updatedAt?.toDate ? meta.updatedAt.toDate() : new Date();
-      return result;
+    function codeVault() {
+      try { return JSON.parse(localStorage.getItem(CODE_KEY) || '{}') || {}; } catch (e) { return {}; }
     }
-
-    function buildStats(data){
-      const orders = (data.orders || []).filter(o=>!o._deleted);
-      const expenses = (data.expenses || []).filter(e=>!e._deleted);
-      const today = dayKey();
-      const month = today.slice(0,7);
-      const todayOrders = orders.filter(o => orderDay(o) === today || rowDate(o.createdAt) === today);
-      const todaySale = todayOrders.reduce((s,o)=>s+(+o.total||0),0);
-      const todayDue = todayOrders.reduce((s,o)=>s+(+o.due||0),0);
-
-      const todayPayments = [];
-      for (const o of orders) {
-        if (Array.isArray(o.paymentsLog)) {
-          for (const p of o.paymentsLog) {
-            if (rowDate(p.at) === today) todayPayments.push({...p, orderId:o.id, invoiceNo:o.invoiceNo, customerId:o.customerId, orderTotal:o.total});
-          }
-        }
-      }
-      for (const o of todayOrders) {
-        const logged = Array.isArray(o.paymentsLog) ? o.paymentsLog.reduce((s,p)=>s+(+p.amount||0),0) : 0;
-        const firstPay = (+o.paid||0) - logged;
-        if (firstPay > 0) todayPayments.push({id:'init_'+o.id, amount:firstPay, method:o.paymentMethod||'cash', note:'Initial payment at booking', at:o.createdAt, by:o.cashierUsername||o.createdBy||'', byName:o.cashierName||'', orderId:o.id, invoiceNo:o.invoiceNo, customerId:o.customerId, orderTotal:o.total});
-      }
-      todayPayments.sort((a,b)=>(b.at||'').localeCompare(a.at||''));
-      const todayRecovery = todayPayments.reduce((s,p)=>s+(+p.amount||0),0);
-      const todayExpenses = expenses.filter(e=>expenseDay(e)===today).reduce((s,e)=>s+(+e.amount||0),0);
-      const net = todayRecovery - todayExpenses;
-      const statusKeys = ['pending','washing','press','ready'];
-      const statusCounts = Object.fromEntries(statusKeys.map(key=>[key,orders.filter(o=>String(o.status||'pending').toLowerCase()===key).length]));
-      const orderFlow = statusKeys.map(key=>({key,label:key.charAt(0).toUpperCase()+key.slice(1),count:statusCounts[key]}));
-      const pending = orderFlow.reduce((sum,item)=>sum+item.count,0);
-      const collectionRate = todaySale > 0 ? Math.max(0,Math.min(100,Math.round(todayRecovery/todaySale*100))) : 0;
-      const totalOutstanding = orders.reduce((s,o)=>s+(+o.due||0),0);
-      const monthOrders = orders.filter(o=>(orderDay(o)||rowDate(o.createdAt)).slice(0,7)===month || rowDate(o.createdAt).slice(0,7)===month);
-      const monthSale = monthOrders.reduce((s,o)=>s+(+o.total||0),0);
-      const monthReceived = monthOrders.reduce((s,o)=>s+(+o.paid||0),0);
-      const monthExpenses = expenses.filter(e=>(expenseDay(e)||'').slice(0,7)===month).reduce((s,e)=>s+(+e.amount||0),0);
-
-      const last7=[];
-      for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const k=dayKey(d); const sum=orders.filter(o=>orderDay(o)===k || rowDate(o.createdAt)===k).reduce((s,o)=>s+(+o.total||0),0); last7.push({key:k,label:d.toLocaleDateString('en',{weekday:'short'}),value:sum}); }
-      const recentOrders=[...orders].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,10);
-      const recentExpenses=[...expenses].filter(e=>expenseDay(e)===today).sort((a,b)=>(b.createdAt||b.date||'').localeCompare(a.createdAt||a.date||'')).slice(0,8);
-      const weekTotal = last7.reduce((sum,day)=>sum+day.value,0);
-      return {orders,expenses,today,todayOrders,todaySale,todayDue,todayPayments,todayRecovery,todayExpenses,net,pending,statusCounts,orderFlow,collectionRate,weekTotal,totalOutstanding,monthOrders,monthSale,monthReceived,monthExpenses,last7,recentOrders,recentExpenses};
+    function savePinVerifier(salt, hash, it) {
+      const v = codeVault();
+      v.livepin = { v: 1, it: it, salt: salt, hash: hash, updatedAt: new Date().toISOString() };
+      localStorage.setItem(CODE_KEY, JSON.stringify(v));
+    }
+    function derive(secret, salt, iterations) {
+      const st = window.crypto && (window.crypto.subtle || window.crypto.webkitSubtle);
+      if (!st) return Promise.resolve(null);
+      const enc = new TextEncoder();
+      return st.importKey('raw', enc.encode(String(secret)), { name: 'PBKDF2' }, false, ['deriveBits'])
+        .then(k => st.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations, hash: 'SHA-256' }, k, 256))
+        .then(bits => Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join(''));
+    }
+    function randomHex(n) {
+      const a = new Uint8Array(n);
+      (window.crypto || {}).getRandomValues ? crypto.getRandomValues(a) : a.forEach((_, i) => a[i] = Math.floor(Math.random() * 256));
+      return Array.from(a).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    function statusToken(status){
-      const key = String(status || 'pending').toLowerCase().replace(/[^a-z0-9_-]/g,'');
-      return ['pending','washing','press','ready','delivered','cancelled','paid'].includes(key) ? key : 'other';
-    }
-    function invoiceLabel(item){
-      return item.invoiceNo ? 'INV-' + esc(item.invoiceNo) : '#' + esc(String(item.id || item.orderId || '').slice(-6).toUpperCase());
-    }
-    function salesChartSvg(points){
-      const width=720, height=200, left=18, right=18, top=16, bottom=24;
-      const max=Math.max(1,...points.map(p=>Number(p.value)||0));
-      const usableW=width-left-right, usableH=height-top-bottom;
-      const coords=points.map((p,i)=>({x:left+(points.length<2?usableW/2:i*usableW/(points.length-1)),y:top+(1-(Number(p.value)||0)/max)*usableH}));
-      let linePath=`M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
-      for(let i=1;i<coords.length;i++){
-        const prev=coords[i-1], cur=coords[i], mid=(prev.x+cur.x)/2;
-        linePath+=` Q ${mid.toFixed(1)} ${prev.y.toFixed(1)} ${cur.x.toFixed(1)} ${cur.y.toFixed(1)}`;
-      }
-      const first=coords[0], last=coords[coords.length-1];
-      const areaPath=`${linePath} L ${last.x.toFixed(1)} ${(height-bottom).toFixed(1)} L ${first.x.toFixed(1)} ${(height-bottom).toFixed(1)} Z`;
-      const grid=[.25,.5,.75,1].map(r=>`<line class="chart-gridline" x1="${left}" y1="${(top+usableH*r).toFixed(1)}" x2="${width-right}" y2="${(top+usableH*r).toFixed(1)}"/>`).join('');
-      const dots=coords.map((point,i)=>`<circle class="chart-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4.5"><title>${esc(points[i].label)}: ${esc(money(points[i].value))}</title></circle>`).join('');
-      return `<svg class="sales-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Billed sales chart for the last seven days">
-        <defs>
-          <linearGradient id="liveChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2d58f" stop-opacity=".42"/><stop offset="100%" stop-color="#f2d58f" stop-opacity="0"/></linearGradient>
-          <linearGradient id="liveChartLine" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#e2c47f"/><stop offset="50%" stop-color="#f6e4b5"/><stop offset="100%" stop-color="#94b4d2"/></linearGradient>
-        </defs>
-        ${grid}<path class="chart-area" d="${areaPath}"/><path class="chart-line" d="${linePath}"/>${dots}
-      </svg>`;
-    }
+    async function tryUnlock() {
+      const v = (pinInput.value || '').trim();
+      if (v.length < 4) { pinError.textContent = 'PIN must be at least 4 digits.'; return; }
 
-    function render(data){
-      lastData = data;
-      lastFetchAt = Date.now();
-      const s = data.settings || {};
-      const st = buildStats(data);
-      const now = new Date();
-      const maxFlow = Math.max(1,...st.orderFlow.map(item=>item.count));
-      const collectionRate = st.collectionRate;
-      const expenseRate = st.todayRecovery > 0 ? Math.max(0,Math.min(100,Math.round(st.todayExpenses/st.todayRecovery*100))) : (st.todayExpenses > 0 ? 100 : 0);
-      const logo = s.logoImage
-        ? `<img src="${esc(s.logoImage)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"><span class="brand-logo-fallback" style="display:none">${esc(s.logo || '🧺')}</span>`
-        : `<span class="brand-logo-fallback">${esc(s.logo || '🧺')}</span>`;
-      const flowRows = st.orderFlow.map(item=>{
-        const width=item.count ? Math.max(6,Math.round(item.count/maxFlow*100)) : 0;
-        return `<div class="flow-row ${item.key}" style="--flow-width:${width}%"><span class="flow-dot ${item.key}"></span><span class="flow-name">${item.label}</span><span class="flow-count">${item.count} ${item.count===1?'item':'items'}</span><div class="flow-track"><span></span></div></div>`;
-      }).join('');
-      const orderRows = st.recentOrders.length ? st.recentOrders.map(o=>`<tr>
-        <td><span class="invoice-code">${invoiceLabel(o)}</span></td>
-        <td>${esc(customerName(data,o.customerId))}</td>
-        <td><span class="badge ${statusToken(o.status)}">${esc(o.status||'pending')}</span></td>
-        <td class="right"><b>${money(o.total)}</b></td>
-        <td class="right">${money(o.paid)}</td>
-        <td>${safeDate(o.createdAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</td>
-      </tr>`).join('') : '<tr><td colspan="6" class="empty">No orders yet</td></tr>';
-      const mobileOrders = st.recentOrders.length ? st.recentOrders.map(o=>`<article class="mobile-item">
-        <div class="mobile-item-head"><div><div class="mobile-item-title">${invoiceLabel(o)}</div><span class="mobile-item-sub">${esc(customerName(data,o.customerId))}</span></div><span class="badge ${statusToken(o.status)}">${esc(o.status||'pending')}</span></div>
-        <div class="mobile-item-meta"><div class="mobile-meta-cell"><span>Total</span><b>${money(o.total)}</b></div><div class="mobile-meta-cell"><span>Paid</span><b>${money(o.paid)}</b></div><div class="mobile-meta-cell"><span>Time</span><b>${safeDate(o.createdAt).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</b></div></div>
-      </article>`).join('') : '<div class="empty">No orders yet</div>';
-      const paymentRows = st.todayPayments.length ? st.todayPayments.slice(0,10).map(p=>`<tr>
-        <td><span class="invoice-code">${invoiceLabel(p)}</span><span class="muted-cell">${safeDate(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</span></td>
-        <td class="payment-method">${esc(p.method||'cash')}</td><td class="right"><b>${money(p.amount)}</b></td>
-      </tr>`).join('') : '<tr><td colspan="3" class="empty">No recovery yet today</td></tr>';
-      const mobilePayments = st.todayPayments.length ? st.todayPayments.slice(0,8).map(p=>`<article class="mobile-item">
-        <div class="mobile-item-head"><div><div class="mobile-item-title">${invoiceLabel(p)}</div><span class="mobile-item-sub">${safeDate(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</span></div><span class="payment-method">${esc(p.method||'cash')}</span></div>
-        <div class="mobile-item-meta"><div class="mobile-meta-cell"><span>Received</span><b>${money(p.amount)}</b></div><div class="mobile-meta-cell"><span>Order total</span><b>${money(p.orderTotal)}</b></div><div class="mobile-meta-cell"><span>Method</span><b>${esc(p.method||'cash')}</b></div></div>
-      </article>`).join('') : '<div class="empty">No recovery yet today</div>';
-      const expenseRows = st.recentExpenses.length ? st.recentExpenses.map(e=>`<tr>
-        <td>${esc(e.category||e.type||'Expense')}</td><td>${esc(e.note||e.description||'-')}</td><td class="right"><b>${money(e.amount)}</b></td>
-      </tr>`).join('') : '<tr><td colspan="3" class="empty">No expenses today</td></tr>';
-      const mobileExpenses = st.recentExpenses.length ? st.recentExpenses.map(e=>`<article class="mobile-item">
-        <div class="mobile-item-head"><div><div class="mobile-item-title">${esc(e.category||e.type||'Expense')}</div><span class="mobile-item-sub">${esc(e.note||e.description||'-')}</span></div><b>${money(e.amount)}</b></div>
-        <div class="mobile-item-meta"><div class="mobile-meta-cell"><span>Recorded</span><b>${safeDate(e.createdAt||e.date).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</b></div><div class="mobile-meta-cell"><span>Type</span><b>${esc(e.type||e.category||'Expense')}</b></div><div class="mobile-meta-cell"><span>Amount</span><b>${money(e.amount)}</b></div></div>
-      </article>`).join('') : '<div class="empty">No expenses today</div>';
-      const chartLabels = st.last7.map(day=>`<div class="chart-label"><b>${esc(day.label)}</b><span>${money(day.value)}</span></div>`).join('');
-      const time = now.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-      const date = now.toLocaleDateString('en',{day:'2-digit',month:'short',year:'numeric'});
-      const address = s.address || 'Shop 04, Gulistan E Zafar, Karachi';
-      const phone = s.phone || '+923343691210';
-      document.getElementById('root').innerHTML = `
-        <main class="wrap">
-          <header class="topbar">
-            <div class="brand">
-              <div class="brand-logo">${logo}</div>
-              <div class="brand-copy">
-                <div class="brand-kicker">Live operations overview</div>
-                <h1>${esc(s.shopName || 'Mr Laundry')} <span>Live Dashboard</span></h1>
-                <p class="brand-sub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>${esc(address)} · ${esc(phone)}</span></p>
-              </div>
-            </div>
-            <div class="top-actions">
-              <div class="connection-pill"><span class="live-dot"></span><span>Synced Live</span></div>
-              <div class="clock-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>${time}</span><span class="clock-date">${date}</span></div>
-              <button class="refresh-btn" type="button" onclick="manualRefresh()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2L20 12M4 12l2.4 5a7 7 0 0 0 11.5-2"/></svg><span>Refresh</span></button>
-            </div>
-          </header>
-
-          <section class="primary-kpis" aria-label="Today's key figures">
-            <article class="kpi-card kpi-orders">
-              <div class="kpi-head"><div><div class="kpi-label">Orders today</div><div class="kpi-description">Bookings placed today</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 1.9-1.4L22 8H6"/><circle cx="10" cy="20" r="1.2"/><circle cx="18" cy="20" r="1.2"/></svg></span></div>
-              <div class="kpi-main"><div class="kpi-value count">${st.todayOrders.length}</div></div>
-              <div class="kpi-foot"><span>Active in workflow</span><strong>${st.pending}</strong></div>
-            </article>
-            <article class="kpi-card kpi-sales">
-              <div class="kpi-head"><div><div class="kpi-label">Total sale today</div><div class="kpi-description">Billed value of today's orders</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h17"/><path d="m7 15 4-4 3 2 6-7"/><path d="M16 6h4v4"/></svg></span></div>
-              <div class="kpi-main"><div class="kpi-value">${money(st.todaySale)}</div><div class="collection-ring" style="--progress:${collectionRate}%"><div><strong>${collectionRate}%</strong><span>recovered</span></div></div></div>
-              <div class="kpi-foot"><span>7-day billed sales</span><strong>${money(st.weekTotal)}</strong></div>
-            </article>
-            <article class="kpi-card kpi-recovery">
-              <div class="kpi-head"><div><div class="kpi-label">Recovery today</div><div class="kpi-description">Payments actually received</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M17 7.5c0-1.7-2.2-3-5-3s-5 1.3-5 3 2 2.6 5 3.5 5 1.8 5 3.6-2.2 3-5 3-5-1.3-5-3"/></svg></span></div>
-              <div class="kpi-main"><div class="kpi-value">${money(st.todayRecovery)}</div></div>
-              <div class="progress-track" style="--progress:${collectionRate}%"><span></span></div>
-              <div class="kpi-foot"><span>Collected vs today's sale</span><strong>${collectionRate}%</strong></div>
-            </article>
-            <article class="kpi-card kpi-expenses">
-              <div class="kpi-head"><div><div class="kpi-label">Expenses today</div><div class="kpi-description">Daily operating costs</div></div><span class="kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span></div>
-              <div class="kpi-main"><div class="kpi-value">${money(st.todayExpenses)}</div></div>
-              <div class="progress-track" style="--progress:${expenseRate}%"><span></span></div>
-              <div class="kpi-foot"><span>${st.todayRecovery ? 'Share of today’s recovery' : 'Logged for today'}</span><strong>${st.todayRecovery ? `${expenseRate}%` : 'Today'}</strong></div>
-            </article>
-          </section>
-
-          <section class="quick-metrics" aria-label="Cash and order summary">
-            <article class="metric-card net"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17 9 11l4 4 8-9"/><path d="M15 6h6v6"/></svg></span><div class="metric-copy"><div class="metric-label">Net cash today</div><div class="metric-value">${money(st.net)}</div><div class="metric-caption">Recovery minus expenses</div></div></article>
-            <article class="metric-card workflow"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div class="metric-copy"><div class="metric-label">In progress</div><div class="metric-value">${st.pending}</div><div class="metric-caption">Pending, Washing, Press &amp; Ready</div></div></article>
-            <article class="metric-card due"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v17H5z"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></span><div class="metric-copy"><div class="metric-label">Due today</div><div class="metric-value">${money(st.todayDue)}</div><div class="metric-caption">Balance on today's orders</div></div></article>
-            <article class="metric-card outstanding"><span class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg></span><div class="metric-copy"><div class="metric-label">Total outstanding</div><div class="metric-value">${money(st.totalOutstanding)}</div><div class="metric-caption">Balance across all orders</div></div></article>
-          </section>
-
-          <section class="insights-grid" aria-label="Order flow and sales insights">
-            <article class="panel flow-panel">
-              <div class="panel-header"><div><h2 class="panel-title">Order flow</h2><p class="panel-subtitle">Orders currently by status</p></div><span class="panel-tag">${st.pending} active</span></div>
-              <div class="flow-list">${flowRows}</div>
-              <div class="flow-footer"><span>Active orders</span><strong>${st.pending}</strong></div>
-            </article>
-            <article class="panel chart-panel">
-              <div class="panel-header"><div><h2 class="panel-title">Sales trend</h2><p class="panel-subtitle">Daily billed sales · Last 7 days</p></div><span class="panel-tag"><span class="live-dot"></span> Live feed</span></div>
-              <div class="chart-total">${money(st.weekTotal)}</div><div class="chart-total-caption">Billed across the last seven days</div>
-              ${salesChartSvg(st.last7)}
-              <div class="chart-labels">${chartLabels}</div>
-            </article>
-            <article class="panel month-panel">
-              <div class="panel-header"><div><h2 class="panel-title">This month</h2><p class="panel-subtitle">A quick month-to-date view</p></div><span class="panel-tag">${new Date().toLocaleDateString('en',{month:'short'})}</span></div>
-              <div class="mini-grid">
-                <div class="mini"><div class="mini-k">Orders</div><div class="mini-v">${st.monthOrders.length}</div></div>
-                <div class="mini"><div class="mini-k">Sales</div><div class="mini-v">${money(st.monthSale)}</div></div>
-                <div class="mini"><div class="mini-k">Received</div><div class="mini-v">${money(st.monthReceived)}</div></div>
-                <div class="mini"><div class="mini-k">Expenses</div><div class="mini-v">${money(st.monthExpenses)}</div></div>
-                <div class="mini"><div class="mini-k">Customers</div><div class="mini-v">${(data.customers||[]).filter(c=>!c._deleted).length}</div></div>
-                <div class="mini"><div class="mini-k">All orders</div><div class="mini-v">${st.orders.length}</div></div>
-              </div>
-            </article>
-          </section>
-
-          <section class="lower-grid" aria-label="Recent business activity">
-            <article class="panel data-panel orders-panel">
-              <div class="panel-header"><div><h2 class="panel-title">Recent orders</h2><p class="panel-subtitle">Latest bookings from the live order stream</p></div><span class="section-count">${st.recentOrders.length}</span></div>
-              <div class="table-scroll desktop-table"><table class="data-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th class="right">Total</th><th class="right">Paid</th><th>Time</th></tr></thead><tbody>${orderRows}</tbody></table></div>
-              <div class="mobile-list">${mobileOrders}</div>
-            </article>
-            <div class="side-panels">
-              <article class="panel data-panel small-panel">
-                <div class="panel-header"><div><h2 class="panel-title">Payments today</h2><p class="panel-subtitle">${st.todayPayments.length} recorded · ${money(st.todayRecovery)} recovered</p></div><span class="section-count">${st.todayPayments.length}</span></div>
-                <div class="table-scroll desktop-table"><table class="data-table"><thead><tr><th>Invoice / time</th><th>Method</th><th class="right">Amount</th></tr></thead><tbody>${paymentRows}</tbody></table></div>
-                <div class="mobile-list">${mobilePayments}</div>
-              </article>
-              <article class="panel data-panel small-panel">
-                <div class="panel-header"><div><h2 class="panel-title">Expenses today</h2><p class="panel-subtitle">Today's recorded operating costs</p></div><span class="section-count">${money(st.todayExpenses)}</span></div>
-                <div class="table-scroll desktop-table"><table class="data-table"><thead><tr><th>Category</th><th>Note</th><th class="right">Amount</th></tr></thead><tbody>${expenseRows}</tbody></table></div>
-                <div class="mobile-list">${mobileExpenses}</div>
-              </article>
-            </div>
-          </section>
-          <footer class="footer-meta">Last cloud update: <strong>${lastUpdated ? esc(lastUpdated.toLocaleString()) : '—'}</strong> · Live sync and automatic refresh are enabled · Shop ID: <strong>${esc(SHOP_ID)}</strong></footer>
-        </main>`;
-    }
-
-    function renderError(err){
-      // Weak internet? Don't just sit on an error screen — retry on its own
-      // twice before asking the user to reload.
-      if (typeof navigator !== 'undefined' && navigator.onLine && __errRetries < 2) {
-        __errRetries++;
-        document.getElementById('root').innerHTML = `<div class="wrap"><div class="error"><b>Live dashboard:</b><br>${esc(err.message || err)}<br><small>Auto-retry ${__errRetries}/2 chal raha hai — 6 second mein dobara koshish…</small></div><button onclick="manualRefresh()">Refresh Now</button></div>`;
-        setTimeout(() => { init().catch(renderError); }, 6000);
+      const rec = codeVault().livepin;
+      if (!rec || !rec.hash) {
+        // First run on this device: the PIN entered now becomes the verifier.
+        const salt = randomHex(16);
+        const hash = await derive(v, salt, 120000);
+        if (!hash) { pinError.textContent = 'This browser cannot secure the PIN. Use Chrome/Edge.'; return; }
+        savePinVerifier(salt, hash, 120000);
+        pinError.textContent = '';
+        alert('PIN saved for this device. Keep it safe — it cannot be recovered from storage.');
+        unlock();
         return;
       }
-      document.getElementById('root').innerHTML = `<div class="wrap"><div class="error"><b>Live dashboard error:</b><br>${esc(err.message || err)}</div><button onclick="location.reload()">Reload</button> <button class="secondary" onclick="manualRefresh()">Refresh</button></div>`;
+
+      const hash = await derive(v, rec.salt, rec.it || 120000);
+      if (hash && hash === rec.hash) {
+        pinError.textContent = '';
+        unlock();
+      } else {
+        pinError.textContent = '❌ Incorrect PIN. Try again.';
+        pinInput.value = '';
+        pinInput.focus();
+      }
+    }
+    pinBtn.addEventListener('click', tryUnlock);
+    pinInput.addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+
+    // Skip lock if already unlocked this session
+    if (sessionStorage.getItem(SESSION_KEY) === '1') unlock();
+
+    /* ----- TIME UPDATER ----- */
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function updateClock() {
+      const d = new Date();
+      const opts = { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' };
+      document.getElementById('todayDate').textContent = d.toLocaleDateString('en-GB', opts);
+      document.getElementById('currentTime').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    /* ----- MONEY FORMATTER ----- */
+    function fmtMoney(n) {
+      n = +n || 0;
+      return 'Rs. ' + n.toLocaleString('en-PK', { maximumFractionDigits: 0 });
     }
 
-    async function manualRefresh(){
-      if (__refreshing) return;   // don't stack rapid clicks
-      __refreshing = true;
-      try {
-        // Fast path first: the tiny compact doc, straight from the SERVER
-        // (skips any stale local cache) — but ONLY if it isn't older than the
-        // POS's last real push. Fallback: read the real tables directly.
-        let d = null;
-        try { d = await validateCompactPack(await loadLiveDashboardPack(true)); } catch(e) { d = null; }
-        if (d) render(d); else render(await loadCloudData());
-        __errRetries = 0;
-      } catch(e) { renderError(e); }
-      finally { __refreshing = false; }
+    /* ============================================================
+       FIREBASE DIRECT READ
+       Reads same chunked structure your main POS writes.
+       Uses hardcoded config above — works on ANY device without setup.
+       ============================================================ */
+
+    // Unregister any service worker for this path (prevents POS service worker from caching live.html)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(reg => {
+          if (reg.scope.includes('/live.html') || location.pathname.endsWith('/live.html')) {
+            // Don't unregister POS service worker entirely; just skip caching for this page
+          }
+        });
+      }).catch(()=>{});
     }
 
-    function loadScript(src){
-      return new Promise((res, rej) => {
+    async function loadFirebaseSDK() {
+      if (window.firebase?.firestore) return;
+      const scripts = [
+        'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js',
+        'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'
+      ];
+      for (const src of scripts) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = src; s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+    }
+
+    /* ---------------- Realtime Database support ----------------
+       POS ka sync Firestore ya Realtime Database par chal sakta hai — dashboard
+       dono se parh leta hai (jaise portal.html karta hai). */
+
+    function loadScriptOnce(src) {
+      return new Promise((resolve, reject) => {
         const sc = document.createElement('script');
-        sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('failed ' + src));
+        let settled = false;
+        const done = (fn, v) => { if (settled) return; settled = true; fn(v); };
+        sc.src = src;
+        sc.onload = () => done(resolve);
+        sc.onerror = () => done(reject, new Error('Script load failed: ' + src));
+        setTimeout(() => done(reject, new Error('Script timeout: ' + src)), 6000);
         document.head.appendChild(sc);
       });
     }
-    async function init(){
-      if (!navigator.onLine) throw new Error('Internet required. Live dashboard is online-only.');
-      if (!window.firebase || !window.firebase.firestore) {
-        // Flaky shop internet sometimes drops the SDK <script> tags on first
-        // load — retry loading them before giving up (fewer manual refreshes).
-        const urls = [
-          'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js',
-          'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'
-        ];
-        for (let a = 0; a < 3 && (!window.firebase || !window.firebase.firestore); a++) {
-          await new Promise(r => setTimeout(r, 1200));
-          for (const u of urls) { try { await loadScript(u); } catch(e) {} }
-        }
-        if (!window.firebase || !window.firebase.firestore) throw new Error('Firebase SDK could not load. Check internet connection.');
+    async function loadRTDBSDKlive() {
+      if (window.firebase && typeof window.firebase.database === 'function') return;
+      /* database-compat AKELA load karne se window.firebase banta hi nahi —
+         pehle app-compat lazmi hai (yahi wajah thi ke dashboard data na parh pata). */
+      if (!window.firebase) {
+        await loadScriptOnce('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
       }
-      if (!__inited) {
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        db = firebase.firestore();
-        __inited = true;
+      if (!window.firebase || typeof window.firebase.database !== 'function') {
+        await loadScriptOnce('https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js');
       }
-
-      // Super-fast path: POS writes a compact live dashboard doc on every sync.
-      // live.html listens to that one tiny document instead of downloading the
-      // full POS database. If it doesn't exist yet, we fall back once.
-      const liveRef = db.collection('shops').doc(SHOP_ID).collection('tables').doc('_liveDashboard');
-      try { if (unsub) unsub(); } catch(e) {}
-      unsub = liveRef.onSnapshot(async snap => {
-        try {
-          if (snap.exists && snap.data().data) {
-            const sp = snap.data();
-            lastUpdated = sp.updatedAt?.toDate ? sp.updatedAt.toDate() : new Date();
-            const d = await validateCompactPack({ data: await assembleLivePayload(liveRef.parent, sp), version: +sp.version || 0 });
-            if (d) return render(d);
-            return render(await loadCloudData()); // frozen/old compact doc — use real tables
-          }
-          render(await loadCloudData());
-        } catch(e) { renderError(e); }
-      }, renderError);
-
-      // Show something immediately while realtime snapshot connects.
-      loadLiveDashboardPack().then(async pack => { const d = await validateCompactPack(pack); if (d) render(d); }).catch(()=>{});
-      // Clock tick every 30s; plus a safety net: if realtime hiccups and we
-      // haven't had fresh data for 2 minutes, quietly re-pull from the server.
-      if (!window.__liveRefreshTimer) {
-        window.__liveRefreshTimer = setInterval(async () => {
-          if (lastData) render(lastData);
-          try {
-            if (__inited && !document.hidden && Date.now() - lastFetchAt > 120000) {
-              const d = await validateCompactPack(await loadLiveDashboardPack(true));
-              if (d) render(d); else render(await loadCloudData());
-            }
-          } catch(e) {}
-        }, 30000);
+      if (!window.firebase || typeof window.firebase.database !== 'function') {
+        throw new Error('Realtime Database SDK load nahi hua (gstatic.com block?)');
       }
     }
-    window.addEventListener('online', () => manualRefresh());
-    window.addEventListener('offline', () => renderError(new Error('Internet disconnected. Live dashboard is online-only.')));
-    init().catch(renderError);
+    function rtdbCandidates() {
+      const pid = (FIREBASE_CFG && FIREBASE_CFG.projectId) || 'maundrylaundrypos';
+      let saved = null;
+      try { saved = localStorage.getItem('mrlCloudDatabaseURL'); } catch (e) {}
+      return [...new Set([
+        saved,
+        FIREBASE_CFG && FIREBASE_CFG.databaseURL,
+        'https://' + pid + '-default-rtdb.asia-southeast1.firebasedatabase.app',
+        'https://' + pid + '-default-rtdb.firebaseio.com',
+        'https://' + pid + '.firebaseio.com'
+      ].filter(Boolean))];
+    }
+    async function readRTDBLive() {
+      await loadRTDBSDKlive();
+      const FB = window.firebase;                        // bare 'firebase' par bharosa na karein
+      if (!FB || typeof FB.database !== 'function') throw new Error('Realtime Database SDK ready nahi hua');
+      for (const url of rtdbCandidates()) {
+        try {
+          const name = 'rtdb-' + url.replace(/[^a-z0-9]/gi, '').slice(-16);
+          let app = (FB.apps || []).find(a => a && a.name === name);
+          if (!app) app = FB.initializeApp(Object.assign({}, FIREBASE_CFG, { databaseURL: url }), name);
+          const snap = await FB.database(app).ref('shops/' + SHOP_ID).get();
+          if (snap && snap.exists()) {
+            const v = snap.val() || {};
+            if (v.data) { window.__mrlRdbUrl = url; return JSON.parse(v.data); }
+          }
+        } catch (e) { /* agla URL */ }
+      }
+      return null;
+    }
+
+    async function initFirebase() {
+      if (window.__mrlFsDb) return window.__mrlFsDb;
+      if (!FIREBASE_CFG || !FIREBASE_CFG.apiKey) {
+        throw new Error('Cloud Sync is not set up yet. Open the POS → Settings → Cloud Sync, paste your firebaseConfig, click Connect, then reload this page.');
+      }
+      if (!SHOP_ID) {
+        throw new Error('Shop ID is missing. Open the POS → Settings → Cloud Sync and save a Shop ID, then reload this page.');
+      }
+      await loadFirebaseSDK();
+      if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CFG);
+      window.__mrlFsDb = firebase.firestore();
+      return window.__mrlFsDb;
+    }
+
+    async function fetchCloudData() {
+      /* 1) Realtime Database — tez (~1s) aur abhi yahi data ka source hai.
+         Pehli koshish mein SDK load hone mein waqt lag sakta hai → ek dafa retry. */
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const rt = await readRTDBLive();
+          if (rt) {
+            if (attempt > 1) console.log('[Live] Realtime Database retry succeeded');
+            return rt;
+          }
+        } catch (e) {
+          console.warn('[Live] Realtime Database read failed (try ' + attempt + '):', (e && e.message) || e);
+        }
+        await new Promise(r => setTimeout(r, 900));
+      }
+      /* 2) Firestore (agar wahan data ho) */
+      try {
+        const db = await initFirebase();
+        const shopId = SHOP_ID;
+        const docRef = db.collection('shops').doc(shopId);
+        const snap = await Promise.race([
+          docRef.get(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Firestore timeout')), 7000))
+        ]);
+        if (snap.exists) return await parseFirestoreMeta(docRef, snap.data());
+      } catch (e) {
+        console.warn('[Live] Firestore read failed — trying Realtime Database:', (e && e.message) || e);
+      }
+      throw new Error('Cloud data nahi mila. 1) POS → Settings → Cloud Sync ek dafa ON karein (pehli sync baqi hai), 2) agar phir bhi na aaye to cloud-check.html kholein aur report bhejein.');
+    }
+
+    async function parseFirestoreMeta(docRef, meta) {
+
+      // Chunked format (chunked-v1) — fetch needed tables only from 'tables' subcollection
+      if (meta._format === 'chunked-v1' && meta.tables) {
+        const tablesToFetch = ['orders', 'expenses', 'settings'];
+        const result = {};
+        const tablesRef = docRef.collection('tables');
+        for (const tbl of tablesToFetch) {
+          const info = meta.tables[tbl];
+          if (!info) { result[tbl] = (tbl === 'settings' ? {} : []); continue; }
+          const chunkCount = info.chunks || 1;
+          try {
+            if (chunkCount === 1) {
+              const doc = await tablesRef.doc(tbl).get();
+              if (doc.exists) result[tbl] = JSON.parse(doc.data().data);
+              else result[tbl] = (tbl === 'settings' ? {} : []);
+            } else {
+              const chunks = [];
+              for (let i = 0; i < chunkCount; i++) {
+                const doc = await tablesRef.doc(`${tbl}__c${i}`).get();
+                if (doc.exists) chunks[i] = doc.data().data;
+              }
+              if (chunks.length === chunkCount && chunks.every(c => c !== undefined)) {
+                result[tbl] = JSON.parse(chunks.join(''));
+              } else {
+                result[tbl] = (tbl === 'settings' ? {} : []);
+              }
+            }
+          } catch (e) {
+            console.warn(`Could not parse ${tbl}:`, e);
+            result[tbl] = (tbl === 'settings' ? {} : []);
+          }
+        }
+        return result;
+      }
+
+      // Older single-doc format fallback (legacy)
+      if (meta.data) {
+        try {
+          const parsed = JSON.parse(meta.data);
+          return {
+            orders:   parsed.orders   || [],
+            expenses: parsed.expenses || [],
+            settings: parsed.settings || {}
+          };
+        } catch (e) {}
+      }
+
+      return {
+        orders:   meta.orders   || [],
+        expenses: meta.expenses || [],
+        settings: meta.settings || {}
+      };
+    }
+
+    /* ============================================================
+       COMPUTE TODAY'S STATS
+       ============================================================ */
+    function todayKey() {
+      const d = new Date();
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function computeTodayStats(data) {
+      const today = todayKey();
+      const orders = (data.orders || []).filter(o => o && !o._deleted);
+      const expenses = (data.expenses || []).filter(e => e && !e._deleted);
+
+      // Today's orders (booked today)
+      const todayOrders = orders.filter(o => (o.createdAt || '').slice(0, 10) === today);
+
+      // ────────────────────────────────────────────────────────────────
+      // Today's CASH RECEIVED  — matches main POS dashboard.js exactly
+      //
+      // Two sources combined:
+      //   1) o.paymentsLog[]  → installments paid today (any order, any date)
+      //   2) Initial payment at booking for today's orders that don't have
+      //      a corresponding paymentsLog entry (legacy / single-pay orders)
+      // ────────────────────────────────────────────────────────────────
+      let todayCash = 0;
+
+      // Source 1: paymentsLog entries dated today (across ALL orders)
+      for (const o of orders) {
+        if (!Array.isArray(o.paymentsLog)) continue;
+        for (const p of o.paymentsLog) {
+          if ((p.at || '').slice(0, 10) === today) {
+            todayCash += +p.amount || 0;
+          }
+        }
+      }
+
+      // Source 2: For TODAY's orders, count "first payment at booking"
+      //          (paid amount NOT already represented in paymentsLog)
+      for (const o of todayOrders) {
+        const logged = Array.isArray(o.paymentsLog)
+          ? o.paymentsLog.reduce((s, p) => s + (+p.amount || 0), 0)
+          : 0;
+        const firstPay = (+o.paid || 0) - logged;
+        if (firstPay > 0) todayCash += firstPay;
+      }
+
+      // Today's sales (gross sale value of orders booked today)
+      const todaySales = todayOrders.reduce((s, o) => s + (+o.total || 0), 0);
+
+      // Today's due (unpaid amount on today's orders)
+      const todayDue = todayOrders.reduce((s, o) => s + (+o.due || 0), 0);
+
+      // Today's expenses
+      const todayExp = expenses
+        .filter(e => (e.date || '').slice(0, 10) === today)
+        .reduce((s, e) => s + (+e.amount || 0), 0);
+
+      // Today's profit (cash basis — same as main POS dashboard)
+      const todayProfit = todayCash - todayExp;
+
+      const washCount = orders.filter(o => (typeof DB !== 'undefined' && DB.isInWork) ? DB.isInWork(o.status) : ['pending','washing','ironing'].includes(o.status)).length;
+      const deadlineCount = orders.filter(o => o.deliveryDate === today && o.status !== 'delivered' && o.status !== 'cancelled').length;
+
+      return {
+        todaySales,
+        todayOrderCount: todayOrders.length,
+        todayCash,
+        todayExp,
+        todayDue,
+        todayProfit,
+        washCount,
+        deadlineCount
+      };
+    }
+
+    /* ============================================================
+       RENDER DASHBOARD
+       ============================================================ */
+    function renderStats(stats, shopName) {
+      if (shopName) document.getElementById('shopName').textContent = shopName;
+
+      const grid = `
+        <div class="grid">
+          <div class="card sales">
+            <div class="icon">💰</div>
+            <div class="lbl">Today's Sales</div>
+            <div class="val">${fmtMoney(stats.todaySales)}</div>
+            <div class="sub">Gross sale value</div>
+          </div>
+          <div class="card orders">
+            <div class="icon">📦</div>
+            <div class="lbl">Orders Today</div>
+            <div class="val">${stats.todayOrderCount}</div>
+            <div class="sub">New bookings today</div>
+          </div>
+          <div class="card cash">
+            <div class="icon">💵</div>
+            <div class="lbl">Cash Received</div>
+            <div class="val">${fmtMoney(stats.todayCash)}</div>
+            <div class="sub">All payments today</div>
+          </div>
+          <div class="card expense">
+            <div class="icon">💸</div>
+            <div class="lbl">Expenses</div>
+            <div class="val">${fmtMoney(stats.todayExp)}</div>
+            <div class="sub">Today's spend</div>
+          </div>
+          <div class="card due">
+            <div class="icon">⏳</div>
+            <div class="lbl">Pending (Due)</div>
+            <div class="val">${fmtMoney(stats.todayDue)}</div>
+            <div class="sub">From today's orders</div>
+          </div>
+          <div class="card profit">
+            <div class="icon">📈</div>
+            <div class="lbl">Net Today</div>
+            <div class="val" style="color:${stats.todayProfit >= 0 ? '#047857' : '#b91c1c'};">${fmtMoney(stats.todayProfit)}</div>
+            <div class="sub">Cash in − Expenses</div>
+          </div>
+          <div class="card" style="background:#f0f9ff;border-left:4px solid #0ea5e9;">
+            <div class="icon" style="background:#0ea5e9;">🌀</div>
+            <div class="lbl" style="color:#0369a1;">To Wash & Iron</div>
+            <div class="val" style="color:#0284c7;">${stats.washCount || 0}</div>
+            <div class="sub">Total pending items</div>
+          </div>
+          <div class="card" style="background:#fff7ed;border-left:4px solid #ea580c;">
+            <div class="icon" style="background:#ea580c;">🚨</div>
+            <div class="lbl" style="color:#c2410c;">Deliveries Today</div>
+            <div class="val" style="color:#b45309;">${stats.deadlineCount || 0}</div>
+            <div class="sub">Undelivered orders due today</div>
+          </div>
+        </div>
+      `;
+      document.getElementById('contentArea').innerHTML = grid;
+    }
+
+    function renderError(message) {
+      document.getElementById('contentArea').innerHTML = `
+        <div class="status-box error">
+          <div style="font-size:36px;margin-bottom:8px;">⚠️</div>
+          <div class="msg" style="font-weight:600;margin-bottom:4px;">Could not load data</div>
+          <div class="msg" style="font-size:12px;">${escapeHtml(message)}</div>
+        </div>
+      `;
+    }
+
+    function renderLoading() {
+      document.getElementById('contentArea').innerHTML = `
+        <div class="status-box">
+          <div class="spinner"></div>
+          <div class="msg">Refreshing live data...</div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /* ============================================================
+       MAIN LOOP
+       ============================================================ */
+    let _refreshTimer = null;
+    let _firstLoad = true;
+
+    async function loadAndRender() {
+      try {
+        if (_firstLoad) renderLoading();
+        const data = await fetchCloudData();
+        const stats = computeTodayStats(data);
+        const shopName = (data.settings && data.settings.shopName) || 'Modern Dry Cleaners';
+        renderStats(stats, shopName);
+        const now = new Date();
+        document.getElementById('lastUpdate').textContent =
+          '✅ Last updated: ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+        _firstLoad = false;
+      } catch (err) {
+        console.error('Live dashboard error:', err);
+        renderError(err.message || 'Unknown error');
+      }
+    }
+
+    function startDashboard() {
+      loadAndRender();
+      if (_refreshTimer) clearInterval(_refreshTimer);
+      _refreshTimer = setInterval(loadAndRender, AUTO_REFRESH_MS);
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      renderLoading();
+      loadAndRender();
+    });
+
+    // Pause refresh when tab hidden, resume when visible (saves battery on mobile)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (_refreshTimer) clearInterval(_refreshTimer);
+        _refreshTimer = null;
+      } else if (sessionStorage.getItem(SESSION_KEY) === '1') {
+        if (!_refreshTimer) {
+          loadAndRender();
+          _refreshTimer = setInterval(loadAndRender, AUTO_REFRESH_MS);
+        }
+      }
+    });
   </script>
+  <script src="assets/js/guard.js?v=20261119.26"></script>
 </body>
 </html>

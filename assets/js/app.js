@@ -4,6 +4,31 @@
 const app = {
   current: 'login',
   go(page) {
+    const user0 = (typeof DB !== 'undefined' && DB.currentUser) ? DB.currentUser() : null;
+    const tStart = performance.now();
+    const basePage = String(page || '').split('?')[0];
+    // Only wrappers that actually navigate (not the login screen) get timed.
+    const timed = !!user0 && basePage !== 'login';
+
+    // Pre-emptively show the compact brand loader ONLY for pages that have
+    // historically been slow on this device. Fast pages are never interrupted.
+    if (timed && window.BOOT && typeof BOOT.pageIsSlow === 'function' && BOOT.pageIsSlow(basePage)) {
+      BOOT.quick({ status: BOOT.pageLabel(basePage), min: 420 });
+    }
+
+    try {
+      return this._go(page);
+    } finally {
+      if (timed) {
+        const ms = performance.now() - tStart;
+        if (window.BOOT && typeof BOOT.pageMeasured === 'function') BOOT.pageMeasured(basePage, ms);
+        if (window.BOOT && BOOT.quickHide) BOOT.quickHide(420);
+      }
+    }
+  },
+
+  _go(page) {
+    console.log('Router: app.go called with page =', page);
     const user = DB.currentUser();
     if (page !== 'login' && !user) { this.current = 'login'; renderLogin(); return; }
 
@@ -16,7 +41,7 @@ const app = {
     }
 
     // Admin-only pages (no override possible)
-    const adminOnly = ['users','settings','inbox','promoAdmin','delivery','reportBuilder','refundLog'];
+    const adminOnly = ['users','settings','inbox','promoAdmin','marketing','delivery','reportBuilder','refundLog'];
 
     if (page !== 'login' && user.role !== 'admin') {
       if (adminOnly.includes(page)) {
@@ -31,50 +56,57 @@ const app = {
       }
     }
 
-    if (page !== 'login' && typeof navigator !== 'undefined' && navigator.onLine === false) {
-      this.current = 'offline';
-      document.getElementById('app').innerHTML = `
-        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;padding:20px;">
-          <div style="max-width:460px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.12);">
-            <div style="font-size:64px;margin-bottom:12px;">🌐</div>
-            <h2 style="margin:0 0 10px;color:#111827;">Online Connection Required</h2>
-            <p style="color:#6b7280;line-height:1.5;margin-bottom:18px;">Offline mode has been disabled to protect invoice and cash data. Please connect internet, then continue.</p>
-            <button onclick="location.reload()" style="background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-weight:800;cursor:pointer;">Retry</button>
-          </div>
-        </div>`;
-      return;
+    
+    if (typeof isAppExpired === 'function' && isAppExpired()) {
+      const blocked = ['pos'];
+      if (blocked.includes(page)) {
+        toast('Subscription Expired. Read-only mode active.', 'error');
+        if (!this.current || this.current === 'login') page = 'dashboard';
+        else return;
+      }
+    }
+    
+    this.current = page;
+        try {
+      switch(page) {
+        case 'login':           return renderLogin();
+        case 'dashboard':       return renderDashboard();
+        case 'taskboard':       return renderTaskBoard();
+        case 'pos':             return renderPOS();
+        case 'orders':          return renderOrders();
+        case 'customers':       return renderCustomers();
+        case 'products':        return renderProducts();
+        case 'expenses':        return renderExpenses();
+        case 'reports':         return renderReports();
+        case 'users':           return renderUsers();
+        case 'settings':        return renderSettings();
+        case 'vendors':         return renderVendors();
+        case 'purchaseOrders':  return renderPurchaseOrders(param?.vendor);
+        case 'ledger':          return renderLedger();
+        case 'inventory':       return renderInventory();
+        case 'cashbook':        return renderCashbook();
+        case 'auditLog':        return renderAuditLog();
+        case 'branches':        return renderBranches();
+        case 'inbox':           return renderInbox();
+        case 'promoAdmin':      return renderPromoAdmin();
+        case 'marketing':       return renderMarketing();
+        case 'claims':          return renderClaims();
+        case 'delivery':        return renderDelivery();
+        case 'drawings':        return renderDrawings();
+        case 'reportBuilder':   return renderReportBuilder();
+        default:                return renderDashboard();
+      }
+    } catch(err) {
+      console.error('Routing error:', err);
+      alert('Error loading page: ' + err.message);
     }
 
-    this.current = page;
-    switch(page) {
-      case 'login':           return renderLogin();
-      case 'dashboard':       return renderDashboard();
-      case 'pos':             return renderPOS();
-      case 'orders':          return renderOrders();
-      case 'customers':       return renderCustomers();
-      case 'products':        return renderProducts();
-      case 'expenses':        return renderExpenses();
-      case 'reports':         return renderReports();
-      case 'users':           return renderUsers();
-      case 'settings':        return renderSettings();
-      case 'vendors':         return renderVendors();
-      case 'purchaseOrders':  return renderPurchaseOrders(param?.vendor);
-      case 'ledger':          return renderLedger();
-      case 'inventory':       return renderInventory();
-      case 'cashbook':        return renderCashbook();
-      case 'auditLog':        return renderAuditLog();
-      case 'branches':        return renderBranches();
-      case 'factory':         return renderFactory();
-      case 'inbox':           return renderInbox();
-      case 'promoAdmin':      return renderPromoAdmin();
-      case 'claims':          return renderClaims();
-      case 'delivery':        return renderDelivery();
-      case 'drawings':        return renderDrawings();
-      case 'reportBuilder':   return renderReportBuilder();
-      default:                return renderDashboard();
-    }
   }
 };
+
+// Boot
+
+
 
 // Boot
 window.addEventListener('DOMContentLoaded', () => {
@@ -83,6 +115,14 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const u = DB.currentUser();
   if (typeof initShortcuts === 'function') initShortcuts();
+
+  // Pre-render the thermal invoice logo so printing is instant
+  if (window.THERMAL) { try { THERMAL.prime(); } catch (e) {} }
+  if (u && window.BOOT) {
+    // returning user — show the brand boot while the workspace mounts
+    BOOT.show({ min: 1200, status: 'Restoring your session' });
+    setTimeout(() => { if (window.BOOT) BOOT.hide(); }, 120);
+  }
   if (u) {
     // Land on first allowed page
     if (u.role === 'admin') {
@@ -99,28 +139,66 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// === Safety check: detect missing page modules ===
-window.addEventListener('DOMContentLoaded', () => {
+/* TRIAL & SUBSCRIPTION MANAGEMENT */
+// IT-Admin password is verified through the hashed vault (see utils.js)
+const IT_ADMIN_PASSWORD = null;
+
+function initTrialCheck() {
+  let s = DB.settings();
+  if (!s.trialStartDate) {
+    s.trialStartDate = Date.now();
+    // Default 15 days
+    let tDays = typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.trialDays : 15;
+    s.subscriptionExpiry = s.trialStartDate + (tDays * 24 * 60 * 60 * 1000);
+    DB.saveSettings(s);
+  }
+  
+  checkExpiry(true);
+  
+  // Periodically check expiry every hour
+  setInterval(() => checkExpiry(false), 60 * 60 * 1000);
+}
+
+
+function checkExpiry(onLoad) {
+  let s = DB.settings();
+  if (s.lifetimeLicense === true) return;
+  const expiry = Number(s.subscriptionExpiry) || 0;
+  if (!expiry) {                       // no licence at all → expired, not unlimited
+    if (app.current === 'pos') app.go('dashboard');
+    return;
+  }
+  
+  let now = Date.now();
+  let timeDiff = s.subscriptionExpiry - now;
+  let daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+  
+  if (timeDiff <= 0) {
+    if (app.current === 'pos') app.go('dashboard');
+  } else if (daysLeft <= 7 && onLoad) {
+    setTimeout(() => {
+      openModal(`
+        <h3 style="color:#b91c1c;">⚠️ Subscription Expiring Soon</h3>
+        <p>Your POS subscription will expire in <b>${daysLeft} days</b>.</p>
+        <p>Please contact <b>${window._IT_BRAND.n}</b> and pay your maintenance fees to continue using the software uninterrupted.</p>
+        <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Dismiss</button></div>
+      `);
+    }, 2000);
+  }
+}
+
+function openExtensionModal() {
+  app.go('settings');
   setTimeout(() => {
-    const required = ['renderDashboard','renderPOS','renderOrders','renderCustomers','renderProducts',
-                       'renderExpenses','renderReports','renderUsers','renderSettings','renderVendors',
-                       'renderPurchaseOrders','renderLedger','renderInventory','renderCashbook',
-                       'renderAuditLog','renderBranches','renderInbox','renderPromoAdmin','renderClaims'];
-    const missing = required.filter(fn => typeof window[fn] !== 'function');
-    if (missing.length > 0 && typeof console !== 'undefined') {
-      console.warn('[Mr Laundry] Missing page modules:', missing.join(', '));
-      console.warn('[Mr Laundry] These pages will not work. Check that all <script> tags in index.html are loaded correctly.');
-    }
-  }, 1500);
-});
+    if(document.getElementById('openSubBtnTop')) document.getElementById('openSubBtnTop').click();
+  }, 300);
+}
 
+initTrialCheck();
 
-// Online-only guard: if internet drops, stop cashier from continuing in offline cache.
-window.addEventListener('offline', () => {
-  try { toast('Internet disconnected — POS is online-only now', 'error'); } catch(e) {}
-  if (app.current && app.current !== 'login') app.go(app.current);
-});
-window.addEventListener('online', () => {
-  try { toast('Internet connected', 'success'); } catch(e) {}
-  if (app.current === 'offline') location.reload();
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.slice(1);
+  if (hash && hash !== app.current) {
+    app.go(hash);
+  }
 });

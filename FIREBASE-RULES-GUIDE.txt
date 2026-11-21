@@ -1,0 +1,49 @@
+Modern Dry Cleaners — Cloud Sync: RULES guide (kaun sa rules kahan lagana hai)
+================================================================================
+
+FIREBASE MEIN 2 ALAG DATABASES HAIN — RULES DONO KE ALAG HOTE HAIN
+-----------------------------------------------------------------
+Console → left menu:
+  • Build → Firestore Database      → rules "service cloud.firestore { ... }"
+  • Build → Realtime Database       → rules JSON { "rules": { ... } }
+
+Kisi ek ke rules doosre mein paste karne se "Line 1: Parse error" aata hai.
+
+Aap ke project ka HAAL (verified):
+  • Firestore Database      = bana hua hai, rules abhi: allow read, write: if false  ← sab band
+  • Realtime Database       = ACTIVE (asia-southeast1), rules: shops/$shopId .read/.write = true
+  • Dono mein abhi data     = khali
+
+AAP KO KYA KARNA HAI (chun kar)
+--------------------------------
+[A] Realtime Database par chalna hai (aasan, bina login)
+    1. Realtime Database → Rules → poora delete → yeh paste kar ke Publish:
+
+        {
+          "rules": {
+            "shops": {
+              "$shopId": {
+                ".read": true,
+                ".write": true
+              }
+            }
+          }
+        }
+
+    2. POS → Settings → Cloud Sync → "Cloud Sync ON karein"
+    (Isi par abhi software set hai. Data: shops/modern-laundry-main)
+
+[B] Firestore par chalna hai (behtar/mehfooz — login ke sath)
+    1. Firestore Database → Rules → poora delete → FIREBASE-RULES-FIRESTORE-AUTHD.txt
+       ka content paste → Publish  (is mein request.auth != null hai)
+    2. Firebase Console → Authentication → Sign-in method → Email/Password ON
+       → Users → Add user (e.g. pos@modernlaundry.pk + password)
+    3. Mujhe batayein — main POS mein ek chhota login screen daal doonga
+       (ek dafa email/password, phir hamesha yaad). Us ke baad Cloud Sync Firestore par chalega.
+
+C) Aam public rules (allow read, write: if true) = MOAT NAHI
+    Sirf tab use karein jab tak login wala rasta tayyar na ho — is se jis ke paas
+    Shop ID ho woh data parh/likh sakta hai.
+
+NOTE: POS ab auto-detect karta hai — Firestore chal jaye to Firestore, warna
+Realtime Database. Dono raftay chal jate hain; koi ek chunein.

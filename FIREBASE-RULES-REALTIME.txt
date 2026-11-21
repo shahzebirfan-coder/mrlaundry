@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "shops": {
+      "$shopId": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+}

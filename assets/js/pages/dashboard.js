@@ -1,8 +1,5 @@
 /* ===================== DASHBOARD ===================== */
 function renderDashboard() {
-  const safeDayOf = (row) => String(row?.bookingDate || row?.date || row?.createdAt || '').slice(0,10);
-  const safeMonthOf = (row) => safeDayOf(row).slice(0,7);
-  const safeTime = (row) => row?.createdAt || row?.bookingDate || row?.date || new Date().toISOString();
   const orders = DB.all('orders');
   const customers = DB.all('customers');
   const expenses = DB.all('expenses');
@@ -10,7 +7,7 @@ function renderDashboard() {
   const monthKey = today.slice(0,7);
 
   // === TODAY ===
-  const todayOrders   = orders.filter(o => safeDayOf(o) === today);
+  const todayOrders   = orders.filter(o => o.createdAt.slice(0,10) === today);
   const todayInvoice  = todayOrders.reduce((s,o)=> s + (o.total||0), 0); // Total invoiced amount (revenue billed)
   const todayDue      = todayOrders.reduce((s,o)=> s + (o.due  ||0), 0);
 
@@ -20,7 +17,7 @@ function renderDashboard() {
   for (const o of orders) {
     if (!Array.isArray(o.paymentsLog)) continue;
     for (const p of o.paymentsLog) {
-      if (String(p.at || p.createdAt || '').slice(0,10) === today) {
+      if ((p.at||'').slice(0,10) === today) {
         todayPayments.push({ ...p, orderId: o.id, invoiceNo: o.invoiceNo, customerId: o.customerId, orderTotal: o.total });
       }
     }
@@ -44,49 +41,65 @@ function renderDashboard() {
   }
   todayPayments.sort((a,b)=> (b.at||'').localeCompare(a.at||''));
   const todayReceived = todayPayments.reduce((s,p)=> s+(p.amount||0), 0);
-  const todayExp      = expenses.filter(e => safeDayOf(e) === today).reduce((s,e)=> s + (e.amount||0), 0);
+  const todayExp      = expenses.filter(e => e.date === today).reduce((s,e)=> s + (e.amount||0), 0);
   const todayProfit   = todayReceived - todayExp;       // cash-basis profit (received minus expenses)
   const todaySales    = todayOrders.length;
 
   // === MONTH ===
-  const monthOrders  = orders.filter(o => safeMonthOf(o) === monthKey);
+  const monthOrders  = orders.filter(o => o.createdAt.slice(0,7) === monthKey);
   const monthInvoice = monthOrders.reduce((s,o)=> s + (o.total||0), 0);
   const monthReceived= monthOrders.reduce((s,o)=> s + (o.paid ||0), 0);
-  const monthExp     = expenses.filter(e => safeMonthOf(e) === monthKey).reduce((s,e)=>s+(e.amount||0),0);
+  const monthExp     = expenses.filter(e => (e.date||'').slice(0,7) === monthKey).reduce((s,e)=>s+(e.amount||0),0);
   const monthProfit  = monthReceived - monthExp;
 
   // === PIPELINE ===
-  const pending = orders.filter(o => ['pending','washing','press','ready'].includes(o.status)).length;
+  const pending = orders.filter(o => (typeof DB.isInWork === 'function' ? DB.isInWork(o.status) : ['pending','washing','ironing'].includes(o.status))).length;
+  const ready = orders.filter(o => o.status === 'ready').length;
+  
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 14);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  
+  const overdueOrders = orders.filter(o => o.status === 'ready' && (o.createdAt || '').slice(0, 10) < cutoffStr);
+  overdueOrders.sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+
 
   // === LAST 7 DAYS CHART ===
   const last7 = [];
   for (let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i);
     const k=isoDay(d);
-    const sum = orders.filter(o=>safeDayOf(o)===k).reduce((s,o)=>s+(o.total||0),0);
+    const sum = orders.filter(o=>o.createdAt.slice(0,10)===k).reduce((s,o)=>s+(o.total||0),0);
     last7.push({label: d.toLocaleDateString('en',{weekday:'short'}), value: sum, date:k});
   }
   const maxVal = Math.max(1, ...last7.map(d=>d.value));
-  const chartBars = last7.map(d => `
+  const chartEmpty = last7.every(d => !d.value);
+  const chartBars = chartEmpty
+    ? `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:34px 10px;color:var(--text-soft);">
+         <div style="font-size:34px;opacity:.7;">📉</div>
+         <div style="font-weight:700;font-size:14px;">No sales in the last 7 days</div>
+         <div style="font-size:12.5px;">Start a new sale and your revenue trend will appear here.</div>
+       </div>`
+    : last7.map(d => `
     <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
       <div style="display:flex;flex-direction:column;justify-content:flex-end;height:140px;width:100%;padding:0 6px;">
-        <div title="${fmtMoney(d.value)}" style="background:linear-gradient(180deg,#4f7cff,#6a5cff);height:${(d.value/maxVal)*100}%;min-height:4px;border-radius:6px 6px 0 0;"></div>
+        <div title="${fmtMoney(d.value)}" style="background:linear-gradient(180deg,#0b3f80,#0e9ad2);height:${(d.value/maxVal)*100}%;min-height:4px;border-radius:6px 6px 0 0;"></div>
       </div>
       <div style="font-size:11px;color:var(--text-soft);margin-top:6px;">${d.label}</div>
       <div style="font-size:11px;font-weight:700;">${d.value? fmtMoney(d.value):'—'}</div>
     </div>
   `).join('');
 
-  const recentOrders = [...orders].sort((a,b)=>safeTime(b).localeCompare(safeTime(a))).slice(0,8);
+  const recentOrders = [...orders].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,8);
   const recentRows = recentOrders.length ? recentOrders.map(o => {
     const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
     return `<tr>
-      <td><b>#${String(o.id||'').slice(-6).toUpperCase()}</b></td>
+      <td><b>#${o.id.slice(-6).toUpperCase()}</b></td>
       <td>${escapeHtml(c.name)}</td>
-      <td>${((o.items||[]).length)} items</td>
-      <td><span class="badge ${o.status}">${o.status}</span></td>
+      <td>${o.items.length} items</td>
+      <td><span class="badge ${o.status}">${typeof statusBadgeLabel === "function" ? statusBadgeLabel(o.status) : o.status}</span></td>
       <td><b>${fmtMoney(o.total)}</b></td>
-      <td>${fmtDate(safeTime(o))}</td>
+      <td>${fmtDate(o.createdAt)}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="6" class="empty"><div class="emoji">📦</div><h4>No orders yet</h4><p>Make your first sale to see it here.</p></td></tr>`;
 
@@ -95,7 +108,7 @@ function renderDashboard() {
     ${(() => {
       const s = DB.settings();
       const u = DB.currentUser();
-      if (u && u.role === 'admin' && !s.masterRecoveryCode) {
+      if (u && u.role === 'admin' && !(s.masterRecoveryCodeHash || s.masterRecoveryCode)) {
         return `<div onclick="app.go('settings')" style="background:linear-gradient(135deg,#fee2e2,#fef3c7);border:2px solid #f59e0b;color:#78350f;padding:14px 18px;border-radius:12px;margin-bottom:18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
           <div style="flex:1;min-width:250px;">
             <div style="font-weight:800;font-size:15px;margin-bottom:4px;">🔑 Set Up Master Recovery Code (Important!)</div>
@@ -137,8 +150,8 @@ function renderDashboard() {
 
     <!-- Row 1: Money flow -->
     <div class="dash-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:14px;">
-      <div class="stat-card stat-clickable" onclick="app.go('orders')" style="background:linear-gradient(135deg,#dbeafe,#eff6ff);border-left:4px solid #4f7cff;">
-        <div class="ic" style="background:#4f7cff;color:#fff;">💰</div>
+      <div class="stat-card stat-clickable" onclick="app.go('orders')" style="background:linear-gradient(135deg,#dbeafe,#eff6ff);border-left:4px solid #0b3f80;">
+        <div class="ic" style="background:#0b3f80;color:#fff;">💰</div>
         <div>
           <div class="lbl">Today's Sales</div>
           <div class="val">${fmtMoney(todayInvoice)}</div>
@@ -195,16 +208,47 @@ function renderDashboard() {
       </div>
     </div>
 
-    ${pending > 0 ? `
-      <div onclick="app.go('orders')" style="background:linear-gradient(135deg,#e0e7ff,#eff6ff);border:1px solid #c7d2fe;border-radius:12px;padding:12px 18px;margin-bottom:18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;transition:transform .2s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
+    ${(pending > 0 || ready > 0) ? `
+      <div onclick="app.go('orders')" style="background:linear-gradient(135deg,#e0e7ff,#eff6ff);border:1px solid #c7d2fe;border-radius:12px;padding:12px 18px;margin-bottom:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;transition:transform .2s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
         <div style="display:flex;align-items:center;gap:12px;">
           <div style="font-size:26px;">⏳</div>
           <div>
-            <div style="font-weight:700;font-size:14px;color:#3730a3;">${pending} order${pending>1?'s':''} in progress</div>
-            <div style="font-size:12px;color:#6366f1;">Click to view pending / washing / press / ready orders</div>
+            <div style="font-weight:700;font-size:14px;color:#3730a3;">${pending} in progress • <span style="color:#059669;">${ready} ready for pickup</span></div>
+            <div style="font-size:12px;color:#6366f1;">Click to view all active orders</div>
           </div>
         </div>
-        <div style="font-weight:700;color:#4f7cff;font-size:13px;">View All -></div>
+        <div style="font-weight:700;color:#0b3f80;font-size:13px;">View All -></div>
+      </div>
+    ` : ''}
+
+    ${overdueOrders.length > 0 ? `
+      <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:18px;border-top:4px solid #ef4444;box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+        <h3 style="margin:0 0 10px 0;color:#b91c1c;display:flex;align-items:center;gap:6px;font-size:16px;">⚠️ Overdue / Uncollected Orders (${overdueOrders.length})</h3>
+        <p style="font-size:12px;color:#475569;margin-bottom:12px;">These orders have been "Ready" for more than 14 days.</p>
+        <div style="overflow-x:auto;">
+          <table class="tbl" style="width:100%;font-size:13px;">
+            <thead><tr><th>Invoice</th><th>Customer</th><th>Booked Date</th><th>Status</th><th style="text-align:right;">Action</th></tr></thead>
+            <tbody>
+              ${overdueOrders.map(o => {
+                const c = DB.get('customers', o.customerId) || {};
+                const days = Math.floor((new Date() - new Date(o.createdAt)) / 86400000);
+                const phoneWa = (c.phone||'').replace(/[^\d+]/g, '');
+                const waNum = phoneWa.startsWith('0') && phoneWa.length===11 ? '92'+phoneWa.substring(1) : (phoneWa.startsWith('+') ? phoneWa.substring(1) : phoneWa);
+                const msg = encodeURIComponent(`Hi ${c.name}, this is a gentle reminder from Modern Dry Cleaners that your order (${DB.invoiceLabel(o)}) has been ready for ${days} days. Please collect it soon!`);
+                return `<tr>
+                  <td><b>${DB.invoiceLabel(o)}</b>${o.location ? `<br><span style="font-size:10px;background:#fef08a;padding:2px 4px;border-radius:4px;border:1px solid #f59e0b;">📍 ${escapeHtml(o.location)}</span>` : ''}</td>
+                  <td>${escapeHtml(c.name)}<br><small style="color:var(--text-soft);">${escapeHtml(c.phone||'-')}</small></td>
+                  <td>${fmtDateShort(o.createdAt)}<br><small style="color:#ef4444;font-weight:bold;">${days} days ago</small></td>
+                  <td><span class="badge cancelled" style="font-size:10px;">Overdue</span></td>
+                  <td style="text-align:right;">
+                    <a href="https://wa.me/${waNum}?text=${msg}" target="_blank" class="btn btn-success btn-sm" style="padding:4px 8px;font-size:11px;text-decoration:none;">📱 Warn</a>
+                    <button class="btn btn-ghost btn-sm" onclick="app.go('orders')">View</button>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     ` : ''}
 
@@ -316,7 +360,7 @@ function renderDashboard() {
           <tbody>
             ${todayPayments.map(p => {
               const c = DB.get('customers', p.customerId) || { name:'Walk-in' };
-              const inv = p.invoiceNo ? `INV-${p.invoiceNo}` : '#'+String(p.orderId||'').slice(-6).toUpperCase();
+              const inv = DB.invoiceLabel(p);
               const emoji = ({cash:'💵',card:'💳',bank:'🏦',jazzcash:'📱',easypaisa:'📱',cheque:'📃',online:'🌐',credit:'📋'}[p.method] || '💰');
               return `<tr>
                 <td>${new Date(p.at).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'})}</td>

@@ -14,10 +14,10 @@ const WA_STATUS_TEMPLATES = {
     icon: '🌀',
     template: `Hello {name}, your clothes are now being washed 🌀\n\nInvoice: {invoice}\nExpected Delivery: {delivery}\n\nThank you,\n{shop}`
   },
-  press: {
-    label: 'Press',
-    icon: '♨️',
-    template: `Hello {name}, your order is now in the pressing and ironing stage ♨️\n\nInvoice: {invoice}\nExpected Delivery: {delivery}\n\nThank you,\n{shop}`
+  ironing: {
+    label: 'Press (Ironing)',
+    icon: '🧺',
+    template: `Hello {name}, good news! Your clothes have been washed and are now being pressed (ironed) 🧺\n\nInvoice: {invoice}\nTotal Pcs: {pcs}\nExpected Delivery: {delivery}\n\nWe will inform you as soon as your order is ready for pickup.\n📞 {phone}\n{shop}`
   },
   ready: {
     label: 'Ready for Pickup',
@@ -40,6 +40,9 @@ function maybePromptWhatsAppOnStatus(orderId, newStatus, oldStatus) {
   if (newStatus === oldStatus) return;
   const s = DB.settings();
   if (s.whatsappAutoPrompt === false) return;
+  // "Don't ask again today" (pause) — lekin Press par customer ko update zaroor jaye
+  const paused = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mrLaundryWaPause');
+  if (paused && newStatus !== 'ironing') return;
 
   const o = DB.get('orders', orderId);
   if (!o) return;
@@ -58,8 +61,9 @@ function openWhatsAppStatusDialog(orderId, status) {
   if (!c.phone) { toast('No phone number for this customer','warning'); return; }
   const s = DB.settings();
   const tpl = WA_STATUS_TEMPLATES[status] || WA_STATUS_TEMPLATES.ready;
+  const isPress = status === 'ironing';
 
-  const invoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+  const invoiceNo = DB.invoiceLabel(o);
   const totalPcs = (o.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);
 
   const vars = {
@@ -120,7 +124,7 @@ function openWhatsAppStatusDialog(orderId, status) {
       window.open(url, '_blank');
       // Log
       if (typeof logAction === 'function') {
-        logAction('whatsapp.sent', `Status "${status}" → ${c.name} (INV-${o.invoiceNo||orderId.slice(-6)})`);
+        logAction('whatsapp.sent', `Status "${status}" → ${c.name} (${DB.invoiceLabel(o)})`);
       }
       // Mark on order
       const sent = o.whatsappLog || [];
@@ -205,7 +209,7 @@ function openWhatsAppPicker(orderId) {
   if (!o) return;
   const c = DB.get('customers', o.customerId) || {};
   if (!c.phone) { toast('Customer has no phone number','warning'); return; }
-  const invoiceNo = o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase();
+  const invoiceNo = DB.invoiceLabel(o);
   const totalPcs = (o.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);
 
   // Build sent history

@@ -120,8 +120,8 @@ const NotifSystem = {
         try {
           const n = new Notification(`${info.icon} ${info.name}`, {
             body: `${ch.count} new — ${ch.total} total pending`,
-            icon: 'assets/img/logo.jpeg',
-            badge: 'assets/img/logo.jpeg',
+            icon: 'assets/img/logo.png',
+            badge: 'assets/img/logo.png',
             tag: 'mrl-notif-' + ch.category
           });
           n.onclick = () => {
@@ -236,7 +236,7 @@ function openNotificationsPanel() {
     if (recentMsgs.length > 0) {
       html += `<div style="margin:14px 0 8px;font-weight:700;color:var(--primary);">💬 Customer Messages (${counts.inbox - recentProofs.length})</div>`;
       recentMsgs.forEach(m => {
-        html += `<div class="notif-item" data-go="inbox" style="padding:10px 12px;background:var(--surface-alt);border-radius:8px;margin-bottom:6px;cursor:pointer;border-left:3px solid #4f7cff;">
+        html += `<div class="notif-item" data-go="inbox" style="padding:10px 12px;background:var(--surface-alt);border-radius:8px;margin-bottom:6px;cursor:pointer;border-left:3px solid #0b3f80;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <div><b>${escapeHtml(m.name)}</b> <small style="color:var(--text-soft);">${escapeHtml(m.phone)}</small></div>
             <span style="font-size:11px;color:var(--text-soft);">${fmtDateShort(m.receivedAt)}</span>

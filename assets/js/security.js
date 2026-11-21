@@ -106,7 +106,7 @@ function checkLargeDiscount(orderData) {
     const user = DB.currentUser();
     if (user && user.role !== 'admin') {
       checkSuspiciousActivity('order.large_discount',
-        `Cashier ${user.username}: ${fmtMoney(discount)} discount on ${orderData.invoiceNo ? 'INV-' + orderData.invoiceNo : 'order'}`);
+        `Cashier ${user.username}: ${fmtMoney(discount)} discount on ${orderData.invoiceNo ? DB.invoiceLabel(orderData) : 'order'}`);
     }
   }
 }

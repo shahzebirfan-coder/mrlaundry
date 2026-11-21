@@ -42,7 +42,7 @@ function autoDeductInventory(order) {
       itemName: item.name,
       type: 'out',
       qty: used,
-      note: `Auto-deducted for order ${order.invoiceNo ? 'INV-' + order.invoiceNo : '#' + order.id.slice(-6)}`,
+      note: `Auto-deducted for order ${(DB.invoiceLabel ? DB.invoiceLabel(order) : ('#' + order.id.slice(-6)))}`,
       orderId: order.id,
       userId: DB.currentUser()?.id || ''
     });
@@ -106,7 +106,7 @@ function restoreInventory(order) {
       itemName: item.name,
       type: 'in',
       qty: used,
-      note: `Restored from cancelled order ${order.invoiceNo ? 'INV-' + order.invoiceNo : '#' + order.id.slice(-6)}`,
+      note: `Restored from cancelled order ${(DB.invoiceLabel ? DB.invoiceLabel(order) : ('#' + order.id.slice(-6)))}`,
       orderId: order.id,
       userId: DB.currentUser()?.id || ''
     });

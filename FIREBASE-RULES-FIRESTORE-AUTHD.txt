@@ -1,0 +1,38 @@
+rules_version = '2';
+
+// ============================================================
+// Modern Dry Cleaners — Cloud Sync (FIRESTORE + LOGIN rules)
+// ------------------------------------------------------------
+// Yeh rules SIRF is liye hain jab POS/Cloud Sync Firestore par chal raha ho
+// aur device par Firebase login (email/password) karwaya gaya ho.
+//
+// ⚠️ Simply "allow read, write: if true" se data koi bhi parh/likh sakta hai.
+//    Yahan har request ke sath login (request.auth) lazmi hai.
+//
+// Kahan lagana hai: Firebase Console → Firestore Database → Rules
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // shop ka data — sirf login kiye hue users
+    match /shops/{shopId} {
+      allow read, write: if request.auth != null;
+
+      // chunked tables
+      match /tables/{tableId} {
+        allow read, write: if request.auth != null;
+      }
+
+      // orders/customers etc. agar future mein subcollection use ho
+      match /{sub=**} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // kuch bhi aur — band
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

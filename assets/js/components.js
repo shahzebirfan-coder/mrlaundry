@@ -9,12 +9,17 @@ function renderLayout(activePage, contentHtml) {
 
   const allNavItems = [
     { id:'dashboard', icon:'📊', label:t('nav.dashboard') },
+    { id:'taskboard', icon:'📋', label:'Task Board' },
     { id:'pos',       icon:'🛒', label:t('nav.pos') },
     { id:'orders',    icon:'📦', label:t('nav.orders') },
     { id:'customers', icon:'👤', label:t('nav.customers') },
     { id:'ledger',    icon:'💰', label:t('nav.ledger') },
     { id:'products',  icon:'🧺', label:t('nav.products') },
-    { id:'expenses',  icon:'💸', label:t('nav.expenses') },
+    { id:'expenses',  icon:'💸', label:t('nav.expenses'), children:[
+        { tab:'list', icon:'📋', label:'List Expenses' },
+        { tab:'add',  icon:'➕', label:'Add Expense' },
+        { tab:'cats', icon:'📂', label:'Expense Category' },
+      ] },
     { id:'reports',   icon:'📈', label:t('nav.reports') },
     { id:'inventory', icon:'📦', label:t('nav.inventory') },
     { id:'cashbook',  icon:'💵', label:t('nav.cashbook') },
@@ -22,12 +27,12 @@ function renderLayout(activePage, contentHtml) {
     { id:'auditLog',  icon:'🔐', label:t('nav.auditLog') },
     { id:'vendors',   icon:'🏭', label:t('nav.vendors') },
     { id:'branches',  icon:'🏢', label:'Branches' },
-    { id:'factory',   icon:'🏭', label:'Factory (Per-KG)' },
     { id:'inbox',     icon:'📨', label:'Customer Inbox' },
     { id:'claims',    icon:'🛡️', label:'Claims' },
     { id:'delivery',  icon:'🚚', label:'Pickup & Delivery' },
     { id:'reportBuilder', icon:'📈', label:'Report Builder' },
     { id:'promoAdmin',icon:'🎁', label:'Promo Codes' },
+    { id:'marketing', icon:'📢', label:'Marketing Studio' },
     { id:'purchaseOrders', icon:'📑', label:t('nav.purchaseOrders') },
     { id:'users',     icon:'👥', label:t('nav.users') },
     { id:'settings',  icon:'⚙️', label:t('nav.settings') },
@@ -35,17 +40,28 @@ function renderLayout(activePage, contentHtml) {
   // Admin-only pages (cashier never sees these)
   const adminOnlyPages = ['users','settings'];
   // Filter based on user role + permissions
-  const nav = allNavItems.filter(n => {
+    const nav = allNavItems.filter(n => {
+    if (typeof isAppExpired === 'function' && isAppExpired() && n.id === 'pos') return false;
     if (user.role === 'admin') return true;
     if (adminOnlyPages.includes(n.id)) return false;
     return (typeof hasPermission === 'function') ? hasPermission(n.id) : ['pos','orders','customers'].includes(n.id);
   });
 
-  const navHtml = nav.map(n => `
+  const navHtml = nav.map(n => {
+    const kids = (n.children && activePage === n.id)
+      ? `<div class="nav-subgroup">${n.children.map(c => {
+          const tabNow = (typeof expTab !== 'undefined') ? expTab : 'list';
+          return `<div class="nav-sub ${tabNow === c.tab ? 'is-active' : ''}" data-exp-tab="${c.tab}">
+            <span class="icon">${c.icon}</span> <span>${escapeHtml(c.label)}</span>
+          </div>`;
+        }).join('')}</div>`
+      : '';
+    return `
     <div class="nav-item ${activePage===n.id?'active':''}" data-page="${n.id}" data-tooltip="${escapeHtml(n.label)}">
       <span class="icon">${n.icon}</span> <span>${escapeHtml(n.label)}</span>
     </div>
-  `).join('');
+    ${kids}`;
+  }).join('');
 
   // Backup reminder logic (show on dashboard when admin and last backup is > 1 day ago)
   let bannerHtml = '';
@@ -63,8 +79,20 @@ function renderLayout(activePage, contentHtml) {
     }
   }
 
+
+  let expiryBanner = '';
+  if (typeof isAppExpired === 'function' && isAppExpired() && activePage !== 'login') {
+    const cName = window._IT_BRAND.n;
+    const cPhone = window._IT_BRAND.p;
+    expiryBanner = `<div style="background:#ef4444;color:#fff;padding:8px 15px;text-align:center;font-weight:bold;font-size:13px;display:flex;justify-content:space-between;align-items:center;z-index:99999;">
+      <div>⚠️ Subscription Expired (Read-Only Mode). Contact ${cName} (${cPhone}) to renew.</div>
+      <button onclick="if(typeof openExtensionModal==='function') openExtensionModal()" style="background:#fff;color:#ef4444;border:none;padding:5px 12px;border-radius:4px;font-weight:bold;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);">🔑 Enter Code</button>
+    </div>`;
+  }
+
   return `
-    <div class="layout">
+    ${expiryBanner}
+    <div class="layout ${document.body.classList.contains('sidebar-open') ? 'sidebar-open' : ''}">
       <aside class="sidebar">
         <div class="brand">
           ${brandLogoHTML(88)}
@@ -76,6 +104,9 @@ function renderLayout(activePage, contentHtml) {
         <div class="nav-section">Main Menu</div>
         ${navHtml}
         <div class="nav-section" style="margin-top:18px">Account</div>
+        <div class="nav-item" data-action="contactIT" title="Contact IT Department" style="color:#3b82f6;">
+          <span class="icon">☎️</span> <span>Contact IT</span>
+        </div>
         <div class="nav-item" data-action="changePass" title="Change your password">
           <span class="icon">🔐</span> <span>Change Password</span>
         </div>
@@ -104,7 +135,7 @@ function renderLayout(activePage, contentHtml) {
                 🏢 ${escapeHtml(getActiveBranchName())}
               </div>
             ` : ''}
-            ${(typeof CLOUD !== 'undefined' && CLOUD.isEnabled() && CLOUD.isReady()) ? '<div title="Cloud sync active" style="display:flex;align-items:center;gap:4px;color:var(--success);font-size:12px;font-weight:700;">☁️ Sync</div>' : ''}
+            ${(typeof CLOUD !== 'undefined' && CLOUD.isEnabled() && CLOUD.isReady()) ? '<button class="icon-btn" id="forceSyncBtn" title="Force Cloud Sync" style="color:var(--success);font-weight:bold;">☁️</button>' : ''}
             <div class="user-chip">
               <div class="avatar">${user.name.charAt(0).toUpperCase()}</div>
               <div>
@@ -126,10 +157,43 @@ function renderLayout(activePage, contentHtml) {
 
 function bindLayout() {
   $$('.nav-item[data-page]').forEach(n => n.onclick = () => app.go(n.dataset.page));
+  $$('.nav-sub[data-exp-tab]').forEach(n => n.onclick = (ev) => {
+    ev.stopPropagation();
+    if (typeof expTab !== 'undefined') expTab = n.dataset.expTab;
+    app.go('expenses');
+  });
   $$('[data-page]').forEach(n => n.onclick = () => app.go(n.dataset.page));
   $$('[data-action="changePass"]').forEach(n => n.onclick = () => {
     if (typeof openChangeMyPassword === 'function') openChangeMyPassword();
   });
+  const contactBtn = document.querySelector('[data-action="contactIT"]');
+  if (contactBtn) contactBtn.onclick = () => {
+    const cName = window._IT_BRAND.n;
+    const cPhone = window._IT_BRAND.p;
+    const cEmail = window._IT_BRAND.e;
+    const cTagline = window._IT_BRAND.t;
+    openModal(`
+      <div style="text-align:center;">
+        <h3 style="margin-bottom:5px;">☎️ Contact IT Department</h3>
+        <p style="font-size:13px; color:#64748b;">If you need assistance, please contact the IT Desk:</p>
+      </div>
+      <div style="background:#f1f5f9;padding:20px;border-radius:8px;margin-top:15px;text-align:center;box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="display:flex; align-items:center; justify-content:center; margin-bottom:5px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b3f80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span style="font-weight:900; font-size:22px; color:#0f172a; letter-spacing:0.5px;">CelineSoft</span>
+        </div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:20px;font-weight:600;">${cTagline}</div>
+        
+        <div style="background:#fff; border-radius:6px; padding:12px; border:1px solid #cbd5e1; text-align:left; font-size:14px; line-height:1.8;">
+          <b>📞 Phone:</b> ${cPhone}<br>
+          <b>✉️ Email:</b> ${cEmail}
+        </div>
+      </div>
+      <div class="modal-footer" style="margin-top:20px; justify-content:center;">
+        <button class="btn btn-primary" onclick="closeModal()" style="padding:10px 30px;">Close</button>
+      </div>
+    `);
+  };
   $$('[data-action="logout"]').forEach(n => n.onclick = () => {
     if (typeof attemptLogout === 'function') attemptLogout(); else { DB.logout(); app.go('login'); }
   });

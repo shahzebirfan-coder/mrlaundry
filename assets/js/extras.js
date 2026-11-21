@@ -23,11 +23,11 @@ function openQRMenuPoster() {
     <p class="sub">Print these QR codes and stick at your counter. Customers scan with phone camera.</p>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px;">
-      <div class="qr-poster" data-url="${portalUrl}" data-title="Track Your Order" data-color="#4f7cff">
-        <h4 style="text-align:center;margin:0 0 10px;color:#4f7cff;">📦 Track Your Order</h4>
+      <div class="qr-poster" data-url="${portalUrl}" data-title="Track Your Order" data-color="#0b3f80">
+        <h4 style="text-align:center;margin:0 0 10px;color:#0b3f80;">📦 Track Your Order</h4>
         <canvas class="qr-canvas" data-url="${portalUrl}"></canvas>
         <div style="text-align:center;font-size:11px;margin-top:8px;color:#666;word-break:break-all;">${portalUrl}</div>
-        <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px;" onclick="printQRPoster('${portalUrl}','📦 Track Your Order','#4f7cff')">🖨️ Print Poster</button>
+        <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px;" onclick="printQRPoster('${portalUrl}','📦 Track Your Order','#0b3f80')">🖨️ Print Poster</button>
       </div>
 
       <div class="qr-poster" data-url="${menuUrl}">
@@ -79,7 +79,7 @@ function printQRPoster(url, title, color) {
     </style></head>
     <body>
       <div class="poster">
-        <div class="logo"><img src="assets/img/logo.jpeg" onerror="this.style.display='none'"/></div>
+        <div class="logo"><img src="assets/img/logo.png" onerror="this.style.display='none'"/></div>
         <h1>${s.shopName}</h1>
         <h2>${title}</h2>
         <div class="qr-wrap"><canvas id="qr"></canvas></div>
