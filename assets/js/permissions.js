@@ -24,6 +24,7 @@ const ALL_PERMISSIONS = [
   { id:'inbox',          label:'📨 Customer Inbox',  desc:'View customer messages & payment proofs' },
   { id:'promoAdmin',     label:'🎁 Promo Codes',      desc:'Create/manage discount codes' },
   { id:'branches',       label:'🏢 Branches',           desc:'Manage shop branches' },
+  { id:'factory',        label:'🏭 Factory (Per-KG)',   desc:'Wholesale per-KG laundry billing' },
   // Sensitive operations
   { id:'editInvoice',    label:'✏️ Edit Invoices',       desc:'Modify existing invoices (admin-only by default)', sensitive:true },
   { id:'deleteOrders',   label:'🗑️ Delete Orders',       desc:'Permanently delete orders', sensitive:true },

@@ -30,12 +30,7 @@ function initShortcuts() {
     if (inField && !isFnKey && e.key !== 'Escape') return;
 
     if (e.key === 'Escape') {
-      // utils.js already handles Esc in the capture phase (with the unsaved-data
-      // guard). This is only a fallback for exotic focus situations.
-      if (document.querySelector('.modal-backdrop')) {
-        e.preventDefault();
-        if (typeof attemptCloseModal === 'function') attemptCloseModal();
-      }
+      if (document.querySelector('.modal-backdrop')) { closeModal(); e.preventDefault(); }
       return;
     }
 
@@ -115,7 +110,7 @@ function openGlobalSearch() {
           results.push({
             type: 'order',
             icon: '🧾',
-            title: `${DB.invoiceLabel(o)} — ${c.name||'Walk-in'}`,
+            title: `INV-${o.invoiceNo||o.id.slice(-6).toUpperCase()} — ${c.name||'Walk-in'}`,
             subtitle: `${o.items.length} items • ${fmtMoney(o.total)} • ${o.status} • ${fmtDateShort(o.createdAt)}`,
             action: () => { closeModal(); openInvoice(o.id); }
           });

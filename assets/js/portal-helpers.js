@@ -11,9 +11,11 @@ function openPaymentProofDialog(orderId) {
   const c = DB.get('customers', o.customerId) || {};
   const s = DB.settings();
   // Fallback defaults so payment cards ALWAYS show even on fresh installs
-  // Payment details are only shown when the shop has actually configured them.
-  // (Never fall back to a previous owner's account numbers on a public page.)
-  const invNo = DB.invoiceLabel(o);
+  if (!s.jazzcashNumber) s.jazzcashNumber = '0302 8244803';
+  if (!s.jazzcashName)   s.jazzcashName   = 'Shahzeb Vakani';
+  if (!s.easypaisaNumber) s.easypaisaNumber = '0302 8244803';
+  if (!s.easypaisaName)   s.easypaisaName   = 'Shahzeb Vakani';
+  const invNo = o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase();
 
   const html = `
     <div class="payment-modal">
@@ -86,7 +88,7 @@ function openPaymentProofDialog(orderId) {
         <input type="file" id="proofFile" accept="image/*" capture="environment" style="display:none;"/>
       </div>
 
-      <img id="proofPreview" style="display:none;max-width:100%;border-radius:10px;margin-top:10px;border:2px solid #0b3f80;"/>
+      <img id="proofPreview" style="display:none;max-width:100%;border-radius:10px;margin-top:10px;border:2px solid #4f7cff;"/>
 
       <div class="form-row" style="margin-top:14px;">
         <div class="field"><label>Your Name</label><input id="payerName" value="${escapeHtml(c.name||'')}" placeholder="Full name"/></div>
@@ -117,7 +119,7 @@ function openPaymentProofDialog(orderId) {
   const preview = document.getElementById('proofPreview');
 
   uploadArea.onclick = () => fileInp.click();
-  uploadArea.ondragover = e => { e.preventDefault(); uploadArea.style.borderColor = '#0b3f80'; };
+  uploadArea.ondragover = e => { e.preventDefault(); uploadArea.style.borderColor = '#4f7cff'; };
   uploadArea.ondragleave = () => uploadArea.style.borderColor = '#e5e9f2';
   uploadArea.ondrop = e => {
     e.preventDefault(); uploadArea.style.borderColor = '#e5e9f2';
@@ -174,7 +176,7 @@ function openPaymentProofDialog(orderId) {
 function openMessageDialog(customerId, orderId) {
   const c = customerId ? DB.get('customers', customerId) : null;
   const o = orderId ? DB.get('orders', orderId) : null;
-  const invNo = o ? (DB.invoiceLabel(o)) : '';
+  const invNo = o ? (o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase()) : '';
 
   const html = `
     <h2>💬 ${pt('send_message')}</h2>
@@ -236,29 +238,12 @@ function downloadInvoicePDF(orderId) {
   if (!o) return;
   const c = DB.get('customers', o.customerId) || {};
   const s = DB.settings();
-  const invNo = DB.invoiceLabel(o);
+  const invNo = o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase();
   const totalPcs = (o.items||[]).reduce((sum,i)=>sum+(i.qty||0),0);
 
   // Build print-friendly HTML in a new window
   const w = window.open('', '_blank', 'width=800,height=900');
   if (!w) { alert('Please allow popups to download'); return; }
-
-  /* Partial delivery: the customer sees the split on the portal, so the
-     downloaded PDF must carry the same split (given / pending / re-wash). */
-  const given = [], pending = [], redo = [];
-  (o.items || []).forEach(it => {
-    const dQ = +it.deliveredQty || 0, rQ = +it.rewashQty || 0, pQ = (+it.qty || 0) - dQ - rQ;
-    if (dQ > 0) given.push({ name: it.name, qty: dQ });
-    if (pQ > 0) pending.push({ name: it.name, qty: pQ });
-    if (rQ > 0) redo.push({ name: it.name, qty: rQ });
-  });
-  const isPartial = given.length > 0 && pending.length > 0;
-  const listBlock = (title, arr, note) => arr.length ? `
-    <div style="border:1px solid #000;padding:8px;margin:10px 0;border-radius:6px;">
-      <div style="font-size:12px;font-weight:800;">${title}</div>
-      ${note ? `<div style="font-size:10px;color:#444;margin-top:2px;">${note}</div>` : ''}
-      <div style="font-size:13px;margin-top:4px;">${arr.map(x => '&bull; ' + escapeHtml(x.name) + ' &times;' + x.qty).join('<br>')}</div>
-    </div>` : '';
 
   const itemsHtml = (o.items||[]).map(it => `
     <tr><td style="padding:6px 0;">${escapeHtml(it.name)}</td><td style="text-align:center;">×${it.qty}</td><td style="text-align:right;">${fmtMoney(it.price)}</td><td style="text-align:right;font-weight:700;">${fmtMoney(it.qty*it.price)}</td></tr>
@@ -266,7 +251,6 @@ function downloadInvoicePDF(orderId) {
 
   w.document.write(`
     <!DOCTYPE html><html><head>
-      <meta charset="UTF-8">
       <title>${invNo} - ${s.shopName}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; color: #000; }
@@ -295,13 +279,6 @@ function downloadInvoicePDF(orderId) {
         ${c.phone ? `<tr><td><b>Phone:</b></td><td style="text-align:right;">${escapeHtml(c.phone)}</td></tr>` : ''}
       </table>
       <div class="qty-box"><div style="font-size:11px;">TOTAL PIECES</div><div class="qty-num">${totalPcs}</div></div>
-
-      ${isPartial ? `<div style="text-align:center;font-size:12px;font-weight:900;border:2px solid #000;padding:6px;margin:10px 0;letter-spacing:.4px;">
-        PARTIAL DELIVERY &mdash; ${given.reduce((a,b)=>a+b.qty,0)} pc diye gaye, ${pending.reduce((a,b)=>a+b.qty,0)} pc baqi
-      </div>` : ''}
-      ${listBlock('✅ DELIVERED TO YOU', given)}
-      ${listBlock('⏳ PENDING — STILL IN SHOP', pending, 'Baqi kapre tayyar hone par aap ko ittila di jayegi.')}
-      ${listBlock('🌀 RE-WASH (FREE)', redo)}
       <table class="items">
         <thead><tr><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Rate</th><th style="text-align:right;">Amount</th></tr></thead>
         <tbody>${itemsHtml}</tbody>
@@ -309,7 +286,8 @@ function downloadInvoicePDF(orderId) {
       <table class="totals" style="margin-top:10px;">
         <tr><td>Subtotal:</td><td style="text-align:right;">${fmtMoney(o.subtotal)}</td></tr>
         ${o.discount ? `<tr><td>Discount:</td><td style="text-align:right;">- ${fmtMoney(o.discount)}</td></tr>` : ''}
-        ${(+o.deliveryCharge || 0) > 0 ? `<tr><td>🚚 ${escapeHtml(DB.deliveryChargeLabel())}</td><td style="text-align:right;">+ ${fmtMoney(o.deliveryCharge)}</td></tr>` : ''}
+        ${o.tax>0 ? `<tr><td>Tax:</td><td style="text-align:right;">${fmtMoney(o.tax)}</td></tr>` : ''}
+        ${Number(o.pickupDeliveryCharge)>0 ? `<tr><td>Pick Up &amp; Delivery Charge:</td><td style="text-align:right;">${fmtMoney(o.pickupDeliveryCharge)}</td></tr>` : ''}
         <tr class="total-line"><td><b>TOTAL:</b></td><td style="text-align:right;"><b>${fmtMoney(o.total)}</b></td></tr>
         <tr><td>Paid:</td><td style="text-align:right;">${fmtMoney(o.paid)}</td></tr>
         ${o.due ? `<tr><td><b>Due:</b></td><td style="text-align:right;color:#a00;"><b>${fmtMoney(o.due)}</b></td></tr>` : ''}
@@ -357,8 +335,8 @@ async function enablePortalNotifications(customerId) {
 function showOrderNotification(title, body, orderId) {
   if (Notification.permission !== 'granted') return;
   const n = new Notification(title, {
-    body, icon: 'assets/img/logo.png',
-    badge: 'assets/img/logo.png', tag: 'order-' + orderId
+    body, icon: 'assets/img/logo.jpeg',
+    badge: 'assets/img/logo.jpeg', tag: 'order-' + orderId
   });
   n.onclick = () => {
     window.focus();
@@ -655,16 +633,16 @@ function openPortalConfigDialog() {
 
     <div style="font-weight:700;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:14px;">💳 Payment Receiving Numbers</div>
     <div class="form-row">
-      <div class="field"><label>JazzCash Account Name</label><input id="pcfgJCN" value="${escapeHtml(s.jazzcashName||'')}" placeholder="Account holder name"/></div>
-      <div class="field"><label>JazzCash Number</label><input id="pcfgJC" value="${escapeHtml(s.jazzcashNumber||'')}" placeholder="03XX-XXXXXXX"/></div>
+      <div class="field"><label>JazzCash Account Name</label><input id="pcfgJCN" value="${escapeHtml(s.jazzcashName||'')}" placeholder="Shahzeb Vakani"/></div>
+      <div class="field"><label>JazzCash Number</label><input id="pcfgJC" value="${escapeHtml(s.jazzcashNumber||'')}" placeholder="0302 8244803"/></div>
     </div>
     <div class="form-row">
-      <div class="field"><label>Easypaisa Account Name</label><input id="pcfgEPN" value="${escapeHtml(s.easypaisaName||'')}" placeholder="Account holder name"/></div>
-      <div class="field"><label>Easypaisa Number</label><input id="pcfgEP" value="${escapeHtml(s.easypaisaNumber||'')}" placeholder="03XX-XXXXXXX"/></div>
+      <div class="field"><label>Easypaisa Account Name</label><input id="pcfgEPN" value="${escapeHtml(s.easypaisaName||'')}" placeholder="Shahzeb Vakani"/></div>
+      <div class="field"><label>Easypaisa Number</label><input id="pcfgEP" value="${escapeHtml(s.easypaisaNumber||'')}" placeholder="0302 8244803"/></div>
     </div>
     <div class="form-row">
       <div class="field"><label>Bank Name</label><input id="pcfgBN" value="${escapeHtml(s.bankName||'')}" placeholder="HBL / Meezan / etc."/></div>
-      <div class="field"><label>Account Title</label><input id="pcfgBT" value="${escapeHtml(s.bankAccountTitle||'')}" placeholder="Modern Dry Cleaners"/></div>
+      <div class="field"><label>Account Title</label><input id="pcfgBT" value="${escapeHtml(s.bankAccountTitle||'')}" placeholder="Mr Laundry"/></div>
     </div>
     <div class="form-row cols-1">
       <div class="field"><label>Bank Account Number / IBAN</label><input id="pcfgBA" value="${escapeHtml(s.bankAccountNumber||'')}" placeholder="PK00 ABCD..."/></div>

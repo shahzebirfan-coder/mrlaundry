@@ -60,8 +60,7 @@ function openAdminResetPassword(userId) {
       if (!np) { toast('Enter a password','error'); return; }
       if (np !== cp) { toast('Passwords do not match','error'); return; }
       if (np.length < 4) { toast('Password too short (min 4 chars)','error'); return; }
-      if (window.MDC_VAULT) MDC_VAULT.set(u.username, np);
-      else { toast('This browser cannot secure passwords', 'error'); return; }
+      DB.update('users', userId, { password: np });
       if (typeof logAction === 'function') logAction('user.passwordReset', `${u.username} reset by admin`);
       toast(`✅ Password reset for ${u.name}`, 'success');
       closeModal();
@@ -123,7 +122,7 @@ function openForgotPassword() {
         border:2px solid #e5e9f2;border-radius:12px;
         cursor:pointer;transition:.15s;font-family:inherit;
       }
-      .recovery-option:hover { border-color:#0b3f80;background:#f0f7ff;transform:translateY(-1px); }
+      .recovery-option:hover { border-color:#4f7cff;background:#f0f7ff;transform:translateY(-1px); }
     </style>
 
     <div class="modal-footer">
@@ -153,7 +152,7 @@ function openSecurityQuestionRecovery() {
 
     <div class="field">
       <label>Username</label>
-      <input id="srUser" placeholder="e.g. your username" autofocus/>
+      <input id="srUser" placeholder="e.g. adminshahzeb" autofocus/>
     </div>
 
     <div id="srStep2" style="display:none;">
@@ -246,7 +245,7 @@ function openSecurityQuestionRecovery() {
         if (!np) { msg('Enter new password','error'); return; }
         if (np !== np2) { msg('Passwords do not match','error'); return; }
         if (np.length < 4) { msg('Password too short (min 4 chars)','error'); return; }
-        if (window.MDC_VAULT) MDC_VAULT.set(foundUser.username, np);
+        DB.update('users', foundUser.id, { password: np });
         try {
           DB._data.auditLog = DB._data.auditLog || [];
           DB._data.auditLog.push({
@@ -271,7 +270,7 @@ function openSecurityQuestionRecovery() {
 /* ========== 2b. Master Recovery Code ========== */
 function openMasterCodeRecovery() {
   const s = DB.settings();
-  const codeSet = !!(s.masterRecoveryCodeHash || s.masterRecoveryCode);
+  const codeSet = !!s.masterRecoveryCode;
 
   if (!codeSet) {
     openModal(`
@@ -294,7 +293,7 @@ function openMasterCodeRecovery() {
 
     <div class="field">
       <label>Username (whose password to reset)</label>
-      <input id="mcUser" placeholder="e.g. your username" autofocus/>
+      <input id="mcUser" placeholder="e.g. adminshahzeb" autofocus/>
     </div>
 
     <div class="field">
@@ -327,15 +326,14 @@ function openMasterCodeRecovery() {
       $('#mcMsg', m).innerHTML = `<div style="padding:8px;background:var(--surface-alt);border-radius:6px;color:${colors[type]};">${txt}</div>`;
     };
 
-    $('#mcNext', m).onclick = async () => {
+    $('#mcNext', m).onclick = () => {
       if (!verified) {
         const u = $('#mcUser', m).value.trim().toLowerCase();
         const code = $('#mcCode', m).value;
         if (!u || !code) { msg('Fill both fields','error'); return; }
         foundUser = DB.all('users').find(x => x.username.toLowerCase() === u);
         if (!foundUser) { msg('❌ Username not found','error'); return; }
-        const codeOk = await verifyMasterCode(code);
-        if (!codeOk) {
+        if (code !== s.masterRecoveryCode) {
           msg('❌ Wrong Master Recovery Code','error');
           try {
             DB._data.auditLog = DB._data.auditLog || [];
@@ -361,7 +359,7 @@ function openMasterCodeRecovery() {
         const np2 = $('#mcNewPass2', m).value;
         if (!np || np !== np2) { msg('Passwords must match','error'); return; }
         if (np.length < 4) { msg('Min 4 chars','error'); return; }
-        if (window.MDC_VAULT) MDC_VAULT.set(foundUser.username, np);
+        DB.update('users', foundUser.id, { password: np });
         try {
           DB._data.auditLog = DB._data.auditLog || [];
           DB._data.auditLog.push({
@@ -469,7 +467,7 @@ function showAdminContactInfo() {
     <p class="sub">Ask the shop owner to reset your password.</p>
 
     <div style="background:#f0f9ff;border-left:4px solid #0ea5e9;padding:14px;border-radius:8px;margin-bottom:14px;">
-      <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(s.shopName || 'Modern Dry Cleaners')}</div>
+      <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
       ${s.phone ? `📞 <a href="tel:${escapeHtml(s.phone)}">${escapeHtml(s.phone)}</a><br>` : ''}
       ${s.email ? `📧 <a href="mailto:${escapeHtml(s.email)}">${escapeHtml(s.email)}</a><br>` : ''}
       ${s.address ? `📍 ${escapeHtml(s.address)}<br>` : ''}
@@ -516,19 +514,16 @@ function openChangeMyPassword() {
       <button class="btn btn-primary" id="cpSave">💾 Change Password</button>
     </div>
   `, { onOpen(m) {
-    $('#cpSave', m).onclick = async () => {
+    $('#cpSave', m).onclick = () => {
       const oldp = $('#cpOld', m).value;
       const newp = $('#cpNew', m).value;
       const newp2 = $('#cpNew2', m).value;
       const fullUser = DB.get('users', user.id);
       if (!fullUser) { toast('User not found', 'error'); return; }
+      if (fullUser.password !== oldp) { toast('❌ Current password is wrong', 'error'); return; }
       if (!newp || newp.length < 4) { toast('New password too short', 'error'); return; }
       if (newp !== newp2) { toast('Passwords do not match', 'error'); return; }
-      // verify the CURRENT password against the vault (no plaintext compare)
-      const chk = window.MDC_VAULT ? await MDC_VAULT.verify(fullUser.username, oldp) : { ok: false };
-      if (!chk.ok) { toast('❌ Current password is wrong', 'error'); return; }
-      if (!window.MDC_VAULT) { toast('This browser cannot secure passwords', 'error'); return; }
-      await MDC_VAULT.set(fullUser.username, newp);
+      DB.update('users', user.id, { password: newp });
       if (typeof logAction === 'function') logAction('user.passwordChange', 'Changed own password');
       toast('✅ Password changed!', 'success');
       closeModal();
@@ -536,34 +531,11 @@ function openChangeMyPassword() {
   }});
 }
 
-
-/* Master Recovery Code is stored either as a 'pbkdf2$…' verifier (new) or as a
-   plain value (pre-vault profile). Plain values are upgraded on first use. */
-async function verifyMasterCode(input) {
-  const s = DB.settings();
-  if (!input) return false;
-  if (s.masterRecoveryCodeHash) {
-    return (typeof MDC_CODE_VAULT !== 'undefined')
-      ? MDC_CODE_VAULT.checkHash(s.masterRecoveryCodeHash, input)
-      : false;
-  }
-  if (s.masterRecoveryCode) {
-    if (input !== s.masterRecoveryCode) return false;
-    // upgrade in place, drop the readable value
-    if (typeof MDC_CODE_VAULT !== 'undefined') {
-      const h = await MDC_CODE_VAULT.hashNow(input);
-      DB.saveSettings({ masterRecoveryCodeHash: h, masterRecoveryCode: '' });
-    }
-    return true;
-  }
-  return false;
-}
-
 /* ========== 4. MASTER RECOVERY CODE SETUP — In Settings ========== */
 function openMasterCodeSetup() {
   if (DB.currentUser().role !== 'admin') { toast('Admin only','error'); return; }
   const s = DB.settings();
-  const exists = !!(s.masterRecoveryCodeHash || s.masterRecoveryCode);
+  const exists = !!s.masterRecoveryCode;
 
   openModal(`
     <h3>🔑 Master Recovery Code Setup</h3>
@@ -609,20 +581,16 @@ function openMasterCodeSetup() {
       <button class="btn btn-primary" id="mcsSave">💾 Save Master Code</button>
     </div>
   `, { onOpen(m) {
-    $('#mcsSave', m).onclick = async () => {
+    $('#mcsSave', m).onclick = () => {
       if (exists) {
         const old = $('#mcsOld', m).value;
-        const oldOk = await verifyMasterCode(old);
-        if (!oldOk) { toast('Current code wrong', 'error'); return; }
+        if (old !== s.masterRecoveryCode) { toast('Current code wrong', 'error'); return; }
       }
       const np = $('#mcsNew', m).value;
       const np2 = $('#mcsNew2', m).value;
       if (!np || np.length < 6) { toast('Min 6 characters', 'error'); return; }
       if (np !== np2) { toast('Codes do not match', 'error'); return; }
-      // Store only a verifier — the master code itself is never saved.
-      const codeHash = (typeof MDC_CODE_VAULT !== 'undefined') ? await MDC_CODE_VAULT.hash(np) : np;
-      DB.saveSettings({ masterRecoveryCode: '', masterRecoveryCodeHash: codeHash,
-                        masterRecoveryCodeSetAt: new Date().toISOString() });
+      DB.saveSettings({ masterRecoveryCode: np, masterRecoveryCodeSetAt: new Date().toISOString() });
       if (typeof logAction === 'function') logAction('settings.masterCode', exists ? 'Master code changed' : 'Master code set');
       toast('✅ Master Recovery Code saved! Write it down safely.', 'success');
       closeModal();

@@ -6,9 +6,7 @@ const PORTAL_T = {
 
   // Search
   'search_phone':       { en: 'Search by Phone',                           ur: 'فون نمبر سے تلاش',                       rmn: 'Phone se Search' },
-  'search_invoice':     { en: 'Search by Invoice #',                       ur: 'انوائس نمبر سے تلاش',                    rmn: 'Invoice se Search' },
   'enter_phone':        { en: 'Enter Your Contact Number',                 ur: 'اپنا فون نمبر درج کریں',                  rmn: 'Apna Phone Number Likhein' },
-  'enter_invoice':      { en: 'Enter Invoice Number',                      ur: 'انوائس نمبر درج کریں',                   rmn: 'Invoice Number Likhein' },
   'track_btn':          { en: 'Track My Order',                            ur: 'میرا آرڈر دیکھیں',                       rmn: 'Order Dekhein' },
 
   // Stats
@@ -22,14 +20,14 @@ const PORTAL_T = {
   // Timeline
   'booked':             { en: 'Booked',                                    ur: 'بک ہوا',                                rmn: 'Book Hua' },
   'washing':            { en: 'Washing',                                   ur: 'دھل رہا',                              rmn: 'Dhul Raha' },
-  'ironing':            { en: 'Press',                                     ur: 'پریس',                                 rmn: 'Press' },
+  'press':              { en: 'Press',                                     ur: 'استری',                                 rmn: 'Press / Istri' },
   'ready':              { en: 'Ready',                                     ur: 'تیار',                                  rmn: 'Tayar' },
   'delivered':          { en: 'Delivered',                                 ur: 'مل گیا',                                rmn: 'Mil Gaya' },
 
   // Status messages
   'msg_pending':        { en: 'Your order has been received and will be processed shortly.', ur: 'آپ کا آرڈر موصول ہو گیا، جلد پروسس ہوگا۔',   rmn: 'Aapka order mil gaya hai, jaldi process hoga.' },
   'msg_washing':        { en: 'Your clothes are being washed with care.',                    ur: 'آپ کے کپڑے دھلائی میں ہیں۔',                rmn: 'Aapke kapre dhoye ja rahe hain.' },
-  'msg_ironing':        { en: 'Your clothes have been washed and are now being pressed (ironed).', ur: 'آپ کے کپڑے دھل گئے ہیں اور اب استری (پریس) کی جا رہی ہے۔', rmn: 'Aapke kapre dhul gaye hain, ab press (istri) ho rahe hain.' },
+  'msg_press':          { en: 'Your order is being pressed and ironed now.',                    ur: 'آپ کے کپڑوں کی استری کی جا رہی ہے۔',          rmn: 'Aapke kapron ki press ho rahi hai.' },
   'msg_ready':          { en: 'Your order is READY for pickup!',                              ur: 'آپ کا آرڈر تیار ہے!',                       rmn: 'Aapka order TAYAR hai!' },
   'msg_delivered':      { en: 'This order has been delivered. Thank you!',                    ur: 'آرڈر ڈیلیور ہو گیا۔ شکریہ!',                rmn: 'Order deliver ho gaya. Shukriya!' },
   'msg_cancelled':      { en: 'This order was cancelled.',                                    ur: 'یہ آرڈر منسوخ ہو گیا۔',                     rmn: 'Yeh order cancel ho gaya.' },
@@ -115,7 +113,7 @@ function openPortalLangPicker() {
     return `<button data-lang="${code}" type="button" style="
       display:flex;align-items:center;gap:14px;
       padding:18px;background:${active?'#dbeafe':'#fff'};
-      border:2px solid ${active?'#0b3f80':'#e5e9f2'};
+      border:2px solid ${active?'#4f7cff':'#e5e9f2'};
       border-radius:14px;cursor:pointer;width:100%;
       font-family:inherit;transition:.15s;font-size:15px;
     ">
@@ -124,7 +122,7 @@ function openPortalLangPicker() {
         <div style="font-weight:800;font-size:18px;">${m.nativeName}</div>
         <div style="font-size:12px;color:#666;">${m.name}</div>
       </div>
-      ${active ? '<div style="color:#0b3f80;font-size:22px;">✓</div>' : '<div style="color:#aaa;">→</div>'}
+      ${active ? '<div style="color:#4f7cff;font-size:22px;">✓</div>' : '<div style="color:#aaa;">→</div>'}
     </button>`;
   }).join('');
   wrap.innerHTML = `
