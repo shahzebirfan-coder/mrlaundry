@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Mr Laundry POS — Firestore security rules
+// The app has NO Firebase Authentication; data lives under
+//   shops/{shopId}              ← meta doc (chunked-v1)
+//   shops/{shopId}/tables/{id}  ← per-table JSON / 800KB chunks
+// So access is granted ONLY to the shops subtree.
+// Keep the Shop ID unguessable and do NOT share it publicly.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /shops/{shopId} {
+      allow read, write: if true;
+
+      match /tables/{tableId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Everything else is denied by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
