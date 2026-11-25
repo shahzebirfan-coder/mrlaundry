@@ -1,9 +1,15 @@
 /* ===================== INVOICE / RECEIPT ===================== */
+function resolveInvoiceCashier(order) {
+  const cashier = order && order.cashierId ? DB.get('users', order.cashierId) : null;
+  if (cashier && cashier.name) return cashier;
+  return { name: order && (order.cashierName || order.cashierUsername) || '-' };
+}
+
 async function openInvoice(orderId, autoPrint) {
   const o = DB.get('orders', orderId);
   if (!o) { toast('Order not found','error'); return; }
   const c = DB.get('customers', o.customerId) || { name:'Walk-in Customer' };
-  const cashier = DB.get('users', o.cashierId) || { name:'-' };
+  const cashier = resolveInvoiceCashier(o);
   const s = DB.settings();
   // Thermal output must never race the monochrome logo preparation. If the
   // cache is cold (e.g. immediately after switching 58/80mm paper), wait for
@@ -145,7 +151,7 @@ async function buildCustomerInvoicePdfBlob(o, c, s, invoiceNo, totalPcs, delType
   if (s.logoImage && s.invoiceLogoMono !== false && typeof THERMAL !== 'undefined') {
     await THERMAL.prepare(s);
   }
-  const cashier = DB.get('users', o.cashierId) || { name: o.cashierName || '-' };
+  const cashier = resolveInvoiceCashier(o);
   const paper = String(s.invoicePaper || '80') === '58' ? '58' : '80';
   const paperMm = paper === '58' ? 58 : 80;
   const printableMm = paper === '58' ? 48 : 72;
@@ -300,11 +306,25 @@ function buildInvoiceDeveloperFooter(narrow, includeCut) {
   `;
 }
 
+function invoicePaymentLabel(order) {
+  const labels = {
+    cash:'Cash', card:'Card', bank:'Bank transfer', online:'Online',
+    jazzcash:'JazzCash', easypaisa:'Easypaisa', cheque:'Cheque', credit:'Credit'
+  };
+  const method = String(order && order.paymentMethod || '').toLowerCase();
+  const paid = Math.max(0, +(order && order.paid) || 0);
+  const due = Math.max(0, +(order && order.due) || 0);
+  const hasCredit = due > 0 || method === 'credit' || (order && (order.paymentType === 'credit' || (order.isCredit && paid === 0)));
+  if (!hasCredit) return labels[method] || (paid > 0 ? 'Cash' : 'Credit');
+  if (paid <= 0) return 'Credit';
+  const tender = method && method !== 'credit' ? (labels[method] || method) : 'Cash';
+  return `${tender} + Credit`;
+}
+
 function buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier) {
   const bookingDate = fmtDateShort(o.bookingDate || o.createdAt);
   const deliveryDate = o.deliveryDate ? fmtDateShort(o.deliveryDate) : '';
-  const paymentLabels = { cash:'Cash', card:'Card', bank:'Bank transfer', online:'Online', jazzcash:'JazzCash', easypaisa:'Easypaisa', cheque:'Cheque' };
-  const paymentMethod = String(o.paymentMethod || '').toLowerCase();
+  const paymentLabel = invoicePaymentLabel(o);
   return `
     <table class="invoice-meta-table" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:${fontSize}px;line-height:1.35;margin:8px 0;">
       <colgroup><col style="width:34%;"><col style="width:66%;"></colgroup>
@@ -313,23 +333,48 @@ function buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier) {
       <tr><td>Customer</td><td><b>${escapeHtml(c.name || 'Walk-in Customer')}</b></td></tr>
       ${c.phone ? `<tr><td>Phone</td><td>${escapeHtml(c.phone)}</td></tr>` : ''}
       ${s.invoiceShowCashier !== false && cashier && cashier.name ? `<tr><td>Cashier</td><td>${escapeHtml(cashier.name)}</td></tr>` : ''}
-      ${s.invoiceShowPaymentMethod !== false && paymentMethod ? `<tr><td>Payment</td><td>${escapeHtml(paymentLabels[paymentMethod] || paymentMethod)}</td></tr>` : ''}
+      ${s.invoiceShowPaymentMethod !== false && paymentLabel ? `<tr><td>Payment</td><td>${escapeHtml(paymentLabel)}</td></tr>` : ''}
+    </table>
+  `;
+}
+
+function buildOfficeMetaTable(o, c, cashier, fontSize) {
+  const bookingDate = fmtDateShort(o.bookingDate || o.createdAt) || '—';
+  const deliveryDate = o.deliveryDate ? fmtDateShort(o.deliveryDate) : '—';
+  const contact = c && c.phone ? c.phone : '—';
+  const cashierName = cashier && cashier.name ? cashier.name : '—';
+  return `
+    <table class="invoice-meta-table invoice-office-meta" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:${Math.max(9,fontSize-1)}px;line-height:1.3;margin:5px 0 7px;">
+      <colgroup><col style="width:30%;"><col style="width:70%;"></colgroup>
+      <tr><td style="padding:2px 0;font-weight:700;">Booking</td><td style="padding:2px 0;">${escapeHtml(bookingDate)}</td></tr>
+      <tr><td style="padding:2px 0;font-weight:700;">Delivery</td><td style="padding:2px 0;">${escapeHtml(deliveryDate)}</td></tr>
+      <tr><td style="padding:2px 0;font-weight:700;">Contact</td><td style="padding:2px 0;">${escapeHtml(contact)}</td></tr>
+      <tr><td style="padding:2px 0;font-weight:700;">Payment</td><td style="padding:2px 0;">${escapeHtml(invoicePaymentLabel(o))}</td></tr>
+      <tr><td style="padding:2px 0;font-weight:700;">Cashier</td><td style="padding:2px 0;">${escapeHtml(cashierName)}</td></tr>
     </table>
   `;
 }
 
 function buildInvoiceItemTable(o, fontSize, narrow) {
+  const items = Array.isArray(o.items) ? o.items : [];
+  const nameWidth = narrow ? 42 : 45;
+  const rateWidth = narrow ? 33 : 31;
+  const amountWidth = 100 - nameWidth - rateWidth;
+  const detailSize = Math.max(8, fontSize - 2);
   return `
-    <table class="invoice-items-table" style="width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 5px;line-height:1.35;font-size:${fontSize}px;">
+    <table class="invoice-items-table" style="width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 5px;line-height:1.3;font-size:${fontSize}px;">
+      <colgroup><col style="width:${nameWidth}%;"><col style="width:${rateWidth}%;"><col style="width:${amountWidth}%;"></colgroup>
       <thead><tr>
-        <th style="width:65%;text-align:left;padding:5px 4px 5px 0;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${fontSize+1}px;">ITEMS</th>
-        <th style="width:35%;text-align:right;padding:5px 0 5px 3px;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${fontSize+1}px;">TOTAL</th>
+        <th style="text-align:left;padding:4px 3px 4px 0;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${detailSize}px;">ITEM</th>
+        <th style="text-align:center;padding:4px 1px;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${detailSize}px;">QTY × RATE</th>
+        <th style="text-align:right;padding:4px 0 4px 2px;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${detailSize}px;">AMOUNT</th>
       </tr></thead>
       <tbody>
-        ${(o.items || []).map(it => `
+        ${items.map(it => `
           <tr>
-            <td style="width:65%;padding:5px 4px 5px 0;font-weight:700;overflow-wrap:anywhere;word-break:normal;">${escapeHtml(it.name || 'Item')}<div style="font-size:${Math.max(8,fontSize-2)}px;font-weight:400;">${it.qty} × ${fmtMoney(it.price)}</div></td>
-            <td style="width:35%;text-align:right;white-space:nowrap;padding:5px 0 5px 2px;font-weight:700;">${fmtMoney((+it.qty || 0) * (+it.price || 0))}</td>
+            <td style="padding:4px 3px 4px 0;font-weight:700;overflow-wrap:anywhere;word-break:normal;vertical-align:top;">${escapeHtml(it.name || 'Item')}</td>
+            <td style="padding:4px 1px;text-align:center;font-size:${detailSize}px;white-space:nowrap;vertical-align:top;">${+it.qty || 0} × ${fmtMoney(+it.price || 0)}</td>
+            <td style="text-align:right;white-space:nowrap;padding:4px 0 4px 2px;font-weight:700;font-size:${detailSize}px;vertical-align:top;">${fmtMoney((+it.qty || 0) * (+it.price || 0))}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -337,14 +382,103 @@ function buildInvoiceItemTable(o, fontSize, narrow) {
   `;
 }
 
-function buildInvoiceTotalsTable(o, s, fontSize) {
-  const totalDisc = (o.discount || ((o.manualDiscount || 0) + (o.loyaltyDiscount || 0)));
-  const showDiscount = s.invoiceShowDiscount !== false;
+function buildOfficeItemTable(o, fontSize) {
+  const items = Array.isArray(o.items) ? o.items : [];
+  return `
+    <table class="invoice-items-table invoice-office-items" style="width:100%;table-layout:fixed;border-collapse:collapse;margin:5px 0 0;line-height:1.25;font-size:${Math.max(9,fontSize-1)}px;">
+      <colgroup><col style="width:75%;"><col style="width:25%;"></colgroup>
+      <thead><tr>
+        <th style="text-align:left;padding:4px 3px 4px 0;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${Math.max(9,fontSize-1)}px;">ITEM</th>
+        <th style="text-align:right;padding:4px 0;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${Math.max(9,fontSize-1)}px;">QTY</th>
+      </tr></thead>
+      <tbody>
+        ${items.map(it => `
+          <tr>
+            <td style="padding:3px 3px 3px 0;font-weight:600;overflow-wrap:anywhere;vertical-align:top;">${escapeHtml(it.name || 'Item')}</td>
+            <td style="padding:3px 0;text-align:right;white-space:nowrap;vertical-align:top;">${+it.qty || 0}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function invoiceDiscountAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+}
+
+function invoiceDiscountPercent(value) {
+  const percent = Number(value);
+  if (!Number.isFinite(percent) || percent <= 0) return '';
+  return `${Number.isInteger(percent) ? percent : +percent.toFixed(2)}%`;
+}
+
+function buildInvoiceDiscountRows(order, fontSize) {
+  const manualDiscount = invoiceDiscountAmount(order.manualDiscount);
+  const loyaltyDiscount = invoiceDiscountAmount(order.loyaltyDiscount);
+  const savedTotal = invoiceDiscountAmount(order.discount);
+  const componentTotal = manualDiscount + loyaltyDiscount;
+  const totalDiscount = savedTotal > 0 ? savedTotal : componentTotal;
+  if (totalDiscount <= 0) return '';
+
+  const manualPercent = String(order.discountType || '').toLowerCase() === 'percent'
+    ? invoiceDiscountPercent(order.discountValue) : '';
+  const loyaltyPercent = invoiceDiscountPercent(order.loyaltyPercent);
+  const components = [];
+  if (manualDiscount > 0) {
+    components.push({ label: manualPercent ? `Manual Discount (${manualPercent})` : 'Manual Discount', amount: manualDiscount });
+  }
+  if (loyaltyDiscount > 0) {
+    components.push({ label: loyaltyPercent ? `Loyalty Discount (${loyaltyPercent})` : 'Loyalty Discount', amount: loyaltyDiscount });
+  }
+
+  const detailStyle = 'padding:3px 0;color:#166534;';
+  const amountStyle = 'padding:3px 0;text-align:right;white-space:nowrap;color:#166534;font-weight:700;';
+  const totalRow = `
+    <tr class="invoice-discount-total">
+      <td style="padding:5px 0;border-top:1px dashed #000;border-bottom:1px dashed #000;font-weight:900;font-size:${fontSize}px;color:#14532d;">TOTAL DISCOUNT OFFERED</td>
+      <td style="padding:5px 0;border-top:1px dashed #000;border-bottom:1px dashed #000;text-align:right;white-space:nowrap;font-weight:900;font-size:${fontSize}px;color:#14532d;">− ${fmtMoney(totalDiscount)}</td>
+    </tr>
+  `;
+
+  if (components.length > 1) {
+    const detailRows = components.map(part => `
+      <tr><td style="${detailStyle}">${escapeHtml(part.label)}</td><td style="${amountStyle}">− ${fmtMoney(part.amount)}</td></tr>
+    `).join('');
+    return detailRows + totalRow;
+  }
+
+  if (components.length === 1 && Math.abs(totalDiscount - components[0].amount) > 0.01) {
+    return `
+      <tr><td style="${detailStyle}">${escapeHtml(components[0].label)}</td><td style="${amountStyle}">− ${fmtMoney(components[0].amount)}</td></tr>
+      ${totalRow}
+    `;
+  }
+
+  let label = 'Discount Offered';
+  if (components.length === 1 && loyaltyDiscount > 0) {
+    label = loyaltyPercent ? `Discount Offered (Loyalty ${loyaltyPercent})` : 'Discount Offered (Loyalty)';
+  } else if (components.length === 1 && manualPercent) {
+    label = `Discount Offered (${manualPercent})`;
+  } else if (!components.length && manualPercent) {
+    label = `Discount Offered (${manualPercent})`;
+  }
+
+  return `
+    <tr class="invoice-discount-total">
+      <td style="padding:5px 0;border-top:1px dashed #000;border-bottom:1px dashed #000;font-weight:900;font-size:${fontSize}px;color:#14532d;">${escapeHtml(label.toUpperCase())}</td>
+      <td style="padding:5px 0;border-top:1px dashed #000;border-bottom:1px dashed #000;text-align:right;white-space:nowrap;font-weight:900;font-size:${fontSize}px;color:#14532d;">− ${fmtMoney(totalDiscount)}</td>
+    </tr>
+  `;
+}
+
+function buildInvoiceTotalsTable(o, fontSize) {
   return `
     <table class="invoice-totals-table" style="width:100%;border-collapse:collapse;margin-top:4px;line-height:1.35;font-size:${fontSize}px;">
       <tbody>
         <tr><td style="padding:4px 0;border-top:1.5px solid #000;">Gross Total</td><td style="padding:4px 0;border-top:1.5px solid #000;text-align:right;white-space:nowrap;font-weight:700;">${fmtMoney(o.subtotal)}</td></tr>
-        ${showDiscount && totalDisc > 0 ? `<tr><td style="padding:3px 0;">Discount</td><td style="padding:3px 0;text-align:right;white-space:nowrap;">- ${fmtMoney(totalDisc)}</td></tr>` : ''}
+        ${buildInvoiceDiscountRows(o, fontSize)}
         ${(+o.tax || 0) > 0 ? `<tr><td style="padding:3px 0;">Tax</td><td style="padding:3px 0;text-align:right;white-space:nowrap;">${fmtMoney(o.tax)}</td></tr>` : ''}
         <tr><td style="padding:5px 0;border-top:1px dashed #000;font-weight:900;font-size:${fontSize+1}px;">BILL TOTAL</td><td style="padding:5px 0;border-top:1px dashed #000;text-align:right;white-space:nowrap;font-weight:900;font-size:${fontSize+1}px;">${fmtMoney(o.total)}</td></tr>
         <tr><td style="padding:3px 0;">Paid</td><td style="padding:3px 0;text-align:right;white-space:nowrap;">${fmtMoney(o.paid)}</td></tr>
@@ -403,8 +537,8 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
   const terms = String(s.portalTerms || '').trim() || String(s.invoiceTerms || '').trim();
   const termsHtml = terms ? `
     <section style="margin-top:9px;padding-top:7px;border-top:1px dashed #000;color:#000;">
-      <div style="text-align:center;font-size:${Math.max(8,fontSize-1)}px;font-weight:900;letter-spacing:.4px;margin-bottom:4px;">TERMS &amp; CONDITIONS</div>
-      <div style="font-size:${narrow ? 7.5 : 8.5}px;line-height:1.28;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;">${escapeHtml(terms)}</div>
+      <div style="text-align:center;font-size:${Math.max(9,fontSize)}px;font-weight:900;letter-spacing:.4px;margin-bottom:5px;">TERMS &amp; CONDITIONS</div>
+      <div style="font-size:${narrow ? Math.max(9,fontSize-1) : Math.max(10,fontSize-1)}px;font-weight:700;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;">${escapeHtml(terms)}</div>
     </section>
   ` : '';
   const hoursHtml = hours ? `
@@ -421,7 +555,7 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
       ${buildInvoiceHero(invoiceNo, totalPcs, delTypeInfo, fontSize, narrow)}
       ${buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier)}
       ${s.invoiceShowItemBreakdown !== false ? buildInvoiceItemTable(o, fontSize, narrow) : ''}
-      ${buildInvoiceTotalsTable(o, s, fontSize)}
+      ${buildInvoiceTotalsTable(o, fontSize)}
       ${s.invoiceShowNotes !== false && o.notes ? `<div style="margin-top:7px;padding:6px;border:1px dashed #000;font-size:${fontSize}px;overflow-wrap:anywhere;"><b>Notes:</b> ${escapeHtml(o.notes)}</div>` : ''}
       ${qrHtml}
       ${hoursHtml}
@@ -432,23 +566,26 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
   `;
 }
 
+function buildOfficeBrandHeader(s, fontSize, narrow) {
+  return `
+    <div style="text-align:center;color:#000;margin-bottom:5px;">
+      <div style="font-size:${fontSize+(narrow ? 1 : 2)}px;font-weight:900;line-height:1.15;">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
+      <div style="font-size:${Math.max(9,fontSize-1)}px;font-weight:900;letter-spacing:.6px;margin-top:3px;padding:3px 0;border-top:1px dashed #000;border-bottom:1px dashed #000;">OFFICE COPY</div>
+    </div>
+  `;
+}
+
 function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
   const paper = String(s.invoicePaper || '80');
   const narrow = paper === '58';
   const width = Math.max(220, Math.min(400, +s.officeCopyWidth || 280));
   const fontSize = narrow ? 10 : Math.max(11, Math.min(13, (+s.officeCopyFontSize || 11) + 1));
-  const logoBlock = s.invoiceShowLogo !== false ? buildInvoiceLogo(s, width, fontSize) : '';
-  const footer = s.invoiceShowFooter !== false ? `<div style="text-align:center;margin-top:7px;font-size:${fontSize}px;font-weight:900;">${escapeHtml(s.invoiceFooter || '')}</div>` : '';
   return `
-    <div class="invoice-page invoice-office" style="width:100%;max-width:${width}px;box-sizing:border-box;font-family:Arial,'Helvetica Neue',sans-serif;font-size:${fontSize}px;line-height:1.35;font-weight:500;color:#000;background:#fff;padding:${narrow ? 6 : 9}px;">
-      ${buildInvoiceBrandHeader(s, logoBlock, fontSize, narrow, 'OFFICE COPY')}
+    <div class="invoice-page invoice-office" style="width:100%;max-width:${width}px;box-sizing:border-box;font-family:Arial,'Helvetica Neue',sans-serif;font-size:${fontSize}px;line-height:1.3;font-weight:500;color:#000;background:#fff;padding:${narrow ? 6 : 9}px;">
+      ${buildOfficeBrandHeader(s, fontSize, narrow)}
       ${buildInvoiceHero(invoiceNo, totalPcs, delTypeInfo, fontSize, narrow)}
-      ${buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier)}
-      ${s.invoiceShowItemBreakdown !== false ? buildInvoiceItemTable(o, fontSize, narrow) : ''}
-      ${buildInvoiceTotalsTable(o, s, fontSize)}
-      ${o.notes && s.invoiceShowNotes !== false ? `<div style="margin-top:7px;padding:6px;border:1px dashed #000;font-size:${fontSize}px;overflow-wrap:anywhere;"><b>Notes:</b> ${escapeHtml(o.notes)}</div>` : ''}
-      ${footer}
-      ${buildInvoiceDeveloperFooter(narrow, false)}
+      ${buildOfficeMetaTable(o, c, cashier, fontSize)}
+      ${buildOfficeItemTable(o, fontSize)}
     </div>
   `;
 }
@@ -755,7 +892,7 @@ function openInvoiceCustomizer(reopenOrderId) {
 
     <div style="background:var(--surface-alt);border-radius:10px;padding:14px;margin-bottom:14px;">
       <div style="font-weight:700;margin-bottom:6px;">👁️ What to Show on Customer Copy</div>
-      <div style="font-size:11px;color:var(--text-soft);margin-bottom:10px;">Invoice number, pieces, hanger/fold type, shop timings, shop Terms &amp; Conditions, and the CelineSoft cut footer are always included.</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-bottom:10px;">Invoice number, pieces, hanger/fold type, shop timings, Terms &amp; Conditions, cut marker, and any applicable discount amount are always included. Manual and loyalty discounts are itemized when available.</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:13px;">
         ${invToggle('invoiceShowLogo', '🏷️ Shop Logo', s.invoiceShowLogo)}
         ${invToggle('invoiceShowTagline', '📝 Shop Tagline', s.invoiceShowTagline)}
@@ -763,7 +900,6 @@ function openInvoiceCustomizer(reopenOrderId) {
         ${invToggle('invoiceShowPhone', '📞 Shop Phone', s.invoiceShowPhone)}
         ${invToggle('invoiceShowCashier', '👤 Cashier Name', s.invoiceShowCashier)}
         ${invToggle('invoiceShowItemBreakdown', '📋 Item-by-Item List', s.invoiceShowItemBreakdown)}
-        ${invToggle('invoiceShowDiscount', '💸 Discount Lines', s.invoiceShowDiscount)}
         ${invToggle('invoiceShowPaymentMethod', '💳 Payment Method', s.invoiceShowPaymentMethod)}
         ${invToggle('invoiceShowNotes', '📝 Order Notes', s.invoiceShowNotes)}
         ${invToggle('invoiceShowQR', '🔳 QR Code', s.invoiceShowQR)}
@@ -869,6 +1005,7 @@ function openInvoiceCustomizer(reopenOrderId) {
         invoiceFooter: $('#cfFooter', m).value,
         invoiceTerms: $('#cfTerms', m).value,
         portalTerms: $('#cfPortalTerms', m).value,
+        invoiceShowDiscount: true,
         printDualCopy: $('#cfDual', m).checked,
         officeCopyWidth: +$('#cfOffW', m).value || 280,
         officeCopyFontSize: +$('#cfOffF', m).value || 11,

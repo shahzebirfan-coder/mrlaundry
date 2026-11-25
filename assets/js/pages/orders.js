@@ -1,5 +1,7 @@
 /* ===================== ORDERS / INVOICES ===================== */
-let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' };
+const ORDERS_PAGE_SIZE = 50;
+let _ordersSearchTimer = null;
+let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all', page:0 };
 
 function getOrderPaymentEvents(order) {
   if (!order) return [];
@@ -65,6 +67,8 @@ function renderOrderPaidOnCell(order) {
 }
 
 function renderOrders() {
+  clearTimeout(_ordersSearchTimer);
+  _ordersSearchTimer = null;
   const content = `
     <h1 class="page-title">📦 ${t('ord.title')}</h1>
     <p class="page-sub">Search, view, and ${DB.currentUser().role==='admin'?'edit':'track'} all invoices.</p>
@@ -102,6 +106,7 @@ function renderOrders() {
     </div>
 
     <div id="ordersSummary"></div>
+    <div id="ordersPaginationTop" style="margin:0 0 8px;"></div>
 
     <div class="card" style="padding:0;overflow:hidden;">
       <table class="tbl">
@@ -112,20 +117,38 @@ function renderOrders() {
         <tbody id="ordersBody"></tbody>
       </table>
     </div>
+    <div id="ordersPaginationBottom" style="margin:8px 0 20px;"></div>
   `;
   $('#app').innerHTML = renderLayout('orders', content);
   bindLayout();
 
-  $('#oSearch').oninput  = e => { ordersFilter.search = e.target.value; renderOrdersBody(); };
-  $('#oStatus').onchange = e => { ordersFilter.status = e.target.value; renderOrdersBody(); };
-  $('#oPayment').onchange= e => { ordersFilter.payment = e.target.value; renderOrdersBody(); };
-  $('#oFrom').onchange   = e => { ordersFilter.dateFrom = e.target.value; renderOrdersBody(); };
-  $('#oTo').onchange     = e => { ordersFilter.dateTo = e.target.value; renderOrdersBody(); };
-  $('#oToday').onclick   = () => { ordersFilter.dateFrom = ordersFilter.dateTo = isoDay(); renderOrders(); };
-  $('#oWeek').onclick    = () => { const d=new Date(); d.setDate(d.getDate()-6); ordersFilter.dateFrom = isoDay(d); ordersFilter.dateTo = isoDay(); renderOrders(); };
-  $('#oMonth').onclick   = () => { const d=new Date(); ordersFilter.dateFrom = isoDay(new Date(d.getFullYear(),d.getMonth(),1)); ordersFilter.dateTo = isoDay(); renderOrders(); };
-  $('#oClear').onclick   = () => { ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' }; renderOrders(); };
+  $('#oSearch').oninput = e => {
+    ordersFilter.search = e.target.value;
+    ordersFilter.page = 0;
+    clearTimeout(_ordersSearchTimer);
+    _ordersSearchTimer = setTimeout(() => {
+      _ordersSearchTimer = null;
+      if (document.getElementById('ordersBody')) renderOrdersBody();
+    }, 100);
+  };
+  $('#oStatus').onchange = e => { ordersFilter.status = e.target.value; ordersFilter.page = 0; renderOrdersBody(); };
+  $('#oPayment').onchange= e => { ordersFilter.payment = e.target.value; ordersFilter.page = 0; renderOrdersBody(); };
+  $('#oFrom').onchange   = e => { ordersFilter.dateFrom = e.target.value; ordersFilter.page = 0; renderOrdersBody(); };
+  $('#oTo').onchange     = e => { ordersFilter.dateTo = e.target.value; ordersFilter.page = 0; renderOrdersBody(); };
+  $('#oToday').onclick   = () => { ordersFilter.dateFrom = ordersFilter.dateTo = isoDay(); ordersFilter.page = 0; renderOrders(); };
+  $('#oWeek').onclick    = () => { const d=new Date(); d.setDate(d.getDate()-6); ordersFilter.dateFrom = isoDay(d); ordersFilter.dateTo = isoDay(); ordersFilter.page = 0; renderOrders(); };
+  $('#oMonth').onclick   = () => { const d=new Date(); ordersFilter.dateFrom = isoDay(new Date(d.getFullYear(),d.getMonth(),1)); ordersFilter.dateTo = isoDay(); ordersFilter.page = 0; renderOrders(); };
+  $('#oClear').onclick   = () => { ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all', page:0 }; renderOrders(); };
   $('#oQuickPay').onclick = () => openQuickPay();
+
+  const onPaginationClick = e => {
+    const button = e.target.closest('[data-orders-step]');
+    if (!button || button.disabled) return;
+    ordersFilter.page = Math.max(0, ordersFilter.page + (+button.dataset.ordersStep || 0));
+    renderOrdersBody();
+  };
+  $('#ordersPaginationTop').onclick = onPaginationClick;
+  $('#ordersPaginationBottom').onclick = onPaginationClick;
 
   // Set status/payment dropdowns to current value
   $('#oStatus').value = ordersFilter.status;
@@ -133,21 +156,22 @@ function renderOrders() {
   renderOrdersBody();
 }
 
-function filteredOrders() {
-  const orders = [...DB.all('orders')].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+function filteredOrders(customerIndex) {
+  const customers = customerIndex || new Map(DB.all('customers').map(customer => [customer.id, customer]));
+  const orders = [...DB.all('orders')].sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   return orders.filter(o => {
     if (ordersFilter.status !== 'all' && o.status !== ordersFilter.status) return false;
-    if (ordersFilter.payment === 'paid'    && o.due > 0) return false;
-    if (ordersFilter.payment === 'credit'  && o.paid > 0) return false;
+    if (ordersFilter.payment === 'paid'    && (+o.due || 0) > 0) return false;
+    if (ordersFilter.payment === 'credit'  && (+o.paid || 0) > 0) return false;
     if (ordersFilter.payment === 'advance' && o.paymentType !== 'advance') return false;
-    if (ordersFilter.payment === 'partial' && (o.paid === 0 || o.due === 0 || o.paymentType === 'advance')) return false;
-    const d = o.createdAt.slice(0,10);
+    if (ordersFilter.payment === 'partial' && ((+o.paid || 0) === 0 || (+o.due || 0) === 0 || o.paymentType === 'advance')) return false;
+    const d = String(o.createdAt || '').slice(0,10);
     if (ordersFilter.dateFrom && d < ordersFilter.dateFrom) return false;
     if (ordersFilter.dateTo && d > ordersFilter.dateTo) return false;
     if (ordersFilter.search) {
       const q = ordersFilter.search.toLowerCase();
-      const c = DB.get('customers', o.customerId) || {};
-      const invStr = String(o.invoiceNo || o.id);
+      const c = customers.get(o.customerId) || {};
+      const invStr = String(o.invoiceNo || o.id || '');
       if (!invStr.toLowerCase().includes(q)
         && !(c.name||'').toLowerCase().includes(q)
         && !(c.phone||'').includes(q)
@@ -157,13 +181,38 @@ function filteredOrders() {
   });
 }
 
-function renderOrdersBody() {
-  const filtered = filteredOrders();
+function renderOrdersPagination(total, page, pageCount) {
+  if (total <= ORDERS_PAGE_SIZE) return '';
+  const first = page * ORDERS_PAGE_SIZE + 1;
+  const last = Math.min(total, (page + 1) * ORDERS_PAGE_SIZE);
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:9px;font-size:12px;">
+      <span>Showing <b>${first}–${last}</b> of <b>${total}</b> invoices</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button type="button" class="btn btn-secondary btn-sm" data-orders-step="-1" ${page <= 0 ? 'disabled' : ''}>← Previous</button>
+        <span>Page <b>${page + 1}</b> of ${pageCount}</span>
+        <button type="button" class="btn btn-secondary btn-sm" data-orders-step="1" ${page + 1 >= pageCount ? 'disabled' : ''}>Next →</button>
+      </div>
+    </div>
+  `;
+}
 
-  // Summary
-  const totalRevenue = filtered.reduce((s,o)=>s+(o.total||0),0);
-  const totalPaid = filtered.reduce((s,o)=>s+(o.paid||0),0);
-  const totalDue = filtered.reduce((s,o)=>s+(o.due||0),0);
+function renderOrdersBody() {
+  if (!document.getElementById('ordersBody')) return;
+  const customerIndex = new Map(DB.all('customers').map(customer => [customer.id, customer]));
+  const filtered = filteredOrders(customerIndex);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / ORDERS_PAGE_SIZE));
+  ordersFilter.page = Math.max(0, Math.min(pageCount - 1, +ordersFilter.page || 0));
+  const start = ordersFilter.page * ORDERS_PAGE_SIZE;
+  const pageOrders = filtered.slice(start, start + ORDERS_PAGE_SIZE);
+  const pagination = renderOrdersPagination(filtered.length, ordersFilter.page, pageCount);
+  $('#ordersPaginationTop').innerHTML = pagination;
+  $('#ordersPaginationBottom').innerHTML = pagination;
+
+  // Summary totals are for all currently filtered invoices, not just this page.
+  const totalRevenue = filtered.reduce((s,o)=>s+(+o.total||0),0);
+  const totalPaid = filtered.reduce((s,o)=>s+(+o.paid||0),0);
+  const totalDue = filtered.reduce((s,o)=>s+(+o.due||0),0);
   $('#ordersSummary').innerHTML = `
     <div class="grid-stats" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px;">
       <div class="stat-card"><div class="ic b1">🧾</div><div><div class="lbl">Showing</div><div class="val">${filtered.length} invoices</div></div></div>
@@ -173,18 +222,19 @@ function renderOrdersBody() {
     </div>
   `;
 
-  if (!filtered.length) {
+  if (!pageOrders.length) {
     $('#ordersBody').innerHTML = `<tr><td colspan="10"><div class="empty"><div class="emoji">📦</div><h4>${t('ord.noOrders')}</h4><p>${t('ord.tryClearing')}</p></div></td></tr>`;
     return;
   }
 
-  $('#ordersBody').innerHTML = filtered.map(o => {
-    const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
-    const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+  $('#ordersBody').innerHTML = pageOrders.map(o => {
+    const c = customerIndex.get(o.customerId) || { name: 'Walk-in' };
+    const items = Array.isArray(o.items) ? o.items : [];
+    const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + String(o.id || '').slice(-6).toUpperCase();
     return `<tr>
       <td data-label="${t('ord.invoice')}"><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
       <td data-label="${t('ord.customer')}"><b>${escapeHtml(c.name)}</b><br><small style="color:var(--text-soft);">${escapeHtml(c.phone||'')}</small></td>
-      <td data-label="${t('ord.items')}">${o.items.length} items<br><b style='color:var(--primary);'>${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
+      <td data-label="${t('ord.items')}">${items.length} items<br><b style='color:var(--primary);'>${items.reduce((s,i)=>s+(+i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
       <td data-label="${t('ord.total')}"><b>${fmtMoney(o.total)}</b></td>
       <td data-label="${t('ord.paid')}">${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
       <td data-label="${t('ord.paidOn')}">${renderOrderPaidOnCell(o)}</td>
@@ -208,17 +258,21 @@ function renderOrdersBody() {
     </tr>`;
   }).join('');
 
-  $$('[data-act]').forEach(b => b.onclick = () => {
-    const id = b.dataset.id;
-    if (b.dataset.act === 'view' || b.dataset.act === 'print') openInvoice(id, b.dataset.act === 'print');
-    else if (b.dataset.act === 'challan') printChallan(id);
-    else if (b.dataset.act === 'status') openStatusChange(id);
-    else if (b.dataset.act === 'partial') openPartialDelivery(id);
-    else if (b.dataset.act === 'receive') openReceivePayment(id);
-    else if (b.dataset.act === 'wa') openWhatsAppPicker(id);
-    else if (b.dataset.act === 'edit') openEditInvoice(id);
-    else if (b.dataset.act === 'photos') openOrderPhotos(id);
-    else if (b.dataset.act === 'del') {
+  const ordersBody = $('#ordersBody');
+  ordersBody.onclick = e => {
+    const button = e.target.closest('[data-act]');
+    if (!button || !ordersBody.contains(button)) return;
+    const id = button.dataset.id;
+    const action = button.dataset.act;
+    if (action === 'view' || action === 'print') openInvoice(id, action === 'print');
+    else if (action === 'challan') printChallan(id);
+    else if (action === 'status') openStatusChange(id);
+    else if (action === 'partial') openPartialDelivery(id);
+    else if (action === 'receive') openReceivePayment(id);
+    else if (action === 'wa') openWhatsAppPicker(id);
+    else if (action === 'edit') openEditInvoice(id);
+    else if (action === 'photos') openOrderPhotos(id);
+    else if (action === 'del') {
       if (typeof confirmVoidWithReason === 'function') {
         confirmVoidWithReason(id, 'delete', () => {
           const orderToDel = DB.get('orders', id);
@@ -235,7 +289,7 @@ function renderOrdersBody() {
         });
       }
     }
-  });
+  };
 }
 
 function openStatusChange(orderId) {
