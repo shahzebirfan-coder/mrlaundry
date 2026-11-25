@@ -432,6 +432,9 @@ function openBackupRecovery() {
       if (!parsedData) return;
       if (!confirm('REPLACE all data on this device with backup file? This cannot be undone (but you can re-import).\n\nClick OK to proceed.')) return;
       try {
+        if (typeof normalizeProductPiecesPerItem === 'function') {
+          normalizeProductPiecesPerItem(parsedData.products);
+        }
         DB._data = parsedData;
         DB.save();
         try {

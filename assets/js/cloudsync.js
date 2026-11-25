@@ -115,7 +115,21 @@ const CLOUD = {
           if (!existing) { byId[rec.id] = rec; continue; }
           const lTs = +new Date(existing.updatedAt || existing.createdAt || 0) || 0;
           const rTs = +new Date(rec.updatedAt || rec.createdAt || 0) || 0;
-          if (rTs >= lTs) byId[rec.id] = rec;
+          const selected = rTs >= lTs ? rec : existing;
+          const other = selected === rec ? existing : rec;
+          // Older cloud product records won't have piecesPerItem. Keep a valid
+          // value from the other copy instead of letting that schema omission
+          // erase a locally configured physical-piece count.
+          if (tbl === 'products') {
+            const selectedPieces = Number(selected.piecesPerItem);
+            const otherPieces = Number(other.piecesPerItem);
+            if ((!Number.isInteger(selectedPieces) || selectedPieces < 1) &&
+                Number.isInteger(otherPieces) && otherPieces >= 1) {
+              byId[rec.id] = { ...selected, piecesPerItem: otherPieces };
+              continue;
+            }
+          }
+          byId[rec.id] = selected;
         }
         merged[tbl] = Object.values(byId).filter(rec => !rec._deleted);
       } else if (tbl === 'settings' && typeof r === 'object') {
@@ -281,6 +295,12 @@ const CLOUD = {
     }
 
     const merged = this.mergeData(DB._data, remoteData);
+    // Cloud may still contain product rows written before piecesPerItem existed.
+    // Migrate the merged rows before saving; startup then pushes the normalized
+    // table and the same data becomes available on every connected device.
+    if (typeof normalizeProductPiecesPerItem === 'function') {
+      normalizeProductPiecesPerItem(merged.products);
+    }
     DB._data = merged;
     this._suppressPush = true;
     try { DB.save(); } finally { this._suppressPush = false; }
@@ -620,6 +640,9 @@ function openCloudSyncManager() {
         try {
           const remote = await CLOUD.pull();
           if (!remote) { log('No data in cloud yet','error'); return; }
+          if (typeof normalizeProductPiecesPerItem === 'function') {
+            normalizeProductPiecesPerItem(remote.products);
+          }
           DB._data = remote; DB.save();
           toast('Pulled from cloud. Reloading...','success');
           setTimeout(() => location.reload(), 1000);

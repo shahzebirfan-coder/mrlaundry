@@ -6,6 +6,41 @@
 const DB_KEY = 'mrLaundryDB';
 const SESSION_KEY = 'mrLaundrySession';
 
+const PRODUCT_PIECES_PER_ITEM_DEFAULTS = {
+  'Suit 2 Pcs': 2,
+  'Suit 3 Pcs': 3,
+  'Kurta Shalwar': 2,
+  'Shalwar Suit': 2,
+  'Shalwar Suit (Press)': 2,
+  'Suit 2 Pcs (Press)': 2,
+  'Suit 3 Pcs (Press)': 3,
+  'Shalwar Suit Plain - 3 Pcs': 3,
+  'Shalwar Suit Plain - 2 Pcs': 2,
+  'Bridal Dress - 3 Pcs Suit': 3,
+  'Bridal Dress - 3 Pcs Suit (Press)': 3,
+  'Ladies Shalwar Suit Plain - 3 Pcs (Press)': 3,
+  'Ladies Shalwar Suit Plain - 2 Pcs (Press)': 2
+};
+
+// Normalize product-level physical piece counts after local loads and cloud pulls.
+// Existing order lines are intentionally untouched so legacy orders default to 1.
+function normalizeProductPiecesPerItem(products) {
+  if (!Array.isArray(products)) return false;
+  let changed = false;
+  products.forEach(product => {
+    if (!product || typeof product !== 'object') return;
+    const pieces = Number(product.piecesPerItem);
+    if (!Number.isInteger(pieces) || pieces < 1) {
+      product.piecesPerItem = PRODUCT_PIECES_PER_ITEM_DEFAULTS[product.name] || 1;
+      changed = true;
+    } else if (typeof product.piecesPerItem !== 'number') {
+      product.piecesPerItem = pieces;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 const DB = {
   _data: null,
 
@@ -106,36 +141,7 @@ const DB = {
       this.save();
     }
 
-    // Add a safe 1-piece default to existing product records while retaining
-    // any valid configured value. Explicit example/2-piece/3-piece products
-    // are prefilled; unspecified product mappings remain editable.
-    const initialPieceCounts = {
-      'Suit 2 Pcs': 2,
-      'Suit 3 Pcs': 3,
-      'Kurta Shalwar': 2,
-      'Shalwar Suit': 2,
-      'Shalwar Suit (Press)': 2,
-      'Suit 2 Pcs (Press)': 2,
-      'Suit 3 Pcs (Press)': 3,
-      'Shalwar Suit Plain - 3 Pcs': 3,
-      'Shalwar Suit Plain - 2 Pcs': 2,
-      'Bridal Dress - 3 Pcs Suit': 3,
-      'Bridal Dress - 3 Pcs Suit (Press)': 3,
-      'Ladies Shalwar Suit Plain - 3 Pcs (Press)': 3,
-      'Ladies Shalwar Suit Plain - 2 Pcs (Press)': 2
-    };
-    let productsChanged = false;
-    (Array.isArray(this._data.products) ? this._data.products : []).forEach(product => {
-      const pieces = Number(product.piecesPerItem);
-      if (!Number.isInteger(pieces) || pieces < 1) {
-        product.piecesPerItem = initialPieceCounts[product.name] || 1;
-        productsChanged = true;
-      } else if (typeof product.piecesPerItem !== 'number') {
-        product.piecesPerItem = pieces;
-        productsChanged = true;
-      }
-    });
-    if (productsChanged) this.save();
+    if (normalizeProductPiecesPerItem(this._data.products)) this.save();
 
     return this._data;
   },
