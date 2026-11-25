@@ -91,8 +91,14 @@ function openWhatsAppStatusDialog(orderId, status) {
       <textarea id="waStatusMsg" rows="9" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">${escapeHtml(msg)}</textarea>
     </div>
 
+    <label for="waStatusIncludePdf" style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;margin:12px 0;cursor:pointer;">
+      <input type="checkbox" id="waStatusIncludePdf" style="margin-top:3px;"/>
+      <span><b>📎 Attach customer invoice PDF</b><small style="display:block;color:var(--text-soft);margin-top:3px;">On supported phones, choose WhatsApp in the share sheet. Otherwise the PDF downloads and you can attach it to this chat.</small></span>
+    </label>
+    <div id="waStatusPdfStatus" style="display:none;font-size:12px;color:var(--text-soft);margin:0 0 12px;"></div>
+
     <div style="background:var(--surface-alt);padding:10px;border-radius:8px;font-size:12px;color:var(--text-soft);margin-bottom:12px;">
-      💡 Clicking <b>Send</b> opens WhatsApp Web/App with this message pre-filled — you just press the send arrow.
+      💡 Without PDF, Send opens WhatsApp with this message pre-filled. Browsers cannot attach a file through a WhatsApp link, so use the PDF option to share or download the invoice.
     </div>
 
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:12px;">
@@ -105,27 +111,102 @@ function openWhatsAppStatusDialog(orderId, status) {
       <button class="btn btn-success btn-lg" id="sendWaBtn" style="padding:14px 24px;font-size:15px;">📱 Send WhatsApp Now</button>
     </div>
   `, { large: true, onOpen(m) {
+    const includePdf = $('#waStatusIncludePdf', m);
+    const pdfStatus = $('#waStatusPdfStatus', m);
+    const sendBtn = $('#sendWaBtn', m);
+    const pdfInvoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
+    const deliveryTypes = {
+      hanger: { icon: '🧥', label: 'HANGER' },
+      fold: { icon: '📦', label: 'FOLD' },
+      both: { icon: '🧺', label: 'BOTH / MIXED' }
+    };
+    const delTypeInfo = deliveryTypes[String(o.deliveryType || '').toLowerCase()] || deliveryTypes.hanger;
+    let pdfBlob = null;
+    let pdfPromise = null;
+    let pdfError = false;
+
+    const setSendState = () => {
+      if (includePdf.checked && !pdfBlob) {
+        sendBtn.disabled = !!pdfPromise;
+        sendBtn.textContent = pdfPromise ? '⏳ Preparing invoice PDF…' : (pdfError ? '↻ Retry PDF' : '📎 Prepare invoice PDF');
+      } else {
+        sendBtn.disabled = false;
+        sendBtn.textContent = includePdf.checked ? '📎 Share PDF + WhatsApp' : '📱 Send WhatsApp Now';
+      }
+    };
+
+    const preparePdf = () => {
+      if (pdfBlob || pdfPromise) return pdfPromise;
+      pdfError = false;
+      pdfStatus.style.display = 'block';
+      pdfStatus.textContent = 'Creating the customer-copy invoice PDF…';
+      pdfPromise = Promise.resolve().then(() => {
+        if (typeof buildCustomerInvoicePdfBlob !== 'function') {
+          throw new Error('Invoice PDF tools are unavailable. Refresh the app and try again.');
+        }
+        return buildCustomerInvoicePdfBlob(o, c, s, pdfInvoiceNo, totalPcs, delTypeInfo);
+      }).then(blob => {
+        pdfBlob = blob;
+        pdfStatus.textContent = 'Invoice PDF is ready. Tap “Share PDF + WhatsApp” to continue.';
+        return blob;
+      }).catch(error => {
+        pdfError = true;
+        console.error('[Invoice PDF]', error);
+        pdfStatus.textContent = error.message || 'Could not create the invoice PDF. Retry, or uncheck the option to send text only.';
+        if (typeof toast === 'function') toast(error.message || 'Could not create invoice PDF.', 'error');
+        return null;
+      }).finally(() => {
+        pdfPromise = null;
+        setSendState();
+      });
+      setSendState();
+      return pdfPromise;
+    };
+
     $('#copyWaBtn', m).onclick = () => {
       navigator.clipboard.writeText($('#waStatusMsg', m).value)
         .then(() => toast('Copied to clipboard','success'));
     };
-    $('#sendWaBtn', m).onclick = () => {
+
+    includePdf.onchange = () => {
+      if (includePdf.checked) preparePdf();
+      else pdfStatus.style.display = 'none';
+      setSendState();
+    };
+
+    sendBtn.onclick = () => {
       const text = $('#waStatusMsg', m).value;
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-      window.open(url, '_blank');
-      // Log
+      if (includePdf.checked) {
+        if (!pdfBlob) {
+          if (pdfPromise) {
+            if (typeof toast === 'function') toast('Please wait for the invoice PDF to finish preparing.', 'warning');
+          } else {
+            preparePdf();
+          }
+          return;
+        }
+        if (typeof sharePreparedInvoicePdf !== 'function') {
+          if (typeof toast === 'function') toast('Invoice PDF sharing is unavailable. Refresh the app and try again.', 'error');
+          return;
+        }
+        sharePreparedInvoicePdf(pdfBlob, pdfInvoiceNo, text, phone);
+      } else {
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+      }
+
+      // Log the WhatsApp handoff and keep the existing status notification history.
       if (typeof logAction === 'function') {
         logAction('whatsapp.sent', `Status "${status}" → ${c.name} (INV-${o.invoiceNo||orderId.slice(-6)})`);
       }
-      // Mark on order
       const sent = o.whatsappLog || [];
       sent.push({ status, sentAt: new Date().toISOString(), by: DB.currentUser()?.username });
       DB.update('orders', orderId, { whatsappLog: sent });
-      // Save "don't ask"
+
       if ($('#waDontAsk', m).checked) {
         sessionStorage.setItem('mrLaundryWaPause', isoDay());
       }
-      toast('Opening WhatsApp...', 'success');
+      if (!includePdf.checked) toast('Opening WhatsApp...', 'success');
       closeModal();
     };
   }});
