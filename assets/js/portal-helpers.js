@@ -16,6 +16,8 @@ function openPaymentProofDialog(orderId) {
   if (!s.easypaisaNumber) s.easypaisaNumber = '0302 8244803';
   if (!s.easypaisaName)   s.easypaisaName   = 'Shahzeb Vakani';
   const invNo = o.invoiceNo ? 'INV-' + o.invoiceNo : '#' + o.id.slice(-6).toUpperCase();
+  const today = new Date();
+  const paymentDateToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
   const html = `
     <div class="payment-modal">
@@ -90,7 +92,12 @@ function openPaymentProofDialog(orderId) {
 
       <img id="proofPreview" style="display:none;max-width:100%;border-radius:10px;margin-top:10px;border:2px solid #4f7cff;"/>
 
-      <div class="form-row" style="margin-top:14px;">
+      <div class="field" style="margin-top:14px;">
+        <label>${pt('payment_date')} *</label>
+        <input id="paymentDate" type="date" value="${paymentDateToday}" max="${paymentDateToday}" required/>
+        <small>${pt('payment_date_hint')}</small>
+      </div>
+      <div class="form-row">
         <div class="field"><label>Your Name</label><input id="payerName" value="${escapeHtml(c.name||'')}" placeholder="Full name"/></div>
         <div class="field"><label>Transaction ID (optional)</label><input id="txnId" placeholder="TXN12345"/></div>
       </div>
@@ -150,20 +157,39 @@ function openPaymentProofDialog(orderId) {
     reader.readAsDataURL(file);
   }
 
-  document.getElementById('submitProofBtn').onclick = () => {
+  document.getElementById('submitProofBtn').onclick = async () => {
     const payerName = document.getElementById('payerName').value.trim();
+    const paymentDate = document.getElementById('paymentDate').value;
     if (!proofDataUrl) { alert('Please upload screenshot first'); return; }
     if (!payerName) { alert('Please enter your name'); return; }
+    if (!paymentDate || !paymentDateInputToIso(paymentDate) || paymentDate > paymentDateToday) {
+      alert(pt('payment_date_required')); return;
+    }
 
-    DB.insert('paymentProofs', {
+    const submitBtn = document.getElementById('submitProofBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Sending proof...';
+    const proof = DB.insert('paymentProofs', {
       orderId, customerId: o.customerId,
       payerName,
       txnId: document.getElementById('txnId').value.trim(),
+      paymentDate, // customer-declared transfer date; admin verifies against proof
       amount: o.due,
       screenshot: proofDataUrl,
       status: 'pending', // pending | verified | rejected
       submittedAt: new Date().toISOString()
     });
+
+    if (typeof pushPaymentProofToCloud === 'function') {
+      const synced = await pushPaymentProofToCloud(proof);
+      if (!synced) {
+        DB.remove('paymentProofs', proof.id);
+        submitBtn.disabled = false;
+        submitBtn.textContent = '✅ Submit Payment Proof';
+        alert('Could not submit the proof. Please retry or contact the shop; nothing was recorded.');
+        return;
+      }
+    }
 
     closeModal();
     showPortalToast('✅ Payment proof submitted! We will verify and update within 30 minutes.', 'success');
@@ -609,8 +635,9 @@ function showPortalToast(msg, type='success') {
    ADMIN: Configure Portal Settings
    ============================================================ */
 function openPortalConfigDialog() {
-  if (DB.currentUser().role !== 'admin') return;
+  if (!DB.currentUser() || DB.currentUser().role !== 'admin') return;
   const s = DB.settings();
+  let paymentDetailsLocked = s.portalPaymentDetailsLocked !== false;
   const portalUrl = location.origin + location.pathname.replace(/\/[^\/]*$/, '/portal.html');
 
   openModal(`
@@ -630,23 +657,30 @@ function openPortalConfigDialog() {
     </div>
 
     <div style="font-weight:700;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:14px;">💳 Payment Receiving Numbers</div>
-    <div class="form-row">
-      <div class="field"><label>JazzCash Account Name</label><input id="pcfgJCN" value="${escapeHtml(s.jazzcashName||'')}" placeholder="Shahzeb Vakani"/></div>
-      <div class="field"><label>JazzCash Number</label><input id="pcfgJC" value="${escapeHtml(s.jazzcashNumber||'')}" placeholder="0302 8244803"/></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 12px;margin-bottom:12px;border:1px solid ${paymentDetailsLocked ? '#86efac' : '#fbbf24'};background:${paymentDetailsLocked ? '#f0fdf4' : '#fffbeb'};border-radius:9px;">
+      <div>
+        <div id="pcfgPaymentLockStatus" style="font-weight:700;color:${paymentDetailsLocked ? '#166534' : '#92400e'};">${paymentDetailsLocked ? '🔒 Payment details are locked' : '🔓 Payment details are unlocked'}</div>
+        <small style="color:var(--text-soft);">${paymentDetailsLocked ? 'Receiving numbers and bank info cannot be edited until an admin unlocks them.' : 'Edit carefully; these details are shown to customers on the portal.'}</small>
+      </div>
+      <button class="btn ${paymentDetailsLocked ? 'btn-secondary' : 'btn-warning'} btn-sm" id="togglePortalPaymentLock" type="button">${paymentDetailsLocked ? '🔓 Unlock to edit' : '🔒 Lock details'}</button>
     </div>
     <div class="form-row">
-      <div class="field"><label>Easypaisa Account Name</label><input id="pcfgEPN" value="${escapeHtml(s.easypaisaName||'')}" placeholder="Shahzeb Vakani"/></div>
-      <div class="field"><label>Easypaisa Number</label><input id="pcfgEP" value="${escapeHtml(s.easypaisaNumber||'')}" placeholder="0302 8244803"/></div>
+      <div class="field"><label>JazzCash Account Name</label><input id="pcfgJCN" data-payment-lock-field value="${escapeHtml(s.jazzcashName||'')}" placeholder="Shahzeb Vakani" ${paymentDetailsLocked ? 'disabled' : ''}/></div>
+      <div class="field"><label>JazzCash Number</label><input id="pcfgJC" data-payment-lock-field value="${escapeHtml(s.jazzcashNumber||'')}" placeholder="0302 8244803" ${paymentDetailsLocked ? 'disabled' : ''}/></div>
     </div>
     <div class="form-row">
-      <div class="field"><label>Bank Name</label><input id="pcfgBN" value="${escapeHtml(s.bankName||'')}" placeholder="HBL / Meezan / etc."/></div>
-      <div class="field"><label>Account Title</label><input id="pcfgBT" value="${escapeHtml(s.bankAccountTitle||'')}" placeholder="Laundry POS"/></div>
+      <div class="field"><label>Easypaisa Account Name</label><input id="pcfgEPN" data-payment-lock-field value="${escapeHtml(s.easypaisaName||'')}" placeholder="Shahzeb Vakani" ${paymentDetailsLocked ? 'disabled' : ''}/></div>
+      <div class="field"><label>Easypaisa Number</label><input id="pcfgEP" data-payment-lock-field value="${escapeHtml(s.easypaisaNumber||'')}" placeholder="0302 8244803" ${paymentDetailsLocked ? 'disabled' : ''}/></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Bank Name</label><input id="pcfgBN" data-payment-lock-field value="${escapeHtml(s.bankName||'')}" placeholder="HBL / Meezan / etc." ${paymentDetailsLocked ? 'disabled' : ''}/></div>
+      <div class="field"><label>Account Title</label><input id="pcfgBT" data-payment-lock-field value="${escapeHtml(s.bankAccountTitle||'')}" placeholder="Laundry POS" ${paymentDetailsLocked ? 'disabled' : ''}/></div>
     </div>
     <div class="form-row cols-1">
-      <div class="field"><label>Bank Account Number / IBAN</label><input id="pcfgBA" value="${escapeHtml(s.bankAccountNumber||'')}" placeholder="PK00 ABCD..."/></div>
+      <div class="field"><label>Bank Account Number / IBAN</label><input id="pcfgBA" data-payment-lock-field value="${escapeHtml(s.bankAccountNumber||'')}" placeholder="PK00 ABCD..." ${paymentDetailsLocked ? 'disabled' : ''}/></div>
     </div>
     <div class="form-row cols-1">
-      <div class="field"><label>Payment Instructions</label><textarea id="pcfgPI" rows="2" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;">${escapeHtml(s.paymentInstructions||'Please pay to the above account and upload screenshot below. We will verify within 30 minutes.')}</textarea></div>
+      <div class="field"><label>Payment Instructions</label><textarea id="pcfgPI" data-payment-lock-field rows="2" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;" ${paymentDetailsLocked ? 'disabled' : ''}>${escapeHtml(s.paymentInstructions||'Please pay to the above account and upload screenshot below. We will verify within 30 minutes.')}</textarea></div>
     </div>
 
     <div style="font-weight:700;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:14px;">🎁 Referral Settings</div>
@@ -659,22 +693,58 @@ function openPortalConfigDialog() {
       <button class="btn btn-primary" id="savePortalCfg">💾 Save Portal Settings</button>
     </div>
   `, { large: true, onOpen(m) {
-    $('#savePortalCfg', m).onclick = () => {
-      DB.saveSettings({
-        shopHours: $('#pcfgHours', m).value.trim(),
-        jazzcashName: $('#pcfgJCN', m).value.trim(),
-        jazzcashNumber: $('#pcfgJC', m).value.trim(),
-        easypaisaName: $('#pcfgEPN', m).value.trim(),
-        easypaisaNumber: $('#pcfgEP', m).value.trim(),
-        bankName: $('#pcfgBN', m).value.trim(),
-        bankAccountTitle: $('#pcfgBT', m).value.trim(),
-        bankAccountNumber: $('#pcfgBA', m).value.trim(),
-        paymentInstructions: $('#pcfgPI', m).value.trim(),
-        referralDiscountPercent: Math.max(0, +$('#pcfgRD', m).value || 10)
+    const paymentFieldIds = ['pcfgJCN','pcfgJC','pcfgEPN','pcfgEP','pcfgBN','pcfgBT','pcfgBA','pcfgPI'];
+    const paintPaymentLock = () => {
+      paymentFieldIds.forEach(id => {
+        const field = $('#' + id, m);
+        if (field) field.disabled = paymentDetailsLocked;
       });
+      const status = $('#pcfgPaymentLockStatus', m);
+      const toggle = $('#togglePortalPaymentLock', m);
+      if (status) {
+        status.textContent = paymentDetailsLocked ? '🔒 Payment details are locked' : '🔓 Payment details are unlocked';
+        status.style.color = paymentDetailsLocked ? '#166534' : '#92400e';
+        const box = status.parentElement.parentElement;
+        box.style.borderColor = paymentDetailsLocked ? '#86efac' : '#fbbf24';
+        box.style.background = paymentDetailsLocked ? '#f0fdf4' : '#fffbeb';
+        status.nextElementSibling.textContent = paymentDetailsLocked
+          ? 'Receiving numbers and bank info cannot be edited until an admin unlocks them.'
+          : 'Edit carefully; these details are shown to customers on the portal.';
+      }
+      if (toggle) {
+        toggle.textContent = paymentDetailsLocked ? '🔓 Unlock to edit' : '🔒 Lock details';
+        toggle.className = `btn ${paymentDetailsLocked ? 'btn-secondary' : 'btn-warning'} btn-sm`;
+      }
+    };
+    $('#togglePortalPaymentLock', m).onclick = () => {
+      paymentDetailsLocked = !paymentDetailsLocked;
+      paintPaymentLock();
+    };
+    $('#savePortalCfg', m).onclick = () => {
+      const patch = {
+        shopHours: $('#pcfgHours', m).value.trim(),
+        referralDiscountPercent: Math.max(0, +$('#pcfgRD', m).value || 10),
+        portalPaymentDetailsLocked: paymentDetailsLocked
+      };
+      // While locked, omit payment fields entirely so an old/edited form can
+      // never overwrite the saved receiving details by accident.
+      if (!paymentDetailsLocked) {
+        Object.assign(patch, {
+          jazzcashName: $('#pcfgJCN', m).value.trim(),
+          jazzcashNumber: $('#pcfgJC', m).value.trim(),
+          easypaisaName: $('#pcfgEPN', m).value.trim(),
+          easypaisaNumber: $('#pcfgEP', m).value.trim(),
+          bankName: $('#pcfgBN', m).value.trim(),
+          bankAccountTitle: $('#pcfgBT', m).value.trim(),
+          bankAccountNumber: $('#pcfgBA', m).value.trim(),
+          paymentInstructions: $('#pcfgPI', m).value.trim()
+        });
+      }
+      DB.saveSettings(patch);
+      const lockState = paymentDetailsLocked ? 'Payment details locked.' : 'Payment details saved and left unlocked.';
       closeModal();
-      toast('Portal settings saved','success');
-      if (typeof logAction === 'function') logAction('portal.config', '');
+      toast('Portal settings saved. ' + lockState,'success');
+      if (typeof logAction === 'function') logAction('portal.config', lockState);
     };
   }});
 }

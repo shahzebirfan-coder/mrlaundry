@@ -42,11 +42,11 @@ async function openInvoice(orderId, autoPrint) {
     ${dualCopy ? `
       <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;background:#f0f4ff;padding:14px;border-radius:10px;" class="no-print">
         <div style="flex:0 0 auto;">
-          <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;text-transform:uppercase;">📄 Customer Copy (Page 1)</div>
+          <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;text-transform:uppercase;">📄 Customer Copy — cut after developer contact</div>
           ${customerSlip}
         </div>
         <div style="flex:0 0 auto;">
-          <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;text-transform:uppercase;">📋 Office Copy — Small (Page 2)</div>
+          <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;text-transform:uppercase;">📋 Office Copy — after cut marker</div>
           ${officeSlip}
         </div>
       </div>
@@ -82,54 +82,155 @@ function drawInvoiceQRs(root, data, s) {
   });
 }
 
+function cloneInvoiceSlip(slip) {
+  const copy = slip.cloneNode(true);
+  const originals = slip.querySelectorAll('canvas');
+  const clones = copy.querySelectorAll('canvas');
+  clones.forEach((canvas, i) => {
+    const source = originals[i];
+    if (!source) return;
+    try {
+      const img = document.createElement('img');
+      img.src = source.toDataURL('image/png');
+      img.width = source.width;
+      img.height = source.height;
+      img.className = canvas.className;
+      img.style.cssText = canvas.style.cssText;
+      img.alt = 'Invoice QR code';
+      canvas.parentNode.replaceChild(img, canvas);
+    } catch (e) { console.warn('[Invoice] Could not preserve print canvas:', e); }
+  });
+  return copy;
+}
+
 function doPrint(includeOffice) {
-  // Find the print area in current modal
   const printArea = document.getElementById('printArea');
   if (!printArea) { alert('Print content not ready'); return; }
 
-  // Clone a slip while its QR canvases still contain their pixels. A plain
-  // cloneNode() drops canvas bitmap data; the later printElement clone would
-  // otherwise turn the QR into a blank image on the thermal receipt.
-  const cloneSlipForPrint = (slip) => {
-    const copy = slip.cloneNode(true);
-    const originals = slip.querySelectorAll('canvas');
-    const clones = copy.querySelectorAll('canvas');
-    clones.forEach((canvas, i) => {
-      const source = originals[i];
-      if (!source) return;
-      try {
-        const img = document.createElement('img');
-        img.src = source.toDataURL('image/png');
-        img.width = source.width;
-        img.height = source.height;
-        img.className = canvas.className;
-        img.style.cssText = canvas.style.cssText;
-        img.alt = 'Invoice QR code';
-        canvas.parentNode.replaceChild(img, canvas);
-      } catch (e) { console.warn('[Invoice] Could not preserve print canvas:', e); }
-    });
-    return copy;
-  };
-
-  // Build temporary element with only what we want to print
   const wrap = document.createElement('div');
   wrap.id = 'printWrapper';
-  // Clone first slip (customer copy)
   const slips = printArea.querySelectorAll('.print-slip');
-  if (slips.length > 0) wrap.appendChild(cloneSlipForPrint(slips[0]));
-  // Add office copy only if requested
-  if (includeOffice && slips.length > 1) {
-    const breakDiv = document.createElement('div');
-    breakDiv.className = 'print-page-break';
-    wrap.appendChild(breakDiv);
-    wrap.appendChild(cloneSlipForPrint(slips[1]));
-  }
+  if (slips.length > 0) wrap.appendChild(cloneInvoiceSlip(slips[0]));
+  // .print-slip itself page-breaks after the customer copy, so no extra
+  // break element is inserted (that would create a blank cut/page).
+  if (includeOffice && slips.length > 1) wrap.appendChild(cloneInvoiceSlip(slips[1]));
 
-  // Use universal printElement helper
   if (typeof printElement === 'function') {
-    printElement(wrap, { title: 'Invoice Print' });
+    printElement(wrap, { title: 'Invoice Print', thermalRoll: true });
   } else {
     alert('Print helper not loaded. Refresh page.');
+  }
+}
+
+function invoicePdfFilename(invoiceNo) {
+  return `Mr-Laundry-${String(invoiceNo || 'Invoice').replace(/[^a-z0-9_-]/gi, '-')}.pdf`;
+}
+
+function downloadInvoicePdf(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function buildCustomerInvoicePdfBlob(o, c, s, invoiceNo, totalPcs, delTypeInfo) {
+  const html2canvasFn = window.html2canvas;
+  const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+  if (!html2canvasFn || !jsPDFCtor) throw new Error('Invoice PDF tools did not load. Refresh the app and try again.');
+
+  if (s.logoImage && s.invoiceLogoMono !== false && typeof THERMAL !== 'undefined') {
+    await THERMAL.prepare(s);
+  }
+  const cashier = DB.get('users', o.cashierId) || { name: o.cashierName || '-' };
+  const paper = String(s.invoicePaper || '80') === '58' ? '58' : '80';
+  const paperMm = paper === '58' ? 58 : 80;
+  const printableMm = paper === '58' ? 48 : 72;
+  const marginMm = Math.max(0, Math.min(10, +(s.invoiceMarginMm == null ? 2 : s.invoiceMarginMm)));
+  const cssWidth = printableMm * 96 / 25.4;
+  const pdfHost = document.createElement('div');
+  pdfHost.style.cssText = `position:fixed;left:-10000px;top:0;width:${cssWidth}px;max-width:${cssWidth}px;background:#fff;color:#000;z-index:-1;pointer-events:none;`;
+  pdfHost.innerHTML = `<div class="print-slip">${buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo)}</div>`;
+  document.body.appendChild(pdfHost);
+
+  try {
+    const invoice = pdfHost.querySelector('.invoice-page');
+    invoice.style.setProperty('width', `${cssWidth}px`, 'important');
+    invoice.style.setProperty('max-width', `${cssWidth}px`, 'important');
+    invoice.style.setProperty('box-sizing', 'border-box', 'important');
+    const qrData = (s.baseUrl ? s.baseUrl.replace(/\/$/, '') + '/invoice/' : '') + o.id;
+    drawInvoiceQRs(pdfHost, qrData || o.id, s);
+    if (typeof thermalCleanTextNodes === 'function') thermalCleanTextNodes(pdfHost);
+
+    await Promise.all(Array.from(pdfHost.querySelectorAll('img')).map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise(resolve => {
+        img.onload = resolve;
+        img.onerror = resolve;
+        setTimeout(resolve, 5000);
+      });
+    }));
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+    const scale = 3;
+    const canvas = await html2canvasFn(invoice, {
+      backgroundColor: '#ffffff',
+      scale,
+      useCORS: true,
+      logging: false,
+      width: cssWidth,
+      windowWidth: Math.ceil(cssWidth),
+      scrollX: 0,
+      scrollY: 0
+    });
+    const contentHeightMm = (canvas.height / scale) * 25.4 / 96;
+    const pageHeightMm = Math.max(80, contentHeightMm + (2 * marginMm));
+    const pdf = new jsPDFCtor({ orientation: 'p', unit: 'mm', format: [paperMm, pageHeightMm], compress: true });
+    const leftMm = (paperMm - printableMm) / 2;
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', leftMm, marginMm, printableMm, contentHeightMm, undefined, 'FAST');
+    return pdf.output('blob');
+  } finally {
+    pdfHost.remove();
+  }
+}
+
+async function downloadCustomerInvoicePdf(o, c, s, invoiceNo, totalPcs, delTypeInfo) {
+  const blob = await buildCustomerInvoicePdfBlob(o, c, s, invoiceNo, totalPcs, delTypeInfo);
+  downloadInvoicePdf(blob, invoicePdfFilename(invoiceNo));
+  return blob;
+}
+
+async function shareCustomerInvoicePdf(o, c, s, invoiceNo, totalPcs, delTypeInfo, message, phone) {
+  // Pre-open only for the desktop fallback so popup blockers do not swallow WhatsApp.
+  const fallbackTab = window.open('about:blank', '_blank');
+  try {
+    const blob = await buildCustomerInvoicePdfBlob(o, c, s, invoiceNo, totalPcs, delTypeInfo);
+    const filename = invoicePdfFilename(invoiceNo);
+    const file = new File([blob], filename, { type: 'application/pdf' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      if (fallbackTab) fallbackTab.close();
+      await navigator.share({ files: [file], title: `Invoice ${invoiceNo}`, text: message });
+      if (typeof toast === 'function') toast('Choose WhatsApp in the share sheet, then select the customer.', 'success');
+      return;
+    }
+
+    downloadInvoicePdf(blob, filename);
+    const fallbackMessage = `${message}\n\nInvoice PDF downloaded — please attach it to this WhatsApp chat.`;
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(fallbackMessage)}`;
+    if (fallbackTab && !fallbackTab.closed) fallbackTab.location.href = waUrl;
+    else window.open(waUrl, '_blank');
+    if (typeof toast === 'function') toast('PDF downloaded. Attach it in WhatsApp before sending.', 'success');
+  } catch (e) {
+    if (fallbackTab && !fallbackTab.closed) fallbackTab.close();
+    if (e && e.name === 'AbortError') {
+      if (typeof toast === 'function') toast('WhatsApp share cancelled.', 'warning');
+      return;
+    }
+    console.error('[Invoice PDF]', e);
+    if (typeof toast === 'function') toast(e.message || 'Could not create invoice PDF.', 'error');
   }
 }
 
@@ -181,200 +282,245 @@ function buildInvoiceLogo(s, width, fontSize) {
 }
 
 /* ============================================================
-   CUSTOMER COPY (Page 1 — Full details)
+   CUSTOMER COPY + OFFICE COPY — cut-safe thermal receipt layout
    ============================================================ */
-function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
-  const showLogo = s.invoiceShowLogo !== false;
-  const showAddress = s.invoiceShowAddress !== false;
-  const showPhone = s.invoiceShowPhone !== false;
-  const showTagline = s.invoiceShowTagline !== false;
-  const showCashier = s.invoiceShowCashier !== false;
-  const showQR = s.invoiceShowQR !== false;
-  const showDelType = s.invoiceShowDeliveryType !== false;
-  const showItems = s.invoiceShowItemBreakdown !== false;
-  const showPayMethod = s.invoiceShowPaymentMethod !== false;
-  const showDiscount = s.invoiceShowDiscount !== false;
-  const showNotes = s.invoiceShowNotes !== false;
-  const showFooter = s.invoiceShowFooter !== false;
-  const showEdited = s.invoiceShowEditedBadge !== false;
-  const showQtyCircle = s.invoiceQtyCircle !== false;
-  const showTerms = s.invoiceShowTerms === true;
-  // Thermal sizing: 58mm rolls have far less room, so step the type down
-  const narrow = (String(s.invoicePaper || '80') === '58');
-  const fontSize = narrow
-    ? Math.max(11, Math.min(20, (+s.invoiceFontSize || 13) - 1))
-    : Math.max(12, Math.min(24, (+s.invoiceFontSize || 13) + 2));
-  const width = Math.max(280, Math.min(800, +s.invoiceWidth || 360));
-
-  const itemsHtml = (o.items || []).map(it => `
-    <tr>
-      <td style="width:65%;padding:6px 6px 6px 0;font-size:${fontSize+1}px;font-weight:bold;overflow-wrap:anywhere;">${escapeHtml(it.name)}<br><span style="font-size:${fontSize-1}px;font-weight:normal;">${it.qty} × ${fmtMoney(it.price)}</span></td>
-      <td style="width:35%;text-align:right;white-space:nowrap;padding:6px 0 6px 3px;font-size:${fontSize+1}px;font-weight:bold;">${fmtMoney(it.qty*it.price)}</td>
-    </tr>
-  `).join('');
-
-  const logoBlock = showLogo ? buildInvoiceLogo(s, width, fontSize) : '';
-
-  const totalDisc = (o.discount || ((o.manualDiscount||0) + (o.loyaltyDiscount||0)));
-  const discountLines = showDiscount ? `
-    ${o.manualDiscount>0 ? `<tr><td style="padding:6px 0;font-size:${fontSize+2}px;font-weight:900;color:#000;">🎉 Discount${o.discountType==='percent'?` (${o.discountValue}%)`:''}:</td><td style="text-align:right;padding:6px 0;font-size:${fontSize+2}px;font-weight:900;color:#000;">- ${fmtMoney(o.manualDiscount)}</td></tr>` : ''}
-    ${o.loyaltyDiscount>0 ? `<tr><td style="padding:6px 0;font-size:${fontSize+2}px;font-weight:900;color:#000;">⭐ Loyalty (${o.loyaltyPercent||''}%):</td><td style="text-align:right;padding:6px 0;font-size:${fontSize+2}px;font-weight:900;color:#000;">- ${fmtMoney(o.loyaltyDiscount)}</td></tr>` : ''}
-    ${(!o.manualDiscount && !o.loyaltyDiscount && totalDisc>0) ? `<tr><td style="padding:6px 0;font-size:${fontSize+2}px;font-weight:900;color:#000;">🎉 Discount:</td><td style="text-align:right;padding:6px 0;font-size:${fontSize+2}px;font-weight:900;color:#000;">- ${fmtMoney(totalDisc)}</td></tr>` : ''}
-  ` : '';
-
+function buildInvoiceDeveloperFooter(narrow, includeCut) {
+  const logoWidth = narrow ? 29 : 38;
   return `
-    <div class="invoice-page invoice-customer" style="max-width:${width}px;font-size:${fontSize}px;background:#fff;padding:16px;">
-      ${logoBlock}
-      <div style="text-align:center;font-size:${fontSize}px;margin-bottom:12px;line-height:1.4;">
-        ${showTagline && s.tagline ? '<b>'+escapeHtml(s.tagline)+'</b><br>':''}
-        ${showAddress && s.address ? escapeHtml(s.address)+'<br>':''}
-        ${showPhone && s.phone ? escapeHtml(s.phone):''}
-      </div>
-      
-      <div style="text-align:center;font-size:${narrow ? fontSize : fontSize+2}px;font-weight:900;margin:12px 0;letter-spacing:${narrow ? '0' : '1px'};color:#000;padding:6px 2px;border-top:2px dashed #000;border-bottom:2px dashed #000;">★ CUSTOMER COPY ★</div>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <div style="display:inline-block;background:#fff;color:#000;border:2px solid #000;border-radius:10px;padding:8px 14px;flex:1;margin-right:12px;text-align:center;">
-          <div style="font-size:${fontSize-2}px;font-weight:800;letter-spacing:1px;">INVOICE NO.</div>
-          <div style="font-size:${fontSize+12}px;font-weight:900;line-height:1.2;letter-spacing:1px;">${invoiceNo}</div>
-        </div>
-        ${showQtyCircle ? `
-          <div style="border:2px solid #000;border-radius:50%;min-width:70px;height:70px;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#fff;color:#000;">
-            <div style="font-size:${fontSize+10}px;font-weight:900;line-height:1;">${totalPcs}</div>
-            <div style="font-size:${fontSize-4}px;font-weight:800;line-height:1;margin-top:2px;">PCS</div>
-          </div>
-        ` : ''}
-      </div>
-
-      ${showDelType ? `
-        <div style="text-align:center;margin-bottom:16px;">
-          <span style="font-size:${fontSize+2}px;font-weight:900;border:2px solid #000;border-radius:16px;padding:6px 20px;display:inline-block;">${delTypeInfo.icon} ${delTypeInfo.label}</span>
+    <div class="invoice-developer-footer" style="text-align:center;margin-top:12px;padding-top:8px;border-top:1px dashed #000;color:#000;line-height:1.35;">
+      <img src="assets/img/celinesoft-wordmark-mono.png" alt="CelineSoft" style="display:block;width:${logoWidth}mm;max-width:76%;height:auto;object-fit:contain;margin:0 auto 4px;background:#fff;image-rendering:pixelated;"/>
+      <div style="font-size:${narrow ? 8 : 9}px;font-weight:700;">Developed by: <b>Celinesoft</b></div>
+      <div style="font-size:${narrow ? 8 : 9}px;">Contact: 0302-8244803</div>
+      ${includeCut ? `
+        <div class="invoice-cut-here" style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:${narrow ? 8 : 9}px;font-weight:900;letter-spacing:.4px;">
+          <span style="flex:1;border-top:1px dashed #000;"></span><span>CUT HERE</span><span style="flex:1;border-top:1px dashed #000;"></span>
         </div>
       ` : ''}
+    </div>
+  `;
+}
 
-      <table style="font-size:${fontSize+1}px;width:100%;border-collapse:collapse;margin-bottom:12px;line-height:1.5;">
-        <tr><td style="padding:6px 0;border-top:1px dashed #000;font-weight:bold;">Booking Date</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;">${fmtDate(o.createdAt)}</td></tr>
-        ${o.deliveryDate? `<tr><td style="padding:6px 0;border-top:1px dashed #000;font-weight:bold;">Delivery Date</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;color:#000;"><b>${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
-        ${showCashier ? `<tr><td style="padding:6px 0;border-top:1px dashed #000;font-weight:bold;">Cashier</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;">${escapeHtml(cashier.name)}</td></tr>`:''}
-        <tr><td style="padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+2}px;font-weight:bold;">Customer</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+3}px;"><b>${escapeHtml(c.name)}</b></td></tr>
-        ${c.phone? `<tr><td style="padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+2}px;font-weight:bold;">Phone</td><td style="text-align:right;padding:6px 0;border-top:1px dashed #000;font-size:${fontSize+3}px;"><b>${escapeHtml(c.phone)}</b></td></tr>`:''}
-      </table>
+function buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier) {
+  const bookingDate = fmtDateShort(o.bookingDate || o.createdAt);
+  const deliveryDate = o.deliveryDate ? fmtDateShort(o.deliveryDate) : '';
+  const paymentLabels = { cash:'Cash', card:'Card', bank:'Bank transfer', online:'Online', jazzcash:'JazzCash', easypaisa:'Easypaisa', cheque:'Cheque' };
+  const paymentMethod = String(o.paymentMethod || '').toLowerCase();
+  return `
+    <table class="invoice-meta-table" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:${fontSize}px;line-height:1.35;margin:8px 0;">
+      <colgroup><col style="width:34%;"><col style="width:66%;"></colgroup>
+      <tr><td>Booking</td><td>${escapeHtml(bookingDate)}</td></tr>
+      ${deliveryDate ? `<tr><td>Delivery</td><td>${escapeHtml(deliveryDate)}</td></tr>` : ''}
+      <tr><td>Customer</td><td><b>${escapeHtml(c.name || 'Walk-in Customer')}</b></td></tr>
+      ${c.phone ? `<tr><td>Phone</td><td>${escapeHtml(c.phone)}</td></tr>` : ''}
+      ${s.invoiceShowCashier !== false && cashier && cashier.name ? `<tr><td>Cashier</td><td>${escapeHtml(cashier.name)}</td></tr>` : ''}
+      ${s.invoiceShowPaymentMethod !== false && paymentMethod ? `<tr><td>Payment</td><td>${escapeHtml(paymentLabels[paymentMethod] || paymentMethod)}</td></tr>` : ''}
+    </table>
+  `;
+}
 
-      ${showItems ? `
-        <table style="font-size:${fontSize+1}px;width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:10px;line-height:1.5;">
-          <tr style="border-top:2px solid #000;border-bottom:2px solid #000;">
-            <td style="width:65%;padding:8px 6px 8px 0;font-weight:900;font-size:${fontSize+2}px;">ITEMS</td>
-            <td style="width:35%;text-align:right;padding:8px 0 8px 3px;font-weight:900;font-size:${fontSize+2}px;">TOTAL</td>
+function buildInvoiceItemTable(o, fontSize, narrow) {
+  return `
+    <table class="invoice-items-table" style="width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 5px;line-height:1.35;font-size:${fontSize}px;">
+      <thead><tr>
+        <th style="width:65%;text-align:left;padding:5px 4px 5px 0;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${fontSize+1}px;">ITEMS</th>
+        <th style="width:35%;text-align:right;padding:5px 0 5px 3px;border-top:1.5px solid #000;border-bottom:1.5px solid #000;font-size:${fontSize+1}px;">TOTAL</th>
+      </tr></thead>
+      <tbody>
+        ${(o.items || []).map(it => `
+          <tr>
+            <td style="width:65%;padding:5px 4px 5px 0;font-weight:700;overflow-wrap:anywhere;word-break:normal;">${escapeHtml(it.name || 'Item')}<div style="font-size:${Math.max(8,fontSize-2)}px;font-weight:400;">${it.qty} × ${fmtMoney(it.price)}</div></td>
+            <td style="width:35%;text-align:right;white-space:nowrap;padding:5px 0 5px 2px;font-weight:700;">${fmtMoney((+it.qty || 0) * (+it.price || 0))}</td>
           </tr>
-          ${itemsHtml}
-        </table>
-      ` : ''}
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
 
-      <table style="font-size:${fontSize+2}px;width:100%;border-collapse:collapse;line-height:1.5;">
-        <tr style="border-top:2px solid #000;"><td style="padding:8px 0;font-weight:bold;">Gross Total</td><td style="text-align:right;padding:8px 0;font-weight:bold;font-size:${fontSize+4}px;">${fmtMoney(o.subtotal)}</td></tr>
-        ${discountLines}
-        ${o.tax>0?`<tr><td style="padding:6px 0;">Tax</td><td style="text-align:right;padding:6px 0;">${fmtMoney(o.tax)}</td></tr>`:''}
-        ${totalDisc>0?`<tr style="border-top:1px dashed #000;"><td style="padding:8px 0;font-weight:900;font-size:${fontSize+4}px;">NET TOTAL</td><td style="text-align:right;padding:8px 0;font-weight:900;font-size:${fontSize+6}px;">${fmtMoney(o.total)}</td></tr>`:''}
-        <tr><td style="padding:6px 0;">Paid</td><td style="text-align:right;padding:6px 0;">${fmtMoney(o.paid)}</td></tr>
-        ${o.due>0?`<tr><td style="padding:8px 0;font-size:${fontSize+4}px;font-weight:900;"><b style="color:#000;">Payment Due</b></td><td style="text-align:right;padding:8px 0;font-size:${fontSize+4}px;"><b style="color:#000;font-weight:900;">${fmtMoney(o.due)}</b></td></tr>`:''}
-        ${o.due==0 && totalDisc==0?`<tr><td style="padding:8px 0;font-size:${fontSize+4}px;font-weight:900;"><b style="color:#000;">Payment</b></td><td style="text-align:right;padding:8px 0;font-size:${fontSize+4}px;"><b style="color:#000;font-weight:900;">${fmtMoney(o.total)}</b></td></tr>`:''}
-      </table>
+function buildInvoiceTotalsTable(o, s, fontSize) {
+  const totalDisc = (o.discount || ((o.manualDiscount || 0) + (o.loyaltyDiscount || 0)));
+  const showDiscount = s.invoiceShowDiscount !== false;
+  return `
+    <table class="invoice-totals-table" style="width:100%;border-collapse:collapse;margin-top:4px;line-height:1.35;font-size:${fontSize}px;">
+      <tbody>
+        <tr><td style="padding:4px 0;border-top:1.5px solid #000;">Gross Total</td><td style="padding:4px 0;border-top:1.5px solid #000;text-align:right;white-space:nowrap;font-weight:700;">${fmtMoney(o.subtotal)}</td></tr>
+        ${showDiscount && totalDisc > 0 ? `<tr><td style="padding:3px 0;">Discount</td><td style="padding:3px 0;text-align:right;white-space:nowrap;">- ${fmtMoney(totalDisc)}</td></tr>` : ''}
+        ${(+o.tax || 0) > 0 ? `<tr><td style="padding:3px 0;">Tax</td><td style="padding:3px 0;text-align:right;white-space:nowrap;">${fmtMoney(o.tax)}</td></tr>` : ''}
+        <tr><td style="padding:5px 0;border-top:1px dashed #000;font-weight:900;font-size:${fontSize+1}px;">BILL TOTAL</td><td style="padding:5px 0;border-top:1px dashed #000;text-align:right;white-space:nowrap;font-weight:900;font-size:${fontSize+1}px;">${fmtMoney(o.total)}</td></tr>
+        <tr><td style="padding:3px 0;">Paid</td><td style="padding:3px 0;text-align:right;white-space:nowrap;">${fmtMoney(o.paid)}</td></tr>
+        ${(+o.due || 0) > 0 ? `<tr><td style="padding:4px 0;font-weight:900;font-size:${fontSize+1}px;">DUE</td><td style="padding:4px 0;text-align:right;white-space:nowrap;font-weight:900;font-size:${fontSize+1}px;">${fmtMoney(o.due)}</td></tr>` : ''}
+      </tbody>
+    </table>
+  `;
+}
 
-      ${showNotes && o.notes?`<div style="font-size:${fontSize}px;font-weight:bold;margin-top:16px;padding:8px;border:2px dashed #000;">📝 ${escapeHtml(o.notes)}</div>`:''}
-      ${showTerms && s.invoiceTerms?`<div style="font-size:${fontSize-1}px;text-align:center;margin-top:16px;padding-top:12px;border-top:2px dashed #000;font-weight:bold;">${escapeHtml(s.invoiceTerms)}</div>`:''}
-      
-      ${showQR ? `<div style="text-align:center;margin-top:20px;"><canvas class="invQR"></canvas></div>` : ''}
-            ${showFooter ? `<div style="text-align:center;font-size:${fontSize+2}px;font-weight:900;margin-top:16px;">${escapeHtml(s.invoiceFooter || '')}</div>` : ''}
-      <div style="text-align:center; margin-top:15px; font-size:12px; color:#000; font-family:sans-serif;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle; margin-right:4px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-        <span style="vertical-align:middle; font-weight:bold;">Powered by CelineSoft</span>
+function buildInvoiceHero(invoiceNo, totalPcs, delTypeInfo, fontSize, narrow) {
+  const typeLabel = escapeHtml(delTypeInfo && delTypeInfo.label ? delTypeInfo.label : 'FOLD');
+  return `
+    <div style="margin:8px 0 6px;padding:8px 7px 7px;border:2px solid #000;border-radius:8px;text-align:center;background:#fff;color:#000;">
+      <div style="font-size:${Math.max(8,fontSize-2)}px;font-weight:800;letter-spacing:.7px;">INVOICE NUMBER</div>
+      <div style="font-size:${fontSize+(narrow ? 8 : 11)}px;font-weight:900;line-height:1.12;letter-spacing:.3px;overflow-wrap:anywhere;">#${escapeHtml(invoiceNo)}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0 9px;">
+      <div style="border:1.5px solid #000;border-radius:7px;padding:6px 3px;text-align:center;background:#fff;color:#000;">
+        <div style="font-size:${Math.max(7,fontSize-4)}px;font-weight:800;letter-spacing:.25px;">NUMBER OF PIECES</div>
+        <div style="font-size:${fontSize+(narrow ? 5 : 8)}px;font-weight:900;line-height:1.2;">${totalPcs}</div>
+      </div>
+      <div style="border:1.5px solid #000;border-radius:7px;padding:6px 3px;text-align:center;background:#fff;color:#000;">
+        <div style="font-size:${Math.max(7,fontSize-4)}px;font-weight:800;letter-spacing:.25px;">TYPE / PACKAGING</div>
+        <div style="font-size:${narrow ? Math.max(9,fontSize) : fontSize+2}px;font-weight:900;line-height:1.2;overflow-wrap:anywhere;">${typeLabel}</div>
       </div>
     </div>
   `;
 }
-/* ============================================================
-   OFFICE COPY (Page 2 — Compact, paper-saving)
-   ============================================================ */
-function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
-  const narrow = String(s.invoicePaper || '80') === '58';
-  const width = Math.max(220, Math.min(400, +s.officeCopyWidth || 280));
-  const fontSize = Math.max(10, Math.min(20, (+s.officeCopyFontSize || 11) + (narrow ? 1 : 2)));
-  const labelWidth = narrow ? 45 : 34;
-  const valueWidth = 100 - labelWidth;
-  const cellPadding = narrow ? '4px 3px' : '6px 8px';
+
+function buildInvoiceBrandHeader(s, logoBlock, fontSize, narrow, copyLabel) {
+  const address = String(s.address || '').trim().split(/\r?\n/).map(escapeHtml).join('<br>');
+  const tagline = s.invoiceShowTagline === false ? '' : String(s.tagline || '').trim();
+  return `
+    <div style="text-align:center;color:#000;">
+      ${logoBlock}
+      <div style="font-size:${fontSize+(narrow ? 1 : 3)}px;font-weight:900;line-height:1.15;margin:2px 0 3px;">${escapeHtml(s.shopName || 'Mr Laundry')}</div>
+      ${tagline ? `<div style="font-size:${Math.max(8,fontSize-1)}px;font-weight:700;line-height:1.25;">${escapeHtml(tagline)}</div>` : ''}
+      ${s.invoiceShowAddress !== false && address ? `<div style="font-size:${Math.max(8,fontSize-1)}px;line-height:1.25;margin-top:2px;">${address}</div>` : ''}
+      ${s.invoiceShowPhone !== false && s.phone ? `<div style="font-size:${Math.max(8,fontSize-1)}px;font-weight:700;margin-top:1px;">${escapeHtml(s.phone)}</div>` : ''}
+    </div>
+    <div style="text-align:center;font-size:${fontSize+(narrow ? 0 : 1)}px;font-weight:900;letter-spacing:.5px;margin:8px 0 6px;padding:5px 2px;border-top:1px dashed #000;border-bottom:1px dashed #000;">${copyLabel}</div>
+  `;
+}
+
+function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
+  const paper = String(s.invoicePaper || '80');
+  const narrow = paper === '58';
+  const fontSize = narrow ? Math.max(10, Math.min(12, (+s.invoiceFontSize || 13) - 2)) : Math.max(12, Math.min(15, +s.invoiceFontSize || 13));
+  const width = Math.max(280, Math.min(800, +s.invoiceWidth || 360));
+  const logoBlock = s.invoiceShowLogo !== false ? buildInvoiceLogo(s, width, fontSize) : '';
+  const showQR = s.invoiceShowQR !== false;
+  const footer = s.invoiceShowFooter !== false ? `<div style="text-align:center;margin-top:8px;font-size:${fontSize}px;font-weight:900;">${escapeHtml(s.invoiceFooter || '')}</div>` : '';
+  const hours = String(s.shopHours || '').trim();
+  // The portal terms are the shop's full, editable terms; fall back to the
+  // short invoice terms when no full terms have been configured.
+  const terms = String(s.portalTerms || '').trim() || String(s.invoiceTerms || '').trim();
+  const termsHtml = terms ? `
+    <section style="margin-top:9px;padding-top:7px;border-top:1px dashed #000;color:#000;">
+      <div style="text-align:center;font-size:${Math.max(8,fontSize-1)}px;font-weight:900;letter-spacing:.4px;margin-bottom:4px;">TERMS &amp; CONDITIONS</div>
+      <div style="font-size:${narrow ? 7.5 : 8.5}px;line-height:1.28;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;">${escapeHtml(terms)}</div>
+    </section>
+  ` : '';
+  const hoursHtml = hours ? `
+    <section style="margin-top:8px;padding-top:6px;border-top:1px dashed #000;text-align:center;color:#000;">
+      <div style="font-size:${Math.max(8,fontSize-1)}px;font-weight:900;letter-spacing:.35px;margin-bottom:3px;">SHOP TIMINGS</div>
+      <div style="font-size:${Math.max(8,fontSize-2)}px;line-height:1.3;white-space:pre-line;overflow-wrap:anywhere;">${escapeHtml(hours)}</div>
+    </section>
+  ` : '';
+  const qrHtml = showQR ? `<div style="text-align:center;margin-top:7px;"><canvas class="invQR" style="width:42px;height:42px;max-width:42px;max-height:42px;"></canvas></div>` : '';
 
   return `
-    <div class="invoice-page invoice-office" style="max-width:${width}px;font-size:${fontSize}px;padding:16px;background:#fff;border:1px dashed #ccc;">
-      <div style="text-align:center;font-weight:900;font-size:${fontSize+8}px;margin-bottom:8px;color:#000;line-height:1.2;">
-        ${escapeHtml(s.shopName)}
-      </div>
-      <div style="text-align:center;font-weight:900;font-size:${fontSize+2}px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;color:#000;">
-        <hr style="flex:1; border:none; border-top:2px solid #000; margin-right:8px;">
-        OFFICE COPY
-        <hr style="flex:1; border:none; border-top:2px solid #000; margin-left:8px;">
-      </div>
+    <div class="invoice-page invoice-customer" style="width:100%;max-width:${width}px;box-sizing:border-box;font-family:Arial,'Helvetica Neue',sans-serif;font-size:${fontSize}px;line-height:1.35;font-weight:500;color:#000;background:#fff;padding:${narrow ? 7 : 10}px;">
+      ${buildInvoiceBrandHeader(s, logoBlock, fontSize, narrow, 'CUSTOMER COPY')}
+      ${buildInvoiceHero(invoiceNo, totalPcs, delTypeInfo, fontSize, narrow)}
+      ${buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier)}
+      ${s.invoiceShowItemBreakdown !== false ? buildInvoiceItemTable(o, fontSize, narrow) : ''}
+      ${buildInvoiceTotalsTable(o, s, fontSize)}
+      ${s.invoiceShowNotes !== false && o.notes ? `<div style="margin-top:7px;padding:6px;border:1px dashed #000;font-size:${fontSize}px;overflow-wrap:anywhere;"><b>Notes:</b> ${escapeHtml(o.notes)}</div>` : ''}
+      ${qrHtml}
+      ${hoursHtml}
+      ${footer}
+      ${termsHtml}
+      ${buildInvoiceDeveloperFooter(narrow, true)}
+    </div>
+  `;
+}
 
-      <div style="text-align:center;margin-bottom:16px;">
-        <div style="display:inline-block;background:#fff;color:#000;border:2px solid #000;border-radius:10px;padding:8px 24px;">
-          <div style="font-size:${fontSize}px;font-weight:800;letter-spacing:1px;margin-bottom:2px;">INVOICE NO.</div>
-          <div style="font-size:${fontSize+14}px;font-weight:900;line-height:1.1;">${invoiceNo}</div>
-        </div>
-      </div>
-
-      <table style="font-size:${fontSize+1}px;width:100%;table-layout:fixed;border-collapse:collapse;border:2px solid #000;margin-bottom:14px;background:#fff;line-height:1.5;">
-        <colgroup><col style="width:${labelWidth}%;"><col style="width:${valueWidth}%;"></colgroup>
-        <tr><td style="border:1px solid #000;padding:${cellPadding};font-weight:bold;overflow-wrap:anywhere;">Booked:</td><td style="border:1px solid #000;padding:${cellPadding};overflow-wrap:anywhere;">${fmtDateShort(o.createdAt)}</td></tr>
-        ${o.deliveryDate? `<tr><td style="border:1px solid #000;padding:${cellPadding};font-weight:bold;overflow-wrap:anywhere;">Delivery:</td><td style="border:1px solid #000;padding:${cellPadding};color:#000;overflow-wrap:anywhere;"><b>${escapeHtml(o.deliveryDate)}</b></td></tr>`:''}
-        <tr><td style="border:1px solid #000;padding:${cellPadding};font-weight:bold;overflow-wrap:anywhere;">Customer:</td><td style="border:1px solid #000;padding:${cellPadding};font-size:${fontSize+3}px;overflow-wrap:anywhere;"><b>${escapeHtml(c.name)}</b></td></tr>
-        ${c.phone? `<tr><td style="border:1px solid #000;padding:${cellPadding};font-weight:bold;">Phone:</td><td style="border:1px solid #000;padding:${cellPadding};font-size:${fontSize+2}px;"><b>${escapeHtml(c.phone)}</b></td></tr>`:''}
-        <tr><td style="border:1px solid #000;padding:${cellPadding};font-weight:bold;overflow-wrap:anywhere;">By:</td><td style="border:1px solid #000;padding:${cellPadding};overflow-wrap:anywhere;">${escapeHtml(cashier.name)}</td></tr>
-      </table>
-
-      <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <div style="flex:1;border:2px solid #000;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;background:#fff;">
-          <div style="background:#fff;border-bottom:2px solid #000;color:#000;text-align:center;font-size:${fontSize}px;padding:6px 0;font-weight:900;">PIECES</div>
-          <div style="text-align:center;font-size:${fontSize+10}px;font-weight:900;padding:8px 0;">${totalPcs}</div>
-        </div>
-        <div style="flex:2;border:2px solid #000;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;background:#fff;">
-          <div style="background:#fff;border-bottom:2px solid #000;color:#000;text-align:center;font-size:${fontSize}px;padding:6px 0;font-weight:900;">PACKAGING</div>
-          <div style="text-align:center;font-size:${fontSize+4}px;font-weight:900;padding:8px 0;display:flex;align-items:center;justify-content:center;gap:4px;">
-             ${delTypeInfo.icon} ${delTypeInfo.label}
-          </div>
-        </div>
-      </div>
-
-      <div style="border:2px solid #000; border-radius:6px; padding:10px; background:#fff;">
-        <table style="font-size:${fontSize+2}px;width:100%;border-collapse:collapse;line-height:1.5;">
-          ${(o.items || []).map(it => `
-            <tr><td style="padding:6px 0;font-weight:bold;">${escapeHtml(it.name)} <span style="font-size:${fontSize+4}px;float:right;">×${it.qty}</span></td></tr>
-          `).join('')}
-        </table>
-        <div style="border-top:2px solid #000; margin-top:8px; padding-top:8px;">
-          <table style="font-size:${fontSize+3}px;width:100%;border-collapse:collapse;line-height:1.5;">
-            <tr><td style="padding:4px 0;">Gross</td><td style="text-align:right;padding:4px 0;font-weight:bold;">${fmtMoney(o.subtotal)}</td></tr>
-            ${(o.discount||((o.manualDiscount||0)+(o.loyaltyDiscount||0)))>0 ? `<tr><td style="padding:4px 0;font-size:${fontSize+1}px;font-weight:900;color:#000;">Discount</td><td style="text-align:right;padding:4px 0;font-size:${fontSize+1}px;font-weight:900;color:#000;">-${fmtMoney(o.discount||((o.manualDiscount||0)+(o.loyaltyDiscount||0)))}</td></tr>
-            <tr><td style="padding:4px 0;font-weight:900;">Net Total</td><td style="text-align:right;padding:4px 0;font-weight:900;">${fmtMoney(o.total)}</td></tr>` : `<tr><td style="padding:4px 0;">Total</td><td style="text-align:right;padding:4px 0;font-weight:bold;">${fmtMoney(o.total)}</td></tr>`}
-            <tr><td style="padding:4px 0;">Paid</td><td style="text-align:right;padding:4px 0;font-weight:bold;">${fmtMoney(o.paid)}</td></tr>
-            ${o.due>0?`<tr><td style="padding:4px 0;color:#000;font-weight:900;">Due</td><td style="text-align:right;padding:4px 0;color:#000;font-weight:900;">${fmtMoney(o.due)}</td></tr>`:''}
-          </table>
-        </div>
-      </div>
-
-      ${s.invoiceShowQR !== false ? `<div style="text-align:center;margin-top:16px;"><canvas class="invQR" style="max-width:90px;"></canvas></div>`:''}
+function buildOfficeSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
+  const paper = String(s.invoicePaper || '80');
+  const narrow = paper === '58';
+  const width = Math.max(220, Math.min(400, +s.officeCopyWidth || 280));
+  const fontSize = narrow ? 10 : Math.max(11, Math.min(13, (+s.officeCopyFontSize || 11) + 1));
+  const logoBlock = s.invoiceShowLogo !== false ? buildInvoiceLogo(s, width, fontSize) : '';
+  const footer = s.invoiceShowFooter !== false ? `<div style="text-align:center;margin-top:7px;font-size:${fontSize}px;font-weight:900;">${escapeHtml(s.invoiceFooter || '')}</div>` : '';
+  return `
+    <div class="invoice-page invoice-office" style="width:100%;max-width:${width}px;box-sizing:border-box;font-family:Arial,'Helvetica Neue',sans-serif;font-size:${fontSize}px;line-height:1.35;font-weight:500;color:#000;background:#fff;padding:${narrow ? 6 : 9}px;">
+      ${buildInvoiceBrandHeader(s, logoBlock, fontSize, narrow, 'OFFICE COPY')}
+      ${buildInvoiceHero(invoiceNo, totalPcs, delTypeInfo, fontSize, narrow)}
+      ${buildInvoiceMetaTable(o, c, s, fontSize, narrow, cashier)}
+      ${s.invoiceShowItemBreakdown !== false ? buildInvoiceItemTable(o, fontSize, narrow) : ''}
+      ${buildInvoiceTotalsTable(o, s, fontSize)}
+      ${o.notes && s.invoiceShowNotes !== false ? `<div style="margin-top:7px;padding:6px;border:1px dashed #000;font-size:${fontSize}px;overflow-wrap:anywhere;"><b>Notes:</b> ${escapeHtml(o.notes)}</div>` : ''}
+      ${footer}
+      ${buildInvoiceDeveloperFooter(narrow, false)}
     </div>
   `;
 }
 /* ============================================================
    WHATSAPP INVOICE
    ============================================================ */
+function normalizeWhatsAppPhone(rawPhone) {
+  let phone = String(rawPhone || '').replace(/[^\d+]/g, '');
+  if (phone.startsWith('+')) phone = phone.substring(1);
+  // Pakistan local mobile format: 03XXXXXXXXX -> international 923XXXXXXXXX.
+  if (phone.startsWith('0') && phone.length === 11) phone = '92' + phone.substring(1);
+  return phone.replace(/\D/g, '');
+}
+
+function openWhatsAppWithInvoice(phone, message) {
+  const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  const tab = window.open(url, '_blank');
+  if (!tab) {
+    if (typeof toast === 'function') toast('WhatsApp popup was blocked. Allow popups or copy the message.', 'warning');
+    return false;
+  }
+  return true;
+}
+
+function sharePreparedInvoicePdf(blob, invoiceNo, message, phone) {
+  const filename = invoicePdfFilename(invoiceNo);
+  const fallback = () => {
+    downloadInvoicePdf(blob, filename);
+    const fallbackMessage = `${message}\n\nInvoice PDF downloaded — please attach it to this WhatsApp chat.`;
+    openWhatsAppWithInvoice(phone, fallbackMessage);
+    if (typeof toast === 'function') toast('PDF downloaded. Attach it in WhatsApp before sending.', 'success');
+  };
+
+  let file = null;
+  try {
+    if (typeof File === 'function') file = new File([blob], filename, { type: 'application/pdf' });
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      // Call share synchronously in the click handler so mobile browsers keep
+      // the required user activation. WhatsApp can then be selected in its sheet.
+      let sharePromise;
+      try {
+        sharePromise = navigator.share({ files: [file], title: `Invoice ${invoiceNo}`, text: message });
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;
+        console.warn('[Invoice PDF] Native share could not start; using download fallback.', error);
+        fallback();
+        return;
+      }
+      Promise.resolve(sharePromise).then(() => {
+        if (typeof toast === 'function') toast('Share sheet opened. Choose WhatsApp, select the customer, then tap Send.', 'success');
+      }).catch(error => {
+        if (error && error.name === 'AbortError') {
+          if (typeof toast === 'function') toast('Sharing cancelled.', 'warning');
+          return;
+        }
+        console.warn('[Invoice PDF] Native share failed; downloading the PDF instead.', error);
+        downloadInvoicePdf(blob, filename);
+        if (typeof toast === 'function') toast('PDF downloaded. Open WhatsApp and attach it to the customer chat.', 'warning');
+      });
+      return;
+    }
+  } catch (error) {
+    console.warn('[Invoice PDF] File sharing is unavailable; using download fallback.', error);
+  }
+  fallback();
+}
+
 function sendWhatsAppInvoice(o, c, s, invoiceNo, totalPcs, delTypeInfo) {
   if (!c.phone) { toast('Customer phone number missing', 'error'); return; }
 
-  // Clean phone: digits only, with country code
-  let phone = c.phone.replace(/[^\d+]/g, '');
-  if (phone.startsWith('+')) phone = phone.substring(1);
-  // PK pattern: 03XXXXXXXXX (11 digits) -> 923XXXXXXXXX
-  if (phone.startsWith('0') && phone.length === 11) phone = '92' + phone.substring(1);
+  const phone = normalizeWhatsAppPhone(c.phone);
+  if (!phone) { toast('Customer phone number is invalid', 'error'); return; }
 
   const itemsText = (o.items || [])
     .map(it => `• ${it.name} × ${it.qty} = ${fmtMoney(it.qty * it.price)}`)
@@ -392,8 +538,8 @@ Delivery: {delivery} ({type})
 {footer}`;
 
   const vars = {
-    '{name}':     c.name,
-    '{shop}':     s.shopName,
+    '{name}':     c.name || 'Customer',
+    '{shop}':     s.shopName || 'Laundry',
     '{invoice}':  invoiceNo,
     '{pcs}':      totalPcs,
     '{items}':    itemsText,
@@ -410,18 +556,22 @@ Delivery: {delivery} ({type})
   };
 
   let msg = template;
-  Object.entries(vars).forEach(([k,v]) => { msg = msg.split(k).join(v); });
+  Object.entries(vars).forEach(([k,v]) => { msg = msg.split(k).join(String(v == null ? '' : v)); });
 
-  // Open preview dialog so user can edit before sending
   openModal(`
     <h3>📱 Send Invoice via WhatsApp</h3>
-    <p class="sub">Sending to: <b>${escapeHtml(c.name)}</b> (${escapeHtml(c.phone)}) → WhatsApp: <code>+${phone}</code></p>
+    <p class="sub">Sending to: <b>${escapeHtml(c.name || 'Customer')}</b> (${escapeHtml(c.phone)}) → WhatsApp: <code>+${escapeHtml(phone)}</code></p>
     <div class="field">
       <label>Message Preview (you can edit before sending)</label>
       <textarea id="waMsg" rows="14" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">${escapeHtml(msg)}</textarea>
     </div>
+    <label for="waIncludePdf" style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;margin:12px 0;cursor:pointer;">
+      <input type="checkbox" id="waIncludePdf" style="margin-top:3px;"/>
+      <span><b>Attach polished invoice PDF</b><small style="display:block;color:var(--text-soft);margin-top:3px;">When supported, choose WhatsApp in the share sheet. Otherwise the PDF downloads and WhatsApp opens so you can attach it manually.</small></span>
+    </label>
+    <div id="waPdfStatus" style="display:none;font-size:12px;color:var(--text-soft);margin:0 0 12px;"></div>
     <div style="background:var(--surface-alt);padding:10px;border-radius:8px;font-size:12px;color:var(--text-soft);margin-bottom:14px;">
-      💡 Clicking <b>Send</b> opens WhatsApp Web (on PC) or the WhatsApp app (on phone) with this message pre-filled. You just need to press the send arrow there.
+      💡 WhatsApp opens with the regular invoice/payment message. A browser cannot attach a file through a wa.me link; on supported phones, use the share sheet, or attach the downloaded PDF manually.
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -429,16 +579,85 @@ Delivery: {delivery} ({type})
       <button class="btn btn-success" id="sendBtn">📱 Open WhatsApp</button>
     </div>
   `, { large: true, onOpen(m) {
+    const includePdf = $('#waIncludePdf', m);
+    const pdfStatus = $('#waPdfStatus', m);
+    const sendBtn = $('#sendBtn', m);
+    let pdfBlob = null;
+    let pdfPromise = null;
+    let pdfError = false;
+
+    const setSendState = () => {
+      if (includePdf.checked && !pdfBlob) {
+        sendBtn.disabled = !!pdfPromise;
+        sendBtn.textContent = pdfPromise ? '⏳ Preparing invoice PDF…' : (pdfError ? '↻ Retry PDF' : '📎 Prepare invoice PDF');
+      } else {
+        sendBtn.disabled = false;
+        sendBtn.textContent = includePdf.checked ? '📎 Share PDF + WhatsApp' : '📱 Open WhatsApp';
+      }
+    };
+
+    const preparePdf = () => {
+      if (pdfBlob || pdfPromise) return pdfPromise;
+      pdfError = false;
+      pdfStatus.style.display = 'block';
+      pdfStatus.textContent = 'Creating the customer-copy PDF from the current shop branding and invoice settings…';
+      pdfPromise = buildCustomerInvoicePdfBlob(o, c, s, invoiceNo, totalPcs, delTypeInfo)
+        .then(blob => {
+          pdfBlob = blob;
+          pdfStatus.textContent = 'Invoice PDF is ready. Tap “Share PDF + WhatsApp” to continue.';
+          return blob;
+        })
+        .catch(error => {
+          pdfError = true;
+          console.error('[Invoice PDF]', error);
+          pdfStatus.textContent = error.message || 'Could not create the PDF. Retry, or uncheck the option to send the message only.';
+          if (typeof toast === 'function') toast(error.message || 'Could not create invoice PDF.', 'error');
+          throw error;
+        })
+        .finally(() => {
+          pdfPromise = null;
+          setSendState();
+        });
+      // Prevent an unhandled rejection when the user toggles PDF on and then
+      // chooses to send only the text message.
+      pdfPromise.catch(() => {});
+      setSendState();
+      return pdfPromise;
+    };
+
     $('#copyBtn', m).onclick = () => {
       const text = $('#waMsg', m).value;
-      navigator.clipboard.writeText(text).then(() => toast('Message copied to clipboard','success'));
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => toast('Message copied to clipboard','success'))
+          .catch(() => toast('Could not copy message. Select and copy it manually.', 'warning'));
+      } else {
+        toast('Clipboard is unavailable. Select and copy the message manually.', 'warning');
+      }
     };
-    $('#sendBtn', m).onclick = () => {
+
+    includePdf.onchange = () => {
+      if (includePdf.checked) preparePdf();
+      setSendState();
+    };
+
+    sendBtn.onclick = () => {
       const text = $('#waMsg', m).value;
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-      window.open(url, '_blank');
-      toast('Opening WhatsApp...', 'success');
+      if (includePdf.checked) {
+        if (!pdfBlob) {
+          if (pdfPromise) {
+            if (typeof toast === 'function') toast('Please wait for the invoice PDF to finish preparing.', 'warning');
+          } else {
+            preparePdf();
+          }
+          return;
+        }
+        sharePreparedInvoicePdf(pdfBlob, invoiceNo, text, phone);
+        closeModal();
+        return;
+      }
+      openWhatsAppWithInvoice(phone, text);
       closeModal();
+      if (typeof toast === 'function') toast('Opening WhatsApp…', 'success');
     };
   }});
 }
@@ -535,10 +754,9 @@ function openInvoiceCustomizer(reopenOrderId) {
     </div>
 
     <div style="background:var(--surface-alt);border-radius:10px;padding:14px;margin-bottom:14px;">
-      <div style="font-weight:700;margin-bottom:10px;">👁️ What to Show on Customer Copy</div>
+      <div style="font-weight:700;margin-bottom:6px;">👁️ What to Show on Customer Copy</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-bottom:10px;">Invoice number, pieces, hanger/fold type, shop timings, shop Terms &amp; Conditions, and the CelineSoft cut footer are always included.</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:13px;">
-        ${invToggle('invoiceQtyCircle', '🔵 Big Quantity Circle', s.invoiceQtyCircle)}
-        ${invToggle('invoiceShowDeliveryType', '📦 Hanger/Fold Type', s.invoiceShowDeliveryType)}
         ${invToggle('invoiceShowLogo', '🏷️ Shop Logo', s.invoiceShowLogo)}
         ${invToggle('invoiceShowTagline', '📝 Shop Tagline', s.invoiceShowTagline)}
         ${invToggle('invoiceShowAddress', '🏠 Shop Address', s.invoiceShowAddress)}
@@ -550,9 +768,6 @@ function openInvoiceCustomizer(reopenOrderId) {
         ${invToggle('invoiceShowNotes', '📝 Order Notes', s.invoiceShowNotes)}
         ${invToggle('invoiceShowQR', '🔳 QR Code', s.invoiceShowQR)}
         ${invToggle('invoiceShowFooter', '💬 Footer Message', s.invoiceShowFooter)}
-        ${invToggle('invoiceShowEditedBadge', '✏️ "Edited" Note', s.invoiceShowEditedBadge)}
-        ${invToggle('invoiceShowTerms', '📜 Short T&C on Receipt', s.invoiceShowTerms)}
-        ${invToggle('invoiceShowPortalTerms', '🌐 "Full T&C on Portal" Line', s.invoiceShowPortalTerms !== false)}
       </div>
     </div>
 
@@ -564,14 +779,14 @@ function openInvoiceCustomizer(reopenOrderId) {
     </div>
     <div class="form-row cols-1">
       <div class="field">
-        <label>📜 Short Terms on Receipt <small style="color:var(--text-soft);font-weight:400;">(keep short to save paper!)</small></label>
+        <label>📜 Short Terms on Receipt <small style="color:var(--text-soft);font-weight:400;">(used as a fallback if full shop terms are empty)</small></label>
         <textarea id="cfTerms" rows="2" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(s.invoiceTerms||'')}</textarea>
       </div>
     </div>
     <div class="form-row cols-1">
       <div class="field">
-        <label>🌐 Full Terms &amp; Conditions (shown on Customer Portal page)
-          <small style="color:var(--text-soft);font-weight:400;display:block;margin-top:2px;">Customers see this in a collapsible card on portal.html — no paper wasted! 📜</small>
+        <label>🌐 Full Terms &amp; Conditions (invoice + Customer Portal)
+          <small style="color:var(--text-soft);font-weight:400;display:block;margin-top:2px;">These shop terms print on the customer invoice and also appear in a collapsible card on portal.html. Keep them concise for thermal paper. 📜</small>
         </label>
         <textarea id="cfPortalTerms" rows="10" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.6;">${escapeHtml(s.portalTerms||'')}</textarea>
       </div>

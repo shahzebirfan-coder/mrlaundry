@@ -1,6 +1,69 @@
 /* ===================== ORDERS / INVOICES ===================== */
 let ordersFilter = { status:'all', search:'', dateFrom:'', dateTo:'', payment:'all' };
 
+function getOrderPaymentEvents(order) {
+  if (!order) return [];
+  const logs = Array.isArray(order.paymentsLog) ? order.paymentsLog : [];
+  const loggedAmount = logs.reduce((sum, payment) => sum + Math.max(0, +payment.amount || 0), 0);
+  const initialAmount = Math.max(0, (+order.paid || 0) - loggedAmount);
+  const events = logs
+    .filter(payment => (+payment.amount || 0) > 0)
+    .map(payment => ({
+      at: payment.at || payment.createdAt || order.createdAt || '',
+      amount: +payment.amount,
+      method: payment.method || '',
+      note: payment.note || '',
+      legacy: !!payment.estimatedDate || !payment.at,
+      estimateReason: payment.estimateReason || ''
+    }));
+
+  if (initialAmount > 0) {
+    events.push({
+      at: order.initialPaidAt || order.createdAt || '',
+      amount: initialAmount,
+      method: order.initialPaymentMethod || order.paymentMethod || '',
+      note: 'Initial payment',
+      legacy: !order.initialPaidAt
+    });
+  }
+  return events.sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0));
+}
+
+function renderOrderPaidOnCell(order) {
+  const events = getOrderPaymentEvents(order);
+  if (!events.length) {
+    return `<span style="color:var(--text-soft);" title="No payment received yet">—</span>`;
+  }
+  const newest = events[events.length - 1];
+  const newestDate = fmtDateShort(newest.at);
+  const legacyHint = (event) => {
+    const reason = event.estimateReason || 'This older payment has no separately saved receipt timestamp; booking date is shown as an estimate.';
+    return `<small style="display:block;color:var(--text-soft);" title="${escapeHtml(reason)}">* estimated date</small>`;
+  };
+  if (events.length === 1) {
+    return `<div style="min-width:92px;"><b>${escapeHtml(newestDate)}${newest.legacy ? '*' : ''}</b><small style="display:block;color:var(--text-soft);">${fmtMoney(newest.amount)}</small>${newest.legacy ? legacyHint(newest) : ''}</div>`;
+  }
+
+  const reverseEvents = [...events].reverse();
+  return `
+    <details style="min-width:110px;max-width:185px;">
+      <summary style="cursor:pointer;list-style-position:inside;">
+        <b>${escapeHtml(newestDate)}${newest.legacy ? '*' : ''}</b>
+        <small style="display:block;color:var(--text-soft);padding-left:12px;">${events.length} ${t('ord.receipts')} · ${t('ord.paymentHistory')}</small>
+      </summary>
+      <div style="margin:5px 0 0 12px;padding:6px 8px;background:var(--surface-alt);border-radius:7px;max-height:170px;overflow:auto;">
+        ${reverseEvents.map(event => `
+            <div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;" title="${escapeHtml(event.note)}">
+            <b>${escapeHtml(fmtDateShort(event.at))}${event.legacy ? '*' : ''}</b>
+            <span style="display:block;color:var(--text-soft);">${fmtMoney(event.amount)}${event.method ? ` · ${escapeHtml(event.method)}` : ''}</span>
+            ${event.legacy ? legacyHint(event) : ''}
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `;
+}
+
 function renderOrders() {
   const content = `
     <h1 class="page-title">📦 ${t('ord.title')}</h1>
@@ -43,7 +106,7 @@ function renderOrders() {
     <div class="card" style="padding:0;overflow:hidden;">
       <table class="tbl">
         <thead><tr>
-          <th>${t('ord.invoice')}</th><th>${t('ord.customer')}</th><th>${t('ord.items')}</th><th>${t('ord.total')}</th><th>${t('ord.paid')}</th>
+          <th>${t('ord.invoice')}</th><th>${t('ord.customer')}</th><th>${t('ord.items')}</th><th>${t('ord.total')}</th><th>${t('ord.paid')}</th><th>${t('ord.paidOn')}</th>
           <th>${t('ord.status')}</th><th>${t('ord.booked')}</th><th>${t('ord.delivery')}</th><th>${t('ord.actions')}</th>
         </tr></thead>
         <tbody id="ordersBody"></tbody>
@@ -111,7 +174,7 @@ function renderOrdersBody() {
   `;
 
   if (!filtered.length) {
-    $('#ordersBody').innerHTML = `<tr><td colspan="9"><div class="empty"><div class="emoji">📦</div><h4>${t('ord.noOrders')}</h4><p>${t('ord.tryClearing')}</p></div></td></tr>`;
+    $('#ordersBody').innerHTML = `<tr><td colspan="10"><div class="empty"><div class="emoji">📦</div><h4>${t('ord.noOrders')}</h4><p>${t('ord.tryClearing')}</p></div></td></tr>`;
     return;
   }
 
@@ -119,18 +182,19 @@ function renderOrdersBody() {
     const c = DB.get('customers', o.customerId) || { name: 'Walk-in' };
     const invNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
     return `<tr>
-      <td><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
-      <td><b>${escapeHtml(c.name)}</b><br><small style="color:var(--text-soft);">${escapeHtml(c.phone||'')}</small></td>
-      <td>${o.items.length} items<br><b style='color:var(--primary);'>${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
-      <td><b>${fmtMoney(o.total)}</b></td>
-      <td>${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
-      <td>
+      <td data-label="${t('ord.invoice')}"><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
+      <td data-label="${t('ord.customer')}"><b>${escapeHtml(c.name)}</b><br><small style="color:var(--text-soft);">${escapeHtml(c.phone||'')}</small></td>
+      <td data-label="${t('ord.items')}">${o.items.length} items<br><b style='color:var(--primary);'>${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
+      <td data-label="${t('ord.total')}"><b>${fmtMoney(o.total)}</b></td>
+      <td data-label="${t('ord.paid')}">${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
+      <td data-label="${t('ord.paidOn')}">${renderOrderPaidOnCell(o)}</td>
+      <td data-label="${t('ord.status')}">
         <span class="badge ${o.status}">${o.status}</span>
         ${(o.status === 'ready' && o.location) ? `<br><span style="font-size:10px;font-weight:700;color:#000;background:#fef08a;padding:2px 6px;border-radius:6px;border:1px solid #f59e0b;margin-top:4px;display:inline-block;">📍 ${escapeHtml(o.location)}</span>` : ''}
       </td>
-      <td>${fmtDateShort(o.createdAt)}</td>
-      <td>${escapeHtml(o.deliveryDate || '-')}</td>
-      <td>
+      <td data-label="${t('ord.booked')}">${fmtDateShort(o.createdAt)}</td>
+      <td data-label="${t('ord.delivery')}">${escapeHtml(o.deliveryDate || '-')}</td>
+      <td data-label="${t('ord.actions')}">
         <button class="btn btn-secondary btn-sm" data-act="view" data-id="${o.id}" title="${t('ord.viewInv')}">👁️</button>
         <button class="btn btn-secondary btn-sm" data-act="status" data-id="${o.id}" title="${t('ord.updateStatus')}">🔄</button>
         <button class="btn btn-secondary btn-sm" data-act="partial" data-id="${o.id}" title="Partial Delivery">🛍️</button>
@@ -202,6 +266,18 @@ function openStatusChange(orderId) {
         <input type="number" id="addPay" value="${o.due}" min="0" max="${o.due}"/>
         <small style="color:var(--text-soft);">Current Paid: <b>${fmtMoney(o.paid)}</b> • Remaining Due: <b style="color:var(--danger);">${fmtMoney(o.due)}</b></small>
       </div>
+      <div class="field">
+        <label>Payment Method</label>
+        <select id="addPayMethod">
+          <option value="cash" ${!o.paymentMethod || o.paymentMethod==='cash'?'selected':''}>${t('rcv.cash')}</option>
+          <option value="card" ${o.paymentMethod==='card'?'selected':''}>${t('rcv.card')}</option>
+          <option value="bank" ${o.paymentMethod==='bank'?'selected':''}>${t('rcv.bank')}</option>
+          <option value="online" ${o.paymentMethod==='online'?'selected':''}>${t('rcv.online')}</option>
+          <option value="jazzcash" ${o.paymentMethod==='jazzcash'?'selected':''}>${t('rcv.jazzcash')}</option>
+          <option value="easypaisa" ${o.paymentMethod==='easypaisa'?'selected':''}>${t('rcv.easypaisa')}</option>
+          <option value="cheque" ${o.paymentMethod==='cheque'?'selected':''}>${t('rcv.cheque')}</option>
+        </select>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
@@ -217,10 +293,17 @@ function openStatusChange(orderId) {
     $('#saveBtn', m).onclick = () => {
       const newStatus = $('#newStatus', m).value;
       const addPay = Math.max(0, +$('#addPay', m).value || 0);
-      const paid = Math.min(o.total, o.paid + addPay);
-      const due = o.total - paid;
+      const oldPaid = Math.max(0, +o.paid || 0);
+      const paid = Math.min(+o.total || 0, oldPaid + addPay);
+      const receivedNow = Math.max(0, paid - oldPaid);
+      const due = Math.max(0, (+o.total || 0) - paid);
       const oldStatus = o.status;
       const patch = { status: newStatus, paid, due, isCredit: due > 0 };
+      if (receivedNow > 0) {
+        const method = $('#addPayMethod', m).value || 'cash';
+        patch.paymentMethod = method;
+        patch.paymentsLog = appendPaymentReceipt(o, receivedNow, method, 'Received during order status update');
+      }
       if (newStatus === 'ready') patch.location = $('#newRack', m).value.trim();
       
       DB.update('orders', orderId, patch);
@@ -281,6 +364,7 @@ function openEditInvoice(orderId) {
       <div class="field">
         <label>Paid Amount</label>
         <input type="number" id="ePaid" value="${o.paid}" min="0"/>
+        <small style="color:var(--text-soft);">Any increase is recorded as a payment received now. Use Receive Payment for later instalments.</small>
       </div>
       <div class="field">
         <label>Status</label>
@@ -377,8 +461,16 @@ function openEditInvoice(orderId) {
       const discVal = +$('#eDiscVal', m).value || 0;
       const disc = discType === 'percent' ? Math.round(subtotal * discVal / 100) : Math.min(subtotal, discVal);
       const total = Math.max(0, subtotal - disc);
+      const oldPaid = Math.max(0, +o.paid || 0);
       const paid = Math.min(total, +$('#ePaid', m).value || 0);
       const due = total - paid;
+      const paymentMethod = $('#ePayMethod', m).value || 'cash';
+      const additionalPayment = Math.max(0, paid - oldPaid);
+      if (additionalPayment > 0 && paymentMethod === 'credit') {
+        toast('Choose a payment method for the additional amount received', 'error');
+        return;
+      }
+      const paymentsLog = appendPaymentReceipt(o, additionalPayment, paymentMethod, 'Additional payment recorded while editing invoice', { source: 'invoice-edit' });
 
       const editLog = o.editLog || [];
       editLog.push({ by: DB.currentUser().username, at: new Date().toISOString() });
@@ -391,7 +483,8 @@ function openEditInvoice(orderId) {
         tax: 0, total, paid, due, isCredit: due > 0,
         status: $('#eStatus', m).value,
         deliveryDate: $('#eDelivery', m).value,
-        paymentMethod: $('#ePayMethod', m).value,
+        paymentMethod,
+        paymentsLog,
         editLog
       });
       closeModal(); toast('Invoice updated','success'); renderOrdersBody();
@@ -503,18 +596,7 @@ function openReceivePayment(orderId) {
       const oldStatus = o.status;
       const newStatus = (alsoDeliver || (newDue === 0 && o.status === 'ready')) ? 'delivered' : o.status;
 
-      // Append to paymentsLog
-      const paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
-      const payRecord = {
-        id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random()*1000),
-        amount: amt,
-        method,
-        note,
-        by: DB.currentUser()?.username || 'unknown',
-        byName: DB.currentUser()?.name || '',
-        at: new Date().toISOString()
-      };
-      paymentsLog.push(payRecord);
+      const paymentsLog = appendPaymentReceipt(o, amt, method, note);
 
       DB.update('orders', orderId, {
         paid: newPaid,
@@ -735,10 +817,22 @@ function openPartialDelivery(orderId) {
       </table>
     </div>
     
-    <div class="form-row cols-1" id="pdPaySec">
+    <div class="form-row cols-2" id="pdPaySec">
       <div class="field">
         <label>Receive Payment (Remaining Due: <b style="color:var(--danger);">${fmtMoney(o.due)}</b>)</label>
         <input type="number" id="pdAddPay" value="0" min="0" max="${o.due}"/>
+      </div>
+      <div class="field">
+        <label>Payment Method</label>
+        <select id="pdPayMethod">
+          <option value="cash" ${!o.paymentMethod || o.paymentMethod==='cash'?'selected':''}>${t('rcv.cash')}</option>
+          <option value="card" ${o.paymentMethod==='card'?'selected':''}>${t('rcv.card')}</option>
+          <option value="bank" ${o.paymentMethod==='bank'?'selected':''}>${t('rcv.bank')}</option>
+          <option value="online" ${o.paymentMethod==='online'?'selected':''}>${t('rcv.online')}</option>
+          <option value="jazzcash" ${o.paymentMethod==='jazzcash'?'selected':''}>${t('rcv.jazzcash')}</option>
+          <option value="easypaisa" ${o.paymentMethod==='easypaisa'?'selected':''}>${t('rcv.easypaisa')}</option>
+          <option value="cheque" ${o.paymentMethod==='cheque'?'selected':''}>${t('rcv.cheque')}</option>
+        </select>
       </div>
     </div>
     
@@ -783,9 +877,17 @@ function openPartialDelivery(orderId) {
       else newStatus = 'partial'; // custom status
 
       const addPay = Math.max(0, +$('#pdAddPay', m)?.value || 0);
-      const paid = Math.min(o.total, o.paid + addPay);
-      const due = o.total - paid;
-      return { status: newStatus, items, paid, due, isCredit: due > 0 };
+      const oldPaid = Math.max(0, +o.paid || 0);
+      const paid = Math.min(+o.total || 0, oldPaid + addPay);
+      const receivedNow = Math.max(0, paid - oldPaid);
+      const due = Math.max(0, (+o.total || 0) - paid);
+      const patch = { status: newStatus, items, paid, due, isCredit: due > 0 };
+      if (receivedNow > 0) {
+        const method = $('#pdPayMethod', m).value || 'cash';
+        patch.paymentMethod = method;
+        patch.paymentsLog = appendPaymentReceipt(o, receivedNow, method, 'Received during partial delivery');
+      }
+      return patch;
     };
 
     $('#pdSaveBtn', m).onclick = () => {

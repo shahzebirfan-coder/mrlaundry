@@ -735,6 +735,11 @@ function openPaymentDialog(orderMeta) {
       let paymentType = 'paid';
       if (actualPaid === 0) paymentType = 'credit';
       else if (actualPaid < tot.total) paymentType = (currentType === 'advance') ? 'advance' : 'partial';
+      const paymentMethod = $('#payMethod', m).value || 'cash';
+      const paymentReceivedAt = new Date().toISOString();
+      const initialPaymentsLog = actualPaid > 0
+        ? appendPaymentReceipt(null, actualPaid, paymentMethod, 'Initial payment received at booking', { at: paymentReceivedAt, recordedAt: paymentReceivedAt, source: 'pos' })
+        : [];
 
       const order = {
         invoiceNo: DB.nextInvoiceNumber(),
@@ -750,13 +755,14 @@ function openPaymentDialog(orderMeta) {
         tax: tot.tax,
         total: tot.total,
         paid: actualPaid,
+        paymentsLog: initialPaymentsLog,
         createdAt: $('#backdateInput', m).value ? new Date($('#backdateInput', m).value).toISOString() : new Date().toISOString(),
         due,
         advance: paymentType === 'advance' ? actualPaid : 0,
         paymentType,
         isCredit: actualPaid === 0,
         status: $('#payStatus', m).value,
-        paymentMethod: $('#payMethod', m).value,
+        paymentMethod,
         deliveryDate: orderMeta.deliveryDate,
         deliveryType: orderMeta.deliveryType,
         bookingDate: orderMeta.bookingDate,

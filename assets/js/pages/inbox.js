@@ -108,7 +108,7 @@ function renderPaymentsTab() {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
           <div style="flex:1;min-width:200px;">
             <div style="font-weight:800;font-size:15px;">💳 ${escapeHtml(p.payerName)} <span class="badge ${statusColors[p.status]||''}">${p.status.toUpperCase()}</span></div>
-            <div style="font-size:12px;color:var(--text-soft);">Invoice: <b>${invNo}</b> • Amount: <b>${fmtMoney(p.amount)}</b> • ${fmtDate(p.submittedAt)}</div>
+            <div style="font-size:12px;color:var(--text-soft);">Invoice: <b>${invNo}</b> • Amount: <b>${fmtMoney(p.amount)}</b> • Payment date: <b>${p.paymentDate ? escapeHtml(fmtDateShort(p.paymentDate)) : 'Not provided (legacy proof)'}</b> • Submitted: ${fmtDate(p.submittedAt)}</div>
             ${p.txnId ? `<div style="font-size:12px;margin-top:4px;">TXN ID: <code>${escapeHtml(p.txnId)}</code></div>` : ''}
           </div>
           ${p.screenshot ? `<img src="${p.screenshot}" style="max-width:180px;max-height:200px;border-radius:8px;cursor:pointer;border:2px solid var(--border);" onclick="window.open('${p.screenshot}','_blank')"/>` : ''}
@@ -128,15 +128,54 @@ function renderPaymentsTab() {
     const id = b.dataset.id;
     if (b.dataset.act === 'verify') {
       const p = DB.get('paymentProofs', id);
+      if (!p || p.status !== 'pending') { toast('This payment proof is no longer pending', 'warning'); return; }
       const o = DB.get('orders', p.orderId);
       if (!o) { toast('Order not found','error'); return; }
-      // Add p.amount to order's paid, reduce due
-      const newPaid = Math.min(o.total, (o.paid||0) + p.amount);
-      const newDue = o.total - newPaid;
-      DB.update('orders', p.orderId, { paid: newPaid, due: newDue, isCredit: newDue > 0 });
-      DB.update('paymentProofs', id, { status: 'verified', verifiedAt: new Date().toISOString(), verifiedBy: DB.currentUser().username });
-      if (typeof logAction === 'function') logAction('payment.verify', `${fmtMoney(p.amount)} on INV-${o.invoiceNo||p.orderId.slice(-6)}`);
-      toast(`✅ Payment verified! ${fmtMoney(p.amount)} added to ${o.invoiceNo?'INV-'+o.invoiceNo:p.orderId}`, 'success');
+
+      const existingReceipt = (Array.isArray(o.paymentsLog) ? o.paymentsLog : [])
+        .find(entry => entry && entry.source === 'payment-proof' && entry.sourceId === id);
+      if (existingReceipt) {
+        const now = new Date().toISOString();
+        DB.update('paymentProofs', id, { status: 'verified', verifiedAt: now, verifiedBy: DB.currentUser().username, verifiedPaymentAt: existingReceipt.at });
+        toast('This proof was already recorded', 'warning');
+        renderPaymentsTab();
+        return;
+      }
+
+      const oldPaid = Math.max(0, +o.paid || 0);
+      const available = Math.max(0, (+o.total || 0) - oldPaid);
+      const received = Math.min(available, Math.max(0, +p.amount || 0));
+      if (received <= 0) { toast('No outstanding balance remains for this invoice', 'warning'); return; }
+
+      const now = new Date().toISOString();
+      const declaredPaymentAt = p.paymentDate ? paymentDateInputToIso(p.paymentDate) : '';
+      const hasSubmissionDate = !!p.submittedAt && !Number.isNaN(Date.parse(p.submittedAt));
+      const paymentAt = declaredPaymentAt || (hasSubmissionDate ? p.submittedAt : now);
+      const estimatedDate = !declaredPaymentAt;
+      const estimateReason = hasSubmissionDate
+        ? 'Payment date was not provided; proof submission date is shown as an estimate.'
+        : 'Payment date was not provided; verification date is shown as an estimate.';
+      const note = estimatedDate
+        ? `Verified proof; ${hasSubmissionDate ? 'submission' : 'verification'} date used as estimate${p.txnId ? ` (TXN ${p.txnId})` : ''}`
+        : `Verified payment proof${p.txnId ? ` (TXN ${p.txnId})` : ''}`;
+      const paymentsLog = appendPaymentReceipt(o, received, 'online', note, {
+        at: paymentAt,
+        recordedAt: now,
+        dateOnly: !!declaredPaymentAt,
+        estimatedDate,
+        estimateReason: estimatedDate ? estimateReason : '',
+        source: 'payment-proof',
+        sourceId: id
+      });
+      const newPaid = oldPaid + received;
+      const newDue = Math.max(0, (+o.total || 0) - newPaid);
+      DB.update('orders', p.orderId, {
+        paid: newPaid, due: newDue, isCredit: newDue > 0,
+        paymentMethod: 'online', paymentsLog
+      });
+      DB.update('paymentProofs', id, { status: 'verified', verifiedAt: now, verifiedBy: DB.currentUser().username, verifiedPaymentAt: paymentAt });
+      if (typeof logAction === 'function') logAction('payment.verify', `${fmtMoney(received)} on INV-${o.invoiceNo||p.orderId.slice(-6)}`);
+      toast(`✅ Payment verified! ${fmtMoney(received)} added to ${o.invoiceNo?'INV-'+o.invoiceNo:p.orderId}`, 'success');
       renderPaymentsTab();
     } else if (b.dataset.act === 'reject') {
       confirmDialog('Reject this payment proof? Customer should be notified.', () => {

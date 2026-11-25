@@ -18,6 +18,9 @@ const PORTAL_T = {
   'due_label':          { en: 'Due',                                       ur: 'باقی',                                  rmn: 'Baqi' },
   'outstanding':        { en: 'Outstanding',                               ur: 'بقایا رقم',                             rmn: 'Baqi Raqam' },
   'pay_now':            { en: 'Pay Now',                                   ur: 'ابھی ادا کریں',                         rmn: 'Abhi Adai Karein' },
+  'payment_date':       { en: 'Date you made the payment',                 ur: 'ادائیگی کرنے کی تاریخ',                 rmn: 'Payment karne ki tareekh' },
+  'payment_date_hint':  { en: 'Enter the date shown on your transfer receipt. We will verify it with your proof.', ur: 'وہ تاریخ درج کریں جو آپ کی ٹرانسفر رسید پر درج ہے۔ ہم ثبوت کے ساتھ اس کی تصدیق کریں گے۔', rmn: 'Transfer receipt wali tareekh likhein; hum proof ke saath verify karenge.' },
+  'payment_date_required': { en: 'Please select the date you made the payment.', ur: 'براہ کرم ادائیگی کی تاریخ منتخب کریں۔', rmn: 'Payment ki tareekh select karein.' },
 
   // Timeline
   'booked':             { en: 'Booked',                                    ur: 'بک ہوا',                                rmn: 'Book Hua' },

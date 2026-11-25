@@ -263,7 +263,6 @@ function openCollectPayment(custId) {
 
       const method = $('#payMethod', m).value || 'cash';
       const nowIso = new Date().toISOString();
-      const user = DB.currentUser() || {};
 
       dueOrders.forEach(o => {
         if (remaining <= 0) return;
@@ -273,15 +272,10 @@ function openCollectPayment(custId) {
 
         // Keep the same audit trail the Orders page writes, so the money shows
         // up in the cash book / dashboard on the day it was actually collected.
-        const paymentsLog = Array.isArray(o.paymentsLog) ? [...o.paymentsLog] : [];
-        paymentsLog.push({
-          id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random()*1000),
-          amount: apply,
-          method,
-          note: 'Collected from ledger',
-          by: user.username || 'unknown',
-          byName: user.name || '',
-          at: nowIso
+        const paymentsLog = appendPaymentReceipt(o, apply, method, 'Collected from ledger', {
+          at: nowIso,
+          recordedAt: nowIso,
+          source: 'ledger'
         });
 
         DB.update('orders', o.id, {

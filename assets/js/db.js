@@ -27,6 +27,11 @@ const DB = {
       }
       ['vendors_dummy_skip'].forEach(t => { if (!this._data[t]) this._data[t] = seed[t]; });
       this._data.settings = Object.assign({}, seed.settings, this._data.settings);
+      // Payment receiving details start locked on older installs as well as fresh ones.
+      if (this._data.settings.portalPaymentDetailsLocked == null) {
+        this._data.settings.portalPaymentDetailsLocked = true;
+        this.save();
+      }
       // Smart fill: if payment fields are empty/missing, copy defaults from seed
       ['jazzcashName','jazzcashNumber','easypaisaName','easypaisaNumber','portalTerms'].forEach(k => {
         if (!this._data.settings[k] || this._data.settings[k] === '') {
@@ -230,6 +235,7 @@ const DB = {
         shopMapUrl: '',
         portalLang: 'en',
         // === Payment settings ===
+        portalPaymentDetailsLocked: true, // admin must deliberately unlock before changing receiving details
         bankName: '',
         bankAccountTitle: 'Shahzeb Vakani',
         bankAccountNumber: '',
@@ -342,10 +348,19 @@ const DB = {
   },
 
   settings() { return this._data.settings; },
-  saveSettings(patch) { 
-    patch._settingsUpdatedAt = new Date().toISOString();
-    this._data.settings = { ...this._data.settings, ...patch }; 
-    this.save(); 
+  saveSettings(patch) {
+    patch = patch || {};
+    const safePatch = { ...patch };
+    const paymentKeys = ['jazzcashName','jazzcashNumber','easypaisaName','easypaisaNumber','bankName','bankAccountTitle','bankAccountNumber','paymentInstructions'];
+    const paymentLocked = !!(this._data.settings && this._data.settings.portalPaymentDetailsLocked !== false);
+    // Refuse payment-detail edits unless the same explicit save unlocks them.
+    // This protects against other settings forms accidentally overwriting them.
+    if (paymentLocked && patch.portalPaymentDetailsLocked !== false) {
+      paymentKeys.forEach(k => { delete safePatch[k]; });
+    }
+    safePatch._settingsUpdatedAt = new Date().toISOString();
+    this._data.settings = { ...this._data.settings, ...safePatch };
+    this.save();
     // Brand logo / paper settings changed → rebuild the thermal print logo
     if (window.THERMAL && ('logoImage' in patch || 'invoicePaper' in patch ||
         'invoiceLogoSize' in patch || 'invoiceLogoMono' in patch)) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mr-laundry-pos-v28';
+const CACHE_NAME = 'mr-laundry-pos-v34';
 const urlsToCache = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const urlsToCache = [
   './assets/css/expenses.css',
   './assets/img/logo.jpeg',
   './assets/img/mr-laundry-logo.jpg',
+  './assets/img/celinesoft-wordmark-mono.png',
   './live.html',
   './assets/js/app.js',
   './assets/js/auth-recovery.js',
@@ -33,6 +34,8 @@ const urlsToCache = [
   './assets/js/shortcuts.js',
   './assets/js/sounds.js',
   './assets/js/thermal-logo.js',
+  './assets/js/vendor/jspdf.umd.min.js',
+  './assets/js/vendor/html2canvas.min.js',
   './assets/js/utils.js',
   './assets/js/whatsapp.js',
   './assets/js/pages/auditLog.js',

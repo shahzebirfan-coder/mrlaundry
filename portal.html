@@ -814,11 +814,11 @@
     </div>
   </div>
 
-  <script src="assets/js/i18n.js"></script>
-  <script src="assets/js/portal-i18n.js"></script>
-  <script src="assets/js/db.js"></script>
-  <script src="assets/js/utils.js"></script>
-  <script src="assets/js/portal-helpers.js"></script>
+  <script src="assets/js/i18n.js?v=20261122.010"></script>
+  <script src="assets/js/portal-i18n.js?v=20261122.010"></script>
+  <script src="assets/js/db.js?v=20261122.001"></script>
+  <script src="assets/js/utils.js?v=20261122.007"></script>
+  <script src="assets/js/portal-helpers.js?v=20261122.002"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script>
@@ -943,6 +943,72 @@
             alert('This shop has not connected Cloud Sync yet. Please contact them.');
           }
         }
+      }
+    }
+
+    async function pushPaymentProofToCloud(proof) {
+      const tbl = 'paymentProofs';
+      const chunkSize = 800000;
+
+      try {
+        const db = fdb();
+        const metaRef = db.collection('shops').doc(SHOP_ID);
+        const tablesRef = metaRef.collection('tables');
+        await db.runTransaction(async (t) => {
+          const metaDoc = await t.get(metaRef);
+          if (!metaDoc.exists) throw new Error('Shop cloud data was not found');
+          const meta = metaDoc.data() || {};
+          if (!meta.tables) meta.tables = {};
+          const info = meta.tables[tbl];
+          let currentData = [];
+          const oldDocIds = [];
+
+          if (info) {
+            const count = Math.max(1, +info.chunks || 1);
+            const rawChunks = [];
+            for (let i = 0; i < count; i++) {
+              const docId = count === 1 ? tbl : `${tbl}__c${i}`;
+              const snap = await t.get(tablesRef.doc(docId));
+              if (!snap.exists) throw new Error(`Cloud payment-proof data is missing (${docId})`);
+              rawChunks[i] = snap.data().data || '';
+              oldDocIds.push(docId);
+            }
+            currentData = JSON.parse(rawChunks.join(''));
+            if (!Array.isArray(currentData)) throw new Error('Cloud payment-proof table is invalid');
+          }
+
+          const existingIndex = currentData.findIndex(item => item && item.id === proof.id);
+          if (existingIndex >= 0) currentData[existingIndex] = { ...currentData[existingIndex], ...proof };
+          else currentData.push(proof);
+
+          const serialized = JSON.stringify(currentData);
+          const chunks = [];
+          for (let i = 0; i < serialized.length; i += chunkSize) chunks.push(serialized.slice(i, i + chunkSize));
+          if (!chunks.length) chunks.push('[]');
+
+          const newDocIds = chunks.length === 1
+            ? [tbl]
+            : chunks.map((_, i) => `${tbl}__c${i}`);
+          chunks.forEach((data, i) => {
+            const docId = newDocIds[i];
+            t.set(tablesRef.doc(docId), { data, chunkIndex: i, totalChunks: chunks.length, updatedAt: Date.now() });
+          });
+          oldDocIds.forEach(docId => { if (!newDocIds.includes(docId)) t.delete(tablesRef.doc(docId)); });
+
+          const now = Date.now();
+          meta.tables[tbl] = { chunks: chunks.length, size: serialized.length, updatedAt: now };
+          meta._format = 'chunked-v1';
+          meta.version = Math.max(now, (+meta.version || 0) + 1);
+          meta.updatedAt = now;
+          meta.updatedBy = 'Customer portal';
+          meta.deviceId = 'customer-portal';
+          meta.deviceLabel = 'Customer portal';
+          t.set(metaRef, meta, { merge: true });
+        });
+        return true;
+      } catch(e) {
+        console.error('Failed to submit payment proof to cloud', e);
+        return false;
       }
     }
 

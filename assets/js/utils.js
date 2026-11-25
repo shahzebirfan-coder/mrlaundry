@@ -33,9 +33,48 @@ function fmtDate(iso) {
 function fmtDateShort(iso) {
   if (!iso) return '-';
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
 }
 function isoDay(d=new Date()) { return d.toISOString().slice(0,10); }
+
+// Shared receipt helper so every payment-entry path stores a consistent, dated record.
+function appendPaymentReceipt(order, amount, method, note='', options={}) {
+  const value = Math.max(0, Number(amount) || 0);
+  const existing = Array.isArray(order && order.paymentsLog) ? [...order.paymentsLog] : [];
+  if (!value) return existing;
+
+  const user = (typeof DB !== 'undefined' && DB.currentUser) ? (DB.currentUser() || {}) : {};
+  const recordedAt = options.recordedAt || new Date().toISOString();
+  const receipt = {
+    id: 'pay_' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+    type: 'receipt',
+    amount: value,
+    method: method || 'cash',
+    note: note || '',
+    by: user.username || 'unknown',
+    byName: user.name || '',
+    at: options.at || recordedAt,
+    recordedAt
+  };
+  if (options.dateOnly) receipt.dateOnly = true;
+  if (options.estimatedDate) receipt.estimatedDate = true;
+  if (options.estimateReason) receipt.estimateReason = options.estimateReason;
+  if (options.source) receipt.source = options.source;
+  if (options.sourceId) receipt.sourceId = options.sourceId;
+  return [...existing, receipt];
+}
+
+// A customer-declared transfer date has day-level precision only. Use local noon
+// when serializing it so time-zone conversion cannot display the adjacent date.
+function paymentDateInputToIso(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return '';
+  const year = +match[1], month = +match[2], day = +match[3];
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+  return date.toISOString();
+}
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -341,6 +380,69 @@ async function printElement(elementOrSelector, options) {
   } catch (e) {}
   if (isThermal) thermalCleanTextNodes(clone);
 
+  // Thermal rolls have no useful fixed page height. Measure each slip at the
+  // printer's printable width and give it its own named CSS page size. This
+  // keeps the customer copy continuous through its footer and lets the office
+  // copy start after the cut without splitting either slip across A4 pages.
+  const thermalRoll = options.thermalRoll === true && isThermal;
+  let thermalPageSizes = [];
+  let thermalPageRules = '';
+  if (thermalRoll) {
+    const measureWidthPx = printableMm * 96 / 25.4;
+    const measureHost = document.createElement('div');
+    measureHost.style.cssText = `position:fixed;left:-10000px;top:0;width:${measureWidthPx}px;max-width:${measureWidthPx}px;z-index:-1;visibility:hidden;pointer-events:none;background:#fff;color:#000;font-family:Arial,sans-serif;`;
+    clone.style.setProperty('width', `${measureWidthPx}px`, 'important');
+    clone.style.setProperty('max-width', `${measureWidthPx}px`, 'important');
+    measureHost.appendChild(clone);
+    document.body.appendChild(measureHost);
+
+    try {
+      const measureImages = Array.from(clone.querySelectorAll('img'));
+      await Promise.all(measureImages.map(img => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise(resolve => {
+          const done = () => { clearTimeout(timer); resolve(); };
+          const timer = setTimeout(done, 5000);
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+        });
+      }));
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+      const slips = Array.from(clone.querySelectorAll('.print-slip'));
+      if (!slips.length) slips.push(clone);
+      thermalPageSizes = slips.map((slip, index) => {
+        slip.classList.add(`thermal-roll-slip-${index + 1}`);
+        slip.style.setProperty('display', 'block', 'important');
+        slip.style.setProperty('width', '100%', 'important');
+        slip.style.setProperty('margin', '0', 'important');
+        slip.querySelectorAll('.invoice-page').forEach(invoice => {
+          invoice.style.setProperty('display', 'block', 'important');
+          invoice.style.setProperty('width', '100%', 'important');
+          invoice.style.setProperty('max-width', '100%', 'important');
+          invoice.style.setProperty('padding', '0', 'important');
+          invoice.style.setProperty('margin', '0 auto', 'important');
+        });
+        const heightPx = Math.max(slip.scrollHeight, Math.ceil(slip.getBoundingClientRect().height));
+        // Add a small tail allowance for print-engine line-box rounding,
+        // receipt-driver margins and the final cut marker. This is deliberately
+        // inside the slip's page size so the cut can never split the customer footer.
+        const heightMm = Math.max(80, Math.ceil((heightPx * 25.4 / 96 + (marginMm * 2) + 10) * 10) / 10);
+        return { pageName: `thermalInvoice${index + 1}`, heightMm };
+      });
+      thermalPageRules = '@media print {\n' + thermalPageSizes.map((size, index) =>
+        `  .thermal-roll-slip-${index + 1} { page: ${size.pageName}; }\n` +
+        `  @page ${size.pageName} { size: ${paper}mm ${size.heightMm}mm; margin: ${marginMm}mm; }`
+      ).join('\n') + '\n}';
+    } finally {
+      measureHost.remove();
+    }
+  }
+
+  const maxThermalPageHeight = thermalPageSizes.length
+    ? Math.max(...thermalPageSizes.map(page => page.heightMm))
+    : null;
+
   // Step 3: Get HTML with all images inlined
   const html = clone.outerHTML;
 
@@ -427,7 +529,7 @@ table { width: 100%; border-collapse: collapse; }
 .print-slip:last-child { page-break-after: auto; break-after: auto; }
 .print-page-break { page-break-after: always; break-after: page; height: 0; }
 @media print {
-  @page { size: ${paper}mm auto; margin: ${marginMm}mm; }
+  @page { size: ${paper}mm ${thermalRoll && maxThermalPageHeight ? `${maxThermalPageHeight}mm` : 'auto'}; margin: ${marginMm}mm; }
   /* Constrain to the printer's real dot area (58mm rolls are usually
      48mm printable; 80mm rolls about 72mm). Center it inside the CSS page
      margins so a driver with wider non-printable edges cannot crop columns. */
@@ -439,6 +541,7 @@ table { width: 100%; border-collapse: collapse; }
      58mm office slip; reserve those pixels so its right border stays in. */
   .invoice-office table { width: calc(100% - 2px) !important; max-width: 100% !important; }
 }
+${thermalPageRules}
 @media screen {
   body { padding: 20px; background: #f0f4ff; }
   .invoice-page { box-shadow: 0 4px 12px rgba(0,0,0,.1); border-radius: 8px; max-width: 380px; }
