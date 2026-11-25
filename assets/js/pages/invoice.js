@@ -117,8 +117,8 @@ function doPrint(includeOffice) {
   wrap.id = 'printWrapper';
   const slips = printArea.querySelectorAll('.print-slip');
   if (slips.length > 0) wrap.appendChild(cloneInvoiceSlip(slips[0]));
-  // Keep only the slips in the print wrapper. printElement handles sheet-page
-  // breaks, while thermal-roll mode keeps both copies continuous at CUT HERE.
+  // Keep only the slips in the print wrapper. printElement gives each thermal
+  // copy its own content-sized page so auto-cut drivers separate them cleanly.
   if (includeOffice && slips.length > 1) wrap.appendChild(cloneInvoiceSlip(slips[1]));
 
   if (typeof printElement === 'function') {

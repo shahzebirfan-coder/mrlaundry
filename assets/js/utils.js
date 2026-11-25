@@ -398,11 +398,10 @@ async function printElement(elementOrSelector, options) {
   } catch (e) {}
   if (isThermal) thermalCleanTextNodes(clone);
 
-  // Thermal rolls have no useful fixed page height. Measure at the printer's
-  // printable width and size pages to their actual content. When both invoice
-  // copies are printed, keep them on one continuous roll: the customer copy
-  // already has a CUT HERE marker, and this avoids a blank second-page feed on
-  // drivers that ignore named page sizes.
+  // Thermal rolls have no useful fixed page height. Measure every copy at the
+  // printer's printable width and give each one its own content-sized page.
+  // A real page boundary lets auto-cut drivers separate the customer and office
+  // copies; the customer footer also retains its visible CUT HERE marker.
   const thermalRoll = options.thermalRoll === true && isThermal;
   let thermalPageSizes = [];
   let thermalPageRules = '';
@@ -442,39 +441,31 @@ async function printElement(elementOrSelector, options) {
           invoice.style.setProperty('margin', '0 auto', 'important');
         });
       };
-      const pageHeightFor = (target) => {
+      const pageHeightFor = (target, pageMarginMm, isOfficeCopy) => {
         const heightPx = Math.max(target.scrollHeight, Math.ceil(target.getBoundingClientRect().height));
-        // Keep a small tail allowance for print-engine line-box rounding and
-        // receipt-driver margins, without carrying another slip's blank page.
-        return Math.max(80, Math.ceil((heightPx * 25.4 / 96 + (marginMm * 2) + 10) * 10) / 10);
+        // Keep the office page tight around its content so a roll driver has no
+        // long blank lead-in; retain a little extra tail for the customer cut mark.
+        const tailMm = isOfficeCopy ? 3 : 8;
+        const minimumMm = isOfficeCopy ? 65 : 80;
+        return Math.max(minimumMm, Math.ceil((heightPx * 25.4 / 96 + (pageMarginMm * 2) + tailMm) * 10) / 10);
       };
 
-      if (slips.length > 1) {
-        // Print Both should be one continuous receipt roll. A page break between
-        // the copies makes some 80mm drivers feed the office copy halfway down
-        // a tall page, wasting the blank area above it. The customer cut marker
-        // already separates the copies, so keep both slips together and size one
-        // page to their combined height.
-        clone.classList.add('thermal-roll-continuous');
-        slips.forEach(slip => {
-          prepareSlip(slip);
-          slip.style.setProperty('page-break-inside', 'avoid', 'important');
-          slip.style.setProperty('page-break-after', 'auto', 'important');
-          slip.style.setProperty('break-after', 'auto', 'important');
-        });
-        clone.style.setProperty('page-break-after', 'auto', 'important');
-        clone.style.setProperty('break-after', 'auto', 'important');
-        const heightMm = pageHeightFor(clone);
-        thermalPageSizes = [{ pageName: 'thermalInvoiceContinuous', heightMm }];
-        thermalPageRules = `@media print {\n  .thermal-roll-continuous { page: thermalInvoiceContinuous; }\n  @page thermalInvoiceContinuous { size: ${paper}mm ${heightMm}mm; margin: ${marginMm}mm; }\n}`;
-      } else {
-        const slip = slips[0];
+      thermalPageSizes = slips.map((slip, index) => {
         prepareSlip(slip);
-        slip.classList.add('thermal-roll-slip-1');
-        const heightMm = pageHeightFor(slip);
-        thermalPageSizes = [{ pageName: 'thermalInvoice1', heightMm }];
-        thermalPageRules = `@media print {\n  .thermal-roll-slip-1 { page: thermalInvoice1; }\n  @page thermalInvoice1 { size: ${paper}mm ${heightMm}mm; margin: ${marginMm}mm; }\n}`;
-      }
+        const isOfficeCopy = !!slip.querySelector('.invoice-office');
+        const pageMarginMm = isOfficeCopy ? 0 : marginMm;
+        const pageName = `thermalInvoice${index + 1}`;
+        slip.classList.add(`thermal-roll-slip-${index + 1}`);
+        slip.style.setProperty('page-break-inside', 'avoid', 'important');
+        slip.style.setProperty('page-break-after', index < slips.length - 1 ? 'always' : 'auto', 'important');
+        slip.style.setProperty('break-after', index < slips.length - 1 ? 'page' : 'auto', 'important');
+        const heightMm = pageHeightFor(slip, pageMarginMm, isOfficeCopy);
+        return { pageName, heightMm, pageMarginMm };
+      });
+      thermalPageRules = '@media print {\n' + thermalPageSizes.map((size, index) =>
+        `  .thermal-roll-slip-${index + 1} { page: ${size.pageName}; }\n` +
+        `  @page ${size.pageName} { size: ${paper}mm ${size.heightMm}mm; margin: ${size.pageMarginMm}mm; }`
+      ).join('\n') + '\n}';
     } finally {
       measureHost.remove();
     }
