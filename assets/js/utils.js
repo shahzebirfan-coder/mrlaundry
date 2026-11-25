@@ -398,10 +398,11 @@ async function printElement(elementOrSelector, options) {
   } catch (e) {}
   if (isThermal) thermalCleanTextNodes(clone);
 
-  // Thermal rolls have no useful fixed page height. Measure each slip at the
-  // printer's printable width and give it its own named CSS page size. This
-  // keeps the customer copy continuous through its footer and lets the office
-  // copy start after the cut without splitting either slip across A4 pages.
+  // Thermal rolls have no useful fixed page height. Measure at the printer's
+  // printable width and size pages to their actual content. When both invoice
+  // copies are printed, keep them on one continuous roll: the customer copy
+  // already has a CUT HERE marker, and this avoids a blank second-page feed on
+  // drivers that ignore named page sizes.
   const thermalRoll = options.thermalRoll === true && isThermal;
   let thermalPageSizes = [];
   let thermalPageRules = '';
@@ -429,8 +430,7 @@ async function printElement(elementOrSelector, options) {
 
       const slips = Array.from(clone.querySelectorAll('.print-slip'));
       if (!slips.length) slips.push(clone);
-      thermalPageSizes = slips.map((slip, index) => {
-        slip.classList.add(`thermal-roll-slip-${index + 1}`);
+      const prepareSlip = (slip) => {
         slip.style.setProperty('display', 'block', 'important');
         slip.style.setProperty('width', '100%', 'important');
         slip.style.setProperty('margin', '0', 'important');
@@ -441,17 +441,40 @@ async function printElement(elementOrSelector, options) {
           invoice.style.setProperty('padding', '0', 'important');
           invoice.style.setProperty('margin', '0 auto', 'important');
         });
-        const heightPx = Math.max(slip.scrollHeight, Math.ceil(slip.getBoundingClientRect().height));
-        // Add a small tail allowance for print-engine line-box rounding,
-        // receipt-driver margins and the final cut marker. This is deliberately
-        // inside the slip's page size so the cut can never split the customer footer.
-        const heightMm = Math.max(80, Math.ceil((heightPx * 25.4 / 96 + (marginMm * 2) + 10) * 10) / 10);
-        return { pageName: `thermalInvoice${index + 1}`, heightMm };
-      });
-      thermalPageRules = '@media print {\n' + thermalPageSizes.map((size, index) =>
-        `  .thermal-roll-slip-${index + 1} { page: ${size.pageName}; }\n` +
-        `  @page ${size.pageName} { size: ${paper}mm ${size.heightMm}mm; margin: ${marginMm}mm; }`
-      ).join('\n') + '\n}';
+      };
+      const pageHeightFor = (target) => {
+        const heightPx = Math.max(target.scrollHeight, Math.ceil(target.getBoundingClientRect().height));
+        // Keep a small tail allowance for print-engine line-box rounding and
+        // receipt-driver margins, without carrying another slip's blank page.
+        return Math.max(80, Math.ceil((heightPx * 25.4 / 96 + (marginMm * 2) + 10) * 10) / 10);
+      };
+
+      if (slips.length > 1) {
+        // Print Both should be one continuous receipt roll. A page break between
+        // the copies makes some 80mm drivers feed the office copy halfway down
+        // a tall page, wasting the blank area above it. The customer cut marker
+        // already separates the copies, so keep both slips together and size one
+        // page to their combined height.
+        clone.classList.add('thermal-roll-continuous');
+        slips.forEach(slip => {
+          prepareSlip(slip);
+          slip.style.setProperty('page-break-inside', 'avoid', 'important');
+          slip.style.setProperty('page-break-after', 'auto', 'important');
+          slip.style.setProperty('break-after', 'auto', 'important');
+        });
+        clone.style.setProperty('page-break-after', 'auto', 'important');
+        clone.style.setProperty('break-after', 'auto', 'important');
+        const heightMm = pageHeightFor(clone);
+        thermalPageSizes = [{ pageName: 'thermalInvoiceContinuous', heightMm }];
+        thermalPageRules = `@media print {\n  .thermal-roll-continuous { page: thermalInvoiceContinuous; }\n  @page thermalInvoiceContinuous { size: ${paper}mm ${heightMm}mm; margin: ${marginMm}mm; }\n}`;
+      } else {
+        const slip = slips[0];
+        prepareSlip(slip);
+        slip.classList.add('thermal-roll-slip-1');
+        const heightMm = pageHeightFor(slip);
+        thermalPageSizes = [{ pageName: 'thermalInvoice1', heightMm }];
+        thermalPageRules = `@media print {\n  .thermal-roll-slip-1 { page: thermalInvoice1; }\n  @page thermalInvoice1 { size: ${paper}mm ${heightMm}mm; margin: ${marginMm}mm; }\n}`;
+      }
     } finally {
       measureHost.remove();
     }
