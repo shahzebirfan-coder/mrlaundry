@@ -36,6 +36,24 @@ function fmtDateShort(iso) {
   if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
 }
+
+// Product quantities count service units; this snapshot multiplier counts the
+// physical garments contained in each service unit (e.g. a 3-piece suit).
+function getPiecesPerItem(item) {
+  const value = Number(item && item.piecesPerItem);
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1;
+}
+function getItemPhysicalPieces(item) {
+  const quantity = Number(item && item.qty);
+  return (Number.isFinite(quantity) && quantity > 0 ? quantity : 0) * getPiecesPerItem(item);
+}
+function getOrderTotalPieces(orderOrItems) {
+  const items = Array.isArray(orderOrItems)
+    ? orderOrItems
+    : (orderOrItems && Array.isArray(orderOrItems.items) ? orderOrItems.items : []);
+  return items.reduce((sum, item) => sum + getItemPhysicalPieces(item), 0);
+}
+
 function isoDay(d=new Date()) { return d.toISOString().slice(0,10); }
 
 // Shared receipt helper so every payment-entry path stores a consistent, dated record.

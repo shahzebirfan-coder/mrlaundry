@@ -6,7 +6,7 @@
 
 /* Calculate how much of each supply an order uses */
 function calculateSupplyUsage(order) {
-  const totalPcs = (order.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);
+  const totalPcs = getOrderTotalPieces(order);
   const delType = (order.deliveryType || 'hanger').toLowerCase();
   const usesHangers = delType === 'hanger' || delType === 'both';
 

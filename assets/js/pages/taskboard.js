@@ -66,7 +66,7 @@ function renderTaskBoardData() {
     else if (isDeadlineTomorrow) delColor = '#ca8a04';
 
     const inv = o.invoiceNo ? `INV-${o.invoiceNo}` : `#${o.id.slice(-6).toUpperCase()}`;
-    const totalPcs = o.items.reduce((s,it) => s + it.qty, 0);
+    const totalPcs = getOrderTotalPieces(o);
     const itemNames = o.items.map(it => `${it.name} ×${it.qty}`).join(', ');
 
     return `
@@ -110,7 +110,7 @@ function printTaskBoard() {
       
       ${toWashOrders.map(o => {
         const inv = o.invoiceNo ? `INV-${o.invoiceNo}` : `#${o.id.slice(-6).toUpperCase()}`;
-        const totalPcs = o.items.reduce((s,it) => s + it.qty, 0);
+        const totalPcs = getOrderTotalPieces(o);
         return `
           <div style="border-bottom:1px solid #aaa;padding:6px 0;margin-bottom:4px;page-break-inside:avoid;">
             <div style="display:flex;justify-content:space-between;align-items:center;">

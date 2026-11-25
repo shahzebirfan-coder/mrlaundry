@@ -143,7 +143,7 @@ function openCustomerLedger(custId) {
     return `<tr>
       <td>${fmtDateShort(o.createdAt)}</td>
       <td><b>${escapeHtml(invNo)}</b></td>
-      <td>${o.items.length} items / ${o.items.reduce((s,i)=>s+(i.qty||0),0)} pcs</td>
+      <td>${o.items.length} items / ${getOrderTotalPieces(o)} pcs</td>
       <td><span class="badge ${o.status}">${o.status}</span></td>
       <td style="text-align:right;color:var(--danger);">${fmtMoney(debit)}</td>
       <td style="text-align:right;color:var(--success);">${fmtMoney(credit)}</td>

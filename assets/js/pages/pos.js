@@ -126,7 +126,7 @@ function addToCart(productId) {
   if (!p) return;
   const existing = posState.cart.find(i => i.productId === productId);
   if (existing) existing.qty += 1;
-  else posState.cart.push({ productId: p.id, name: p.name, image: p.image, price: p.price, originalPrice: p.price, qty: 1 });
+  else posState.cart.push({ productId: p.id, name: p.name, image: p.image, price: p.price, originalPrice: p.price, piecesPerItem: getPiecesPerItem(p), qty: 1 });
   renderCart();
 }
 
@@ -743,7 +743,7 @@ function openPaymentDialog(orderMeta) {
 
       const order = {
         invoiceNo: DB.nextInvoiceNumber(),
-        items: posState.cart.map(i => ({ ...i, lineTotal: i.price * i.qty })),
+        items: posState.cart.map(i => ({ ...i, piecesPerItem: getPiecesPerItem(i), lineTotal: i.price * i.qty })),
         customerId: posState.customerId,
         subtotal: tot.subtotal,
         discount: tot.totalDiscount,
@@ -808,7 +808,7 @@ function openQuickAdd() {
       const name = $('#qName', m).value.trim();
       const price = +$('#qPrice', m).value;
       if (!name || price <= 0) { toast('Enter name & price','error'); return; }
-      posState.cart.push({ productId: 'custom_'+Date.now(), name, image:'🧺', price, qty:1 });
+      posState.cart.push({ productId: 'custom_'+Date.now(), name, image:'🧺', price, qty:1, piecesPerItem:1 });
       closeModal(); renderCart();
     };
   }});

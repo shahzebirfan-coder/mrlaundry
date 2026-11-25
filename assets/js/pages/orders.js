@@ -234,7 +234,7 @@ function renderOrdersBody() {
     return `<tr>
       <td data-label="${t('ord.invoice')}"><b>${escapeHtml(invNo)}</b>${o.isCredit?`<br><span class="badge due">CREDIT</span>`:''}${o.paymentType==='advance'?`<br><span class="badge" style="background:#dcfce7;color:#065f46;">🟢 ADVANCE</span>`:''}</td>
       <td data-label="${t('ord.customer')}"><b>${escapeHtml(c.name)}</b><br><small style="color:var(--text-soft);">${escapeHtml(c.phone||'')}</small></td>
-      <td data-label="${t('ord.items')}">${items.length} items<br><b style='color:var(--primary);'>${items.reduce((s,i)=>s+(+i.qty||0),0)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
+      <td data-label="${t('ord.items')}">${items.length} items<br><b style='color:var(--primary);'>${getOrderTotalPieces(items)} pcs</b>${o.deliveryType?` <span class='badge' style='background:#f3f4f6;color:#374151;'>${o.deliveryType==='hanger'?'🧥':o.deliveryType==='fold'?'📦':'🧺'} ${o.deliveryType}</span>`:''}</td>
       <td data-label="${t('ord.total')}"><b>${fmtMoney(o.total)}</b></td>
       <td data-label="${t('ord.paid')}">${fmtMoney(o.paid)} ${o.due>0?`<br><span class="badge due">Due ${fmtMoney(o.due)}</span>`:`<br><span class="badge paid">Paid</span>`}</td>
       <td data-label="${t('ord.paidOn')}">${renderOrderPaidOnCell(o)}</td>
@@ -377,7 +377,7 @@ function openEditInvoice(orderId) {
   const c = DB.get('customers', o.customerId) || {};
 
   const itemsHtml = (items) => items.map((it,i) => `
-    <tr data-i="${i}">
+    <tr data-i="${i}" data-pieces-per-item="${getPiecesPerItem(it)}">
       <td><input type="text" value="${escapeHtml(it.name)}" data-fld="name" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"/></td>
       <td><input type="number" value="${it.price}" min="0" data-fld="price" style="width:90px;padding:6px;border:1px solid var(--border);border-radius:6px;"/></td>
       <td><input type="number" value="${it.qty}" min="1" data-fld="qty" style="width:70px;padding:6px;border:1px solid var(--border);border-radius:6px;"/></td>
@@ -483,6 +483,7 @@ function openEditInvoice(orderId) {
       const tr = document.createElement('tr');
       const i = $$('#editItems tr', m).length;
       tr.dataset.i = i;
+      tr.dataset.piecesPerItem = '1';
       tr.innerHTML = `
         <td><input type="text" value="Custom Item" data-fld="name" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"/></td>
         <td><input type="number" value="100" min="0" data-fld="price" style="width:90px;padding:6px;border:1px solid var(--border);border-radius:6px;"/></td>
@@ -506,7 +507,7 @@ function openEditInvoice(orderId) {
         const name = tr.querySelector('[data-fld="name"]').value.trim();
         const price = +tr.querySelector('[data-fld="price"]').value || 0;
         const qty = +tr.querySelector('[data-fld="qty"]').value || 0;
-        return { name, price, qty, lineTotal: price * qty, image: '🧺' };
+        return { name, price, qty, lineTotal: price * qty, image: '🧺', piecesPerItem: Math.max(1, parseInt(tr.dataset.piecesPerItem, 10) || 1) };
       }).filter(i => i.name && i.price > 0 && i.qty > 0);
       if (!items.length) { toast('At least one item required','error'); return; }
 

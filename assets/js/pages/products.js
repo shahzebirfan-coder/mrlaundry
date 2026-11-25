@@ -22,10 +22,10 @@ function renderProducts() {
           </div>
         </div>
         <div style="padding:8px 16px;font-size:12px;color:var(--text-soft);border-bottom:1px solid var(--border);background:var(--surface-alt);">
-          💡 Tip: Click any price below to edit it instantly. Press Enter to save.
+          💡 Tip: Edit prices or Pieces / Item values here. Press Enter to save.
         </div>
         <table class="tbl">
-          <thead><tr><th></th><th>Name</th><th>Category</th><th style="width:140px;">Price</th><th style="width:140px;">Max (range)</th><th>Status</th><th style="width:160px;">Actions</th></tr></thead>
+          <thead><tr><th></th><th>Name</th><th>Category</th><th style="width:140px;">Price</th><th style="width:125px;background:#fffbeb;color:#92400e;">PIECES / ITEM</th><th style="width:140px;">Max (range)</th><th>Status</th><th style="width:160px;">Actions</th></tr></thead>
           <tbody id="prodBody"></tbody>
         </table>
       </div>
@@ -73,7 +73,7 @@ function renderProductsBody() {
   if (q) products = products.filter(p => p.name.toLowerCase().includes(q));
 
   if (!products.length) {
-    $('#prodBody').innerHTML = `<tr><td colspan="7"><div class="empty"><div class="emoji">🧺</div><h4>No products</h4></div></td></tr>`;
+    $('#prodBody').innerHTML = `<tr><td colspan="8"><div class="empty"><div class="emoji">🧺</div><h4>No products</h4></div></td></tr>`;
     return;
   }
   $('#prodBody').innerHTML = products.map(p => {
@@ -83,6 +83,7 @@ function renderProductsBody() {
       <td><b>${escapeHtml(p.name)}</b></td>
       <td>${cat.icon} ${escapeHtml(cat.name)}</td>
       <td><input class="rate-edit" data-fld="price" type="number" value="${p.price}" min="0" style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-weight:700;color:var(--primary);background:var(--surface);"/></td>
+      <td style="background:#fffbeb;"><input class="rate-edit" data-fld="piecesPerItem" type="number" value="${getPiecesPerItem(p)}" min="1" step="1" title="Physical garments per service quantity" style="width:78px;padding:6px 8px;border:1px solid #f59e0b;border-radius:6px;font-weight:800;color:#92400e;background:#fef3c7;"/></td>
       <td><input class="rate-edit" data-fld="priceMax" type="number" value="${p.priceMax||''}" min="0" placeholder="—" style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);"/></td>
       <td>${p.active===false ? '<span class="badge cancelled">Hidden</span>' : '<span class="badge paid">Active</span>'}</td>
       <td>
@@ -99,15 +100,21 @@ function renderProductsBody() {
       const tr = inp.closest('tr');
       const id = tr.dataset.id;
       const fld = inp.dataset.fld;
-      let val = inp.value === '' ? null : Math.max(0, parseFloat(inp.value) || 0);
+      let val;
+      if (fld === 'piecesPerItem') {
+        val = Math.max(1, Math.floor(parseFloat(inp.value) || 1));
+      } else {
+        val = inp.value === '' ? null : Math.max(0, parseFloat(inp.value) || 0);
+      }
       const patch = {};
       patch[fld] = val;
       DB.update('products', id, patch);
+      if (fld === 'piecesPerItem') inp.value = String(val);
       inp.style.boxShadow = '0 0 0 3px rgba(34,197,94,.3)';
       setTimeout(()=>inp.style.boxShadow='', 600);
     };
     inp.onblur = save;
-    inp.onkeydown = (e) => { if (e.key === 'Enter') { save(); inp.blur(); toast('Price saved','success'); } };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { save(); inp.blur(); toast(fld === 'piecesPerItem' ? 'Piece count saved' : 'Price saved','success'); } };
   });
 
   $$('[data-act]').forEach(b => b.onclick = () => {
@@ -135,7 +142,7 @@ function renderCategoriesList() {
 }
 
 function openProductForm(existing) {
-  const p = existing || { name:'', category:'', price:0, priceMax:null, image:'🧺', active:true };
+  const p = existing || { name:'', category:'', price:0, priceMax:null, piecesPerItem:1, image:'🧺', active:true };
   const cats = DB.all('categories');
   const html = `
     <h3>${existing?'Edit':'Add'} Product</h3>
@@ -160,9 +167,10 @@ function openProductForm(existing) {
         </div>
       </div>
     </div>
-    <div class="form-row">
-      <div class="field"><label>Price (Rs.) *</label><input type="number" id="pPrice" value="${p.price}"/></div>
-      <div class="field"><label>Max Price (for ranges, optional)</label><input type="number" id="pPriceMax" value="${p.priceMax||''}" placeholder="e.g. 1000 for 800-1000"/></div>
+    <div class="form-row cols-3">
+      <div class="field"><label>Price (Rs.) *</label><input type="number" id="pPrice" value="${p.price}" min="0"/></div>
+      <div class="field"><label>Pieces / Item</label><input type="number" id="pPiecesPerItem" value="${getPiecesPerItem(p)}" min="1" step="1"/><small style="color:var(--text-soft);">Physical garments per service quantity; unspecified items default to 1.</small></div>
+      <div class="field"><label>Max Price (for ranges, optional)</label><input type="number" id="pPriceMax" value="${p.priceMax||''}" min="0" placeholder="e.g. 1000 for 800-1000"/></div>
     </div>
     <div class="form-row cols-1">
       <div class="field">
@@ -204,9 +212,11 @@ function openProductForm(existing) {
       const price = +$('#pPrice', m).value;
       if (!name || price < 0) { toast('Enter name & price','error'); return; }
       const maxV = $('#pPriceMax', m).value;
+      const piecesPerItem = Math.max(1, Math.floor(parseInt($('#pPiecesPerItem', m).value, 10) || 1));
       const data = {
         name, price,
         priceMax: maxV === '' ? null : Math.max(0, +maxV || 0),
+        piecesPerItem,
         category: $('#pCat', m).value,
         image: $('#pImg', m).value || '🧺',
         active: true

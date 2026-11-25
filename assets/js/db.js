@@ -105,6 +105,38 @@ const DB = {
       this._data = this._seed();
       this.save();
     }
+
+    // Add a safe 1-piece default to existing product records while retaining
+    // any valid configured value. Explicit example/2-piece/3-piece products
+    // are prefilled; unspecified product mappings remain editable.
+    const initialPieceCounts = {
+      'Suit 2 Pcs': 2,
+      'Suit 3 Pcs': 3,
+      'Kurta Shalwar': 2,
+      'Shalwar Suit': 2,
+      'Shalwar Suit (Press)': 2,
+      'Suit 2 Pcs (Press)': 2,
+      'Suit 3 Pcs (Press)': 3,
+      'Shalwar Suit Plain - 3 Pcs': 3,
+      'Shalwar Suit Plain - 2 Pcs': 2,
+      'Bridal Dress - 3 Pcs Suit': 3,
+      'Bridal Dress - 3 Pcs Suit (Press)': 3,
+      'Ladies Shalwar Suit Plain - 3 Pcs (Press)': 3,
+      'Ladies Shalwar Suit Plain - 2 Pcs (Press)': 2
+    };
+    let productsChanged = false;
+    (Array.isArray(this._data.products) ? this._data.products : []).forEach(product => {
+      const pieces = Number(product.piecesPerItem);
+      if (!Number.isInteger(pieces) || pieces < 1) {
+        product.piecesPerItem = initialPieceCounts[product.name] || 1;
+        productsChanged = true;
+      } else if (typeof product.piecesPerItem !== 'number') {
+        product.piecesPerItem = pieces;
+        productsChanged = true;
+      }
+    });
+    if (productsChanged) this.save();
+
     return this._data;
   },
 
@@ -442,13 +474,13 @@ function getMrLaundryRateList() {
   const G = 'cgents', L = 'cladies', O = 'cothers', P = 'cpress';
   const list = [
     // ===== GENTS WEAR =====
-    { name: 'Suit 2 Pcs',            category: G, price: 800,  image: '🤵' },
-    { name: 'Suit 3 Pcs',            category: G, price: 1000, image: '🤵' },
+    { name: 'Suit 2 Pcs',            category: G, price: 800,  image: '🤵', piecesPerItem: 2 },
+    { name: 'Suit 3 Pcs',            category: G, price: 1000, image: '🤵', piecesPerItem: 3 },
     { name: 'Coat',                  category: G, price: 600,  image: '🧥' },
     { name: 'Dress Pant',            category: G, price: 200,  image: '👖' },
     { name: 'Trouser',               category: G, price: 200,  image: '👖' },
     { name: 'Waist Coat',            category: G, price: 300,  image: '🦺' },
-    { name: 'Shalwar Suit',          category: G, price: 250,  image: '🥻' },
+    { name: 'Shalwar Suit',          category: G, price: 250,  image: '🥻', piecesPerItem: 2 },
     { name: 'Kurta',                 category: G, price: 125,  image: '👘' },
     { name: 'Shalwar / Pajama',      category: G, price: 125,  image: '👖' },
     { name: 'Boski Shalwar Suit',    category: G, price: 500,  image: '🥻' },
@@ -469,8 +501,8 @@ function getMrLaundryRateList() {
     { name: 'Kids Trouser / Jeans',  category: G, price: 120,  image: '👖' },
 
     // ===== LADIES WEAR =====
-    { name: 'Shalwar Suit Plain - 3 Pcs', category: L, price: 400, image: '🥻' },
-    { name: 'Shalwar Suit Plain - 2 Pcs', category: L, price: 300, image: '🥻' },
+    { name: 'Shalwar Suit Plain - 3 Pcs', category: L, price: 400, image: '🥻', piecesPerItem: 3 },
+    { name: 'Shalwar Suit Plain - 2 Pcs', category: L, price: 300, image: '🥻', piecesPerItem: 2 },
     { name: 'Dupatta',                    category: L, price: 150, image: '🧣' },
     { name: 'Ladies Shirt',               category: L, price: 150, image: '👚' },
     { name: 'Ladies Shalwar / Pajama',    category: L, price: 150, image: '👖' },
@@ -488,7 +520,7 @@ function getMrLaundryRateList() {
     { name: 'Skirt Suit',                 category: L, price: 400,  image: '👗' },
     { name: 'Short Coat',                 category: L, price: 400,  image: '🧥' },
     { name: 'Bridal Dress - Maxi',        category: L, price: 6000, image: '👰' },
-    { name: 'Bridal Dress - 3 Pcs Suit',  category: L, price: 6000, image: '👰' },
+    { name: 'Bridal Dress - 3 Pcs Suit',  category: L, price: 6000, image: '👰', piecesPerItem: 3 },
     { name: 'Ladies Undergarments (BRA)', category: L, price: 80,   image: '🩲' },
 
     // ===== OTHERS =====
@@ -535,13 +567,13 @@ function getMrLaundryRateList() {
     { name: 'Sofa',                       category: O, price: 0,    image: '🛋️' },
 
     // ===== PRESS / IRONING ONLY (rates can be set later) =====
-    { name: 'Suit 2 Pcs (Press)',           category: P, price: 0, image: '🤵' },
-    { name: 'Suit 3 Pcs (Press)',           category: P, price: 0, image: '🤵' },
+    { name: 'Suit 2 Pcs (Press)',           category: P, price: 0, image: '🤵', piecesPerItem: 2 },
+    { name: 'Suit 3 Pcs (Press)',           category: P, price: 0, image: '🤵', piecesPerItem: 3 },
     { name: 'Coat (Press)',                 category: P, price: 0, image: '🧥' },
     { name: 'Dress Pant (Press)',           category: P, price: 0, image: '👖' },
     { name: 'Trouser (Press)',              category: P, price: 0, image: '👖' },
     { name: 'Waist Coat (Press)',           category: P, price: 0, image: '🦺' },
-    { name: 'Shalwar Suit (Press)',         category: P, price: 0, image: '🥻' },
+    { name: 'Shalwar Suit (Press)',         category: P, price: 0, image: '🥻', piecesPerItem: 2 },
     { name: 'Kurta (Press)',                category: P, price: 0, image: '👘' },
     { name: 'Shalwar / Pajama (Press)',     category: P, price: 0, image: '👖' },
     { name: 'Boski Shalwar Suit (Press)',   category: P, price: 0, image: '🥻' },
@@ -558,9 +590,9 @@ function getMrLaundryRateList() {
     { name: 'Skirt Suit (Press)',           category: P, price: 0, image: '👗' },
     { name: 'Ladies Short Coat (Press)',    category: P, price: 0, image: '🧥' },
     { name: 'Bridal Dress - Maxi (Press)',  category: P, price: 0, image: '👰' },
-    { name: 'Bridal Dress - 3 Pcs Suit (Press)', category: P, price: 0, image: '👰' },
-    { name: 'Ladies Shalwar Suit Plain - 3 Pcs (Press)', category: P, price: 0, image: '🥻' },
-    { name: 'Ladies Shalwar Suit Plain - 2 Pcs (Press)', category: P, price: 0, image: '🥻' },
+    { name: 'Bridal Dress - 3 Pcs Suit (Press)', category: P, price: 0, image: '👰', piecesPerItem: 3 },
+    { name: 'Ladies Shalwar Suit Plain - 3 Pcs (Press)', category: P, price: 0, image: '🥻', piecesPerItem: 3 },
+    { name: 'Ladies Shalwar Suit Plain - 2 Pcs (Press)', category: P, price: 0, image: '🥻', piecesPerItem: 2 },
     { name: 'Ladies Dupatta (Press)',       category: P, price: 0, image: '🧣' },
     { name: 'Ladies Shirt (Press)',         category: P, price: 0, image: '👚' },
     { name: 'Ladies Shalwar / Pajama (Press)', category: P, price: 0, image: '👖' },
@@ -577,6 +609,7 @@ function getMrLaundryRateList() {
   return list.map((p, idx) => ({
     id: 'p' + (idx + 1),
     ...p,
+    piecesPerItem: Number.isInteger(p.piecesPerItem) && p.piecesPerItem > 0 ? p.piecesPerItem : 1,
     active: true
   }));
 }

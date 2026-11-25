@@ -18,7 +18,7 @@ async function openInvoice(orderId, autoPrint) {
     try { await THERMAL.prepare(s); } catch (e) { console.warn('[Invoice] Thermal logo prep failed:', e); }
   }
   const invoiceNo = o.invoiceNo ? `INV-${o.invoiceNo}` : '#' + o.id.slice(-6).toUpperCase();
-  const totalPcs = (o.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);
+  const totalPcs = getOrderTotalPieces(o);
   const delTypeMap = {
     hanger: { icon: '🧥', label: 'HANGER' },
     fold:   { icon: '📦', label: 'FOLD' },
@@ -1036,7 +1036,7 @@ function printChallan(orderId) {
   const c = DB.get('customers', o.customerId) || { name: 'Customer' };
   const s = DB.settings();
   const challanNo = o.invoiceNo ? `CH-${o.invoiceNo}` : 'CH-' + o.id.slice(-6).toUpperCase();
-  const totalPcs = (o.items || []).reduce((sum, it) => sum + (it.qty || 0), 0);
+  const totalPcs = getOrderTotalPieces(o);
   
   const width = Math.max(280, Math.min(400, +s.invoiceWidth || 300));
   const fontSize = Math.max(12, Math.min(20, (+s.invoiceFontSize || 13)));
