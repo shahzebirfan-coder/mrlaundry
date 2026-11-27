@@ -40,7 +40,7 @@ async function openInvoice(orderId, autoPrint) {
         ${c.phone ? `<button class="btn btn-success btn-sm" id="waBtn" title="Send invoice via WhatsApp">📱 WhatsApp</button>` : ''}
         ${DB.currentUser().role==='admin' ? `<button class="btn btn-secondary btn-sm" id="customizeInv">⚙️ Customize</button><button class="btn btn-warning btn-sm" id="editFromInv">✏️ Edit</button>`:''}
         <button class="btn btn-secondary btn-sm" id="printCustomerOnly" title="Print only customer copy">🖨️ Customer Only</button>
-        <button class="btn btn-primary btn-sm" id="printBoth" title="Print customer + office copy together">🖨️🖨️ Print Both</button>
+        <button class="btn btn-primary btn-sm" id="printBoth" title="Print customer and office copies as separate, content-sized jobs">🖨️🖨️ Print Both</button>
         <button class="btn btn-ghost btn-sm" onclick="closeModal()">Close</button>
       </div>
     </div>
@@ -109,23 +109,90 @@ function cloneInvoiceSlip(slip) {
   return copy;
 }
 
+function printInvoiceCopiesAsSeparateJobs(wrappers) {
+  // A few Windows receipt drivers apply one fixed page length to every page in
+  // a multi-page browser job. Print each measured slip as its own job instead,
+  // so the office copy starts at the top of its own short page and end-of-job
+  // cutters can separate the customer copy before the office copy begins.
+  const printWindow = window.open('', '_blank', 'width=420,height=700');
+  if (!printWindow) { alert('Please allow popups for printing!'); return; }
+
+  const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let jobIndex = 0;
+  let activeToken = `${jobId}-${jobIndex}`;
+  let finished = false;
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    window.removeEventListener('message', onPrintDone);
+    setTimeout(() => {
+      if (!printWindow.closed) printWindow.close();
+    }, 500);
+  };
+  const fail = error => {
+    console.error('[Invoice Print]', error);
+    cleanup();
+    if (typeof toast === 'function') toast('Could not prepare the next receipt print job.', 'error');
+  };
+  const startJob = () => {
+    if (printWindow.closed) { fail(new Error('Print window was closed before both copies finished.')); return; }
+    activeToken = `${jobId}-${jobIndex}`;
+    try {
+      Promise.resolve(printElement(wrappers[jobIndex], {
+        title: jobIndex === 0 ? 'Customer Copy' : 'Office Copy',
+        thermalRoll: true,
+        printWindow,
+        keepPrintWindow: true,
+        printToken: activeToken
+      })).catch(fail);
+    } catch (error) { fail(error); }
+  };
+  function onPrintDone(event) {
+    if (event.source !== printWindow || !event.data ||
+        event.data.type !== 'mrLaundryThermalPrintDone' || event.data.token !== activeToken) return;
+    if (jobIndex >= wrappers.length - 1) { cleanup(); return; }
+    jobIndex++;
+    // Let Chrome finish closing the first print preview before opening the next.
+    setTimeout(startJob, 500);
+  }
+
+  window.addEventListener('message', onPrintDone);
+  startJob();
+}
+
 function doPrint(includeOffice) {
   const printArea = document.getElementById('printArea');
   if (!printArea) { alert('Print content not ready'); return; }
 
-  const wrap = document.createElement('div');
-  wrap.id = 'printWrapper';
-  const slips = printArea.querySelectorAll('.print-slip');
-  if (slips.length > 0) wrap.appendChild(cloneInvoiceSlip(slips[0]));
-  // Keep only the slips in the print wrapper. printElement gives each thermal
-  // copy its own content-sized page so auto-cut drivers separate them cleanly.
-  if (includeOffice && slips.length > 1) wrap.appendChild(cloneInvoiceSlip(slips[1]));
+  const slips = Array.from(printArea.querySelectorAll('.print-slip'));
+  if (!slips.length) { alert('Print content not ready'); return; }
+  const selectedSlips = [slips[0]];
+  if (includeOffice && slips.length > 1) selectedSlips.push(slips[1]);
 
-  if (typeof printElement === 'function') {
-    printElement(wrap, { title: 'Invoice Print', thermalRoll: true });
-  } else {
+  if (typeof printElement !== 'function') {
     alert('Print helper not loaded. Refresh page.');
+    return;
   }
+
+  let paperSetting = '80';
+  try { paperSetting = String(DB.settings().invoicePaper || '80'); } catch (e) {}
+  const isThermalRoll = paperSetting === '58' || paperSetting === '80';
+  const makeWrapper = slip => {
+    const wrapper = document.createElement('div');
+    wrapper.id = 'printWrapper';
+    wrapper.appendChild(cloneInvoiceSlip(slip));
+    return wrapper;
+  };
+
+  if (includeOffice && selectedSlips.length > 1 && isThermalRoll) {
+    // Separate print jobs avoid carrying the customer's longer page height
+    // into the office receipt. Confirm Customer Copy, then Office Copy.
+    if (typeof toast === 'function') toast('Print Both: confirm Customer Copy first; Office Copy will prompt next.', 'warning');
+    printInvoiceCopiesAsSeparateJobs(selectedSlips.map(makeWrapper));
+    return;
+  }
+
+  printElement(makeWrapper(selectedSlips[0]), { title: 'Invoice Print', thermalRoll: true });
 }
 
 function invoicePdfFilename(invoiceNo) {

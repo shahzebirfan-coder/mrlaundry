@@ -398,10 +398,10 @@ async function printElement(elementOrSelector, options) {
   } catch (e) {}
   if (isThermal) thermalCleanTextNodes(clone);
 
-  // Thermal rolls have no useful fixed page height. Measure every copy at the
-  // printer's printable width and give each one its own content-sized page.
-  // A real page boundary lets auto-cut drivers separate the customer and office
-  // copies; the customer footer also retains its visible CUT HERE marker.
+  // Thermal rolls have no useful fixed page height. Measure each slip at the
+  // printer's printable width. Print Both sends its slips as separate jobs, so
+  // each job's ordinary @page size can match that copy instead of inheriting a
+  // taller page. The customer footer retains its visible CUT HERE marker.
   const thermalRoll = options.thermalRoll === true && isThermal;
   let thermalPageSizes = [];
   let thermalPageRules = '';
@@ -462,10 +462,14 @@ async function printElement(elementOrSelector, options) {
         const heightMm = pageHeightFor(slip, pageMarginMm, isOfficeCopy);
         return { pageName, heightMm, pageMarginMm };
       });
-      thermalPageRules = '@media print {\n' + thermalPageSizes.map((size, index) =>
-        `  .thermal-roll-slip-${index + 1} { page: ${size.pageName}; }\n` +
-        `  @page ${size.pageName} { size: ${paper}mm ${size.heightMm}mm; margin: ${size.pageMarginMm}mm; }`
-      ).join('\n') + '\n}';
+      // A single-slip job already has an exact ordinary @page rule below. Avoid
+      // a named page there: some Windows receipt drivers ignore or override it.
+      thermalPageRules = thermalPageSizes.length > 1
+        ? '@media print {\n' + thermalPageSizes.map((size, index) =>
+          `  .thermal-roll-slip-${index + 1} { page: ${size.pageName}; }\n` +
+          `  @page ${size.pageName} { size: ${paper}mm ${size.heightMm}mm; margin: ${size.pageMarginMm}mm; }`
+        ).join('\n') + '\n}'
+        : '';
     } finally {
       measureHost.remove();
     }
@@ -474,6 +478,12 @@ async function printElement(elementOrSelector, options) {
   const maxThermalPageHeight = thermalPageSizes.length
     ? Math.max(...thermalPageSizes.map(page => page.heightMm))
     : null;
+  // For a one-slip print job, make the unnamed page itself use that slip's
+  // margins and measured height. This is also the fallback when a printer
+  // driver ignores named @page rules.
+  const thermalJobMarginMm = thermalPageSizes.length === 1
+    ? thermalPageSizes[0].pageMarginMm
+    : marginMm;
 
   // Step 3: Get HTML with all images inlined
   const html = clone.outerHTML;
@@ -496,9 +506,11 @@ async function printElement(elementOrSelector, options) {
     }
   }
 
-  // Step 5: Open print window with everything pre-loaded
-  const win = window.open('', '_blank', 'width=420,height=700');
-  if (!win) { alert('Please allow popups for printing!'); return; }
+  // Step 5: Open (or reuse) a print window with everything pre-loaded.
+  // Reusing one pre-opened window lets Print Both send two separate, measured
+  // thermal jobs so end-of-job cutters can cut between the copies.
+  const win = options.printWindow || window.open('', '_blank', 'width=420,height=700');
+  if (!win || win.closed) { alert('Please allow popups for printing!'); return; }
 
   const printDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>${options.title || 'Print'}</title>
@@ -561,7 +573,7 @@ table { width: 100%; border-collapse: collapse; }
 .print-slip:last-child { page-break-after: auto; break-after: auto; }
 .print-page-break { page-break-after: always; break-after: page; height: 0; }
 @media print {
-  @page { size: ${paper}mm ${thermalRoll && maxThermalPageHeight ? `${maxThermalPageHeight}mm` : 'auto'}; margin: ${marginMm}mm; }
+  @page { size: ${paper}mm ${thermalRoll && maxThermalPageHeight ? `${maxThermalPageHeight}mm` : 'auto'}; margin: ${thermalRoll && thermalPageSizes.length === 1 ? thermalJobMarginMm : marginMm}mm; }
   /* Constrain to the printer's real dot area (58mm rolls are usually
      48mm printable; 80mm rolls about 72mm). Center it inside the CSS page
      margins so a driver with wider non-printable edges cannot crop columns. */
@@ -582,14 +594,27 @@ ${thermalPageRules}
 </head><body>
 ${html}
 <script>
-  // Wait for all images to load before printing
+  const printJobToken = ${JSON.stringify(options.printToken || null)};
+  const keepPrintWindow = ${options.keepPrintWindow === true ? 'true' : 'false'};
+  let printStarted = false;
+  let printFallback = null;
   function doPrint() {
+    // Image completion and the fallback timer must never launch duplicate jobs.
+    if (printStarted) return;
+    printStarted = true;
+    if (printFallback !== null) clearTimeout(printFallback);
     setTimeout(function() {
       window.print();
-      setTimeout(function() { window.close(); }, 1000);
+      if (printJobToken && window.opener && !window.opener.closed) {
+        try {
+          window.opener.postMessage({ type: 'mrLaundryThermalPrintDone', token: printJobToken }, '*');
+        } catch (e) {}
+      }
+      if (!keepPrintWindow) setTimeout(function() { window.close(); }, 1000);
     }, 200);
   }
   window.onload = function() {
+    printFallback = setTimeout(doPrint, 3000);
     const imgs = document.querySelectorAll('img');
     if (imgs.length === 0) { doPrint(); return; }
     let loaded = 0;
@@ -601,8 +626,6 @@ ${html}
       if (img.complete && img.naturalHeight !== 0) checkAll();
       else { img.onload = checkAll; img.onerror = checkAll; }
     });
-    // Fallback timeout
-    setTimeout(doPrint, 3000);
   };
 </` + `script>
 </body></html>`;
