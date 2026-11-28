@@ -71,18 +71,15 @@ const CLOUD = {
   isReady() { return !!(this.getConfig() && this.getShopId()); },
 
   async loadSDK() {
-    if (window.firebase?.firestore) return;
-    const scripts = [
-      'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js',
-      'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'
-    ];
-    for (const src of scripts) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src; s.onload = resolve; s.onerror = reject;
-        document.head.appendChild(s);
-      });
-    }
+    const load = src => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    // Google Drive's persistent-authorization flow may load Firebase App/Auth
+    // before Cloud Sync is opened. Reuse that SDK rather than injecting App twice.
+    if (!window.firebase) await load('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
+    if (!window.firebase?.firestore) await load('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js');
   },
 
   async init() {

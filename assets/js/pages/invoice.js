@@ -40,11 +40,10 @@ async function openInvoice(orderId, autoPrint) {
         ${c.phone ? `<button class="btn btn-success btn-sm" id="waBtn" title="Send invoice via WhatsApp">📱 WhatsApp</button>` : ''}
         ${DB.currentUser().role==='admin' ? `<button class="btn btn-secondary btn-sm" id="customizeInv">⚙️ Customize</button><button class="btn btn-warning btn-sm" id="editFromInv">✏️ Edit</button>`:''}
         <button class="btn btn-secondary btn-sm" id="printCustomerOnly" title="Print only customer copy">🖨️ Customer Only</button>
-        <button class="btn btn-primary btn-sm" id="printBoth" title="Print customer and office copies as separate, content-sized jobs">🖨️🖨️ Print Both</button>
+        <button class="btn btn-primary btn-sm" id="printBoth" title="Print Customer then Office copy in one print dialog">🖨️🖨️ Print Both</button>
         <button class="btn btn-ghost btn-sm" onclick="closeModal()">Close</button>
       </div>
     </div>
-
     ${dualCopy ? `
       <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;background:#f0f4ff;padding:14px;border-radius:10px;" class="no-print">
         <div style="flex:0 0 auto;">
@@ -61,7 +60,7 @@ async function openInvoice(orderId, autoPrint) {
     <!-- Hidden print container -->
     <div id="printArea" class="print-only" style="display:none;">
       <div class="print-slip">${customerSlip}</div>
-      ${dualCopy ? `<div class="print-page-break"></div><div class="print-slip">${officeSlip}</div>` : ''}
+      ${dualCopy ? `<div class="print-slip">${officeSlip}</div>` : ''}
     </div>
   `, { large: true, onOpen(m) {
     drawInvoiceQRs(m, qrData || o.id, s);
@@ -109,90 +108,29 @@ function cloneInvoiceSlip(slip) {
   return copy;
 }
 
-function printInvoiceCopiesAsSeparateJobs(wrappers) {
-  // A few Windows receipt drivers apply one fixed page length to every page in
-  // a multi-page browser job. Print each measured slip as its own job instead,
-  // so the office copy starts at the top of its own short page and end-of-job
-  // cutters can separate the customer copy before the office copy begins.
-  const printWindow = window.open('', '_blank', 'width=420,height=700');
-  if (!printWindow) { alert('Please allow popups for printing!'); return; }
-
-  const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  let jobIndex = 0;
-  let activeToken = `${jobId}-${jobIndex}`;
-  let finished = false;
-  const cleanup = () => {
-    if (finished) return;
-    finished = true;
-    window.removeEventListener('message', onPrintDone);
-    setTimeout(() => {
-      if (!printWindow.closed) printWindow.close();
-    }, 500);
-  };
-  const fail = error => {
-    console.error('[Invoice Print]', error);
-    cleanup();
-    if (typeof toast === 'function') toast('Could not prepare the next receipt print job.', 'error');
-  };
-  const startJob = () => {
-    if (printWindow.closed) { fail(new Error('Print window was closed before both copies finished.')); return; }
-    activeToken = `${jobId}-${jobIndex}`;
-    try {
-      Promise.resolve(printElement(wrappers[jobIndex], {
-        title: jobIndex === 0 ? 'Customer Copy' : 'Office Copy',
-        thermalRoll: true,
-        printWindow,
-        keepPrintWindow: true,
-        printToken: activeToken
-      })).catch(fail);
-    } catch (error) { fail(error); }
-  };
-  function onPrintDone(event) {
-    if (event.source !== printWindow || !event.data ||
-        event.data.type !== 'mrLaundryThermalPrintDone' || event.data.token !== activeToken) return;
-    if (jobIndex >= wrappers.length - 1) { cleanup(); return; }
-    jobIndex++;
-    // Let Chrome finish closing the first print preview before opening the next.
-    setTimeout(startJob, 500);
-  }
-
-  window.addEventListener('message', onPrintDone);
-  startJob();
-}
-
 function doPrint(includeOffice) {
   const printArea = document.getElementById('printArea');
   if (!printArea) { alert('Print content not ready'); return; }
 
   const slips = Array.from(printArea.querySelectorAll('.print-slip'));
   if (!slips.length) { alert('Print content not ready'); return; }
-  const selectedSlips = [slips[0]];
-  if (includeOffice && slips.length > 1) selectedSlips.push(slips[1]);
-
   if (typeof printElement !== 'function') {
     alert('Print helper not loaded. Refresh page.');
     return;
   }
 
-  let paperSetting = '80';
-  try { paperSetting = String(DB.settings().invoicePaper || '80'); } catch (e) {}
-  const isThermalRoll = paperSetting === '58' || paperSetting === '80';
-  const makeWrapper = slip => {
-    const wrapper = document.createElement('div');
-    wrapper.id = 'printWrapper';
-    wrapper.appendChild(cloneInvoiceSlip(slip));
-    return wrapper;
-  };
+  // Keep both copies in one print document/job. The Customer Copy is first;
+  // its page break sends the Office Copy immediately after it from one dialog.
+  const selectedSlips = includeOffice && slips.length > 1 ? slips.slice(0, 2) : [slips[0]];
+  const wrapper = document.createElement('div');
+  wrapper.id = 'printWrapper';
+  selectedSlips.forEach(slip => wrapper.appendChild(cloneInvoiceSlip(slip)));
 
-  if (includeOffice && selectedSlips.length > 1 && isThermalRoll) {
-    // Separate print jobs avoid carrying the customer's longer page height
-    // into the office receipt. Confirm Customer Copy, then Office Copy.
-    if (typeof toast === 'function') toast('Print Both: confirm Customer Copy first; Office Copy will prompt next.', 'warning');
-    printInvoiceCopiesAsSeparateJobs(selectedSlips.map(makeWrapper));
-    return;
-  }
-
-  printElement(makeWrapper(selectedSlips[0]), { title: 'Invoice Print', thermalRoll: true });
+  printElement(wrapper, {
+    title: selectedSlips.length > 1 ? 'Customer + Office Copies' : 'Customer Copy',
+    thermalRoll: true,
+    compactRoll: selectedSlips.length > 1
+  });
 }
 
 function invoicePdfFilename(invoiceNo) {
@@ -599,15 +537,6 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
   const showQR = s.invoiceShowQR !== false;
   const footer = s.invoiceShowFooter !== false ? `<div style="text-align:center;margin-top:8px;font-size:${fontSize}px;font-weight:900;">${escapeHtml(s.invoiceFooter || '')}</div>` : '';
   const hours = String(s.shopHours || '').trim();
-  // The portal terms are the shop's full, editable terms; fall back to the
-  // short invoice terms when no full terms have been configured.
-  const terms = String(s.portalTerms || '').trim() || String(s.invoiceTerms || '').trim();
-  const termsHtml = terms ? `
-    <section style="margin-top:9px;padding-top:7px;border-top:1px dashed #000;color:#000;">
-      <div style="text-align:center;font-size:${Math.max(9,fontSize)}px;font-weight:900;letter-spacing:.4px;margin-bottom:5px;">TERMS &amp; CONDITIONS</div>
-      <div style="font-size:${narrow ? Math.max(9,fontSize-1) : Math.max(10,fontSize-1)}px;font-weight:700;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;">${escapeHtml(terms)}</div>
-    </section>
-  ` : '';
   const hoursHtml = hours ? `
     <section style="margin-top:8px;padding-top:6px;border-top:1px dashed #000;text-align:center;color:#000;">
       <div style="font-size:${Math.max(8,fontSize-1)}px;font-weight:900;letter-spacing:.35px;margin-bottom:3px;">SHOP TIMINGS</div>
@@ -627,7 +556,6 @@ function buildCustomerSlip(o, c, cashier, s, invoiceNo, totalPcs, delTypeInfo) {
       ${qrHtml}
       ${hoursHtml}
       ${footer}
-      ${termsHtml}
       ${buildInvoiceDeveloperFooter(narrow, true)}
     </div>
   `;
@@ -943,7 +871,7 @@ function openInvoiceCustomizer(reopenOrderId) {
       <div style="font-weight:700;margin-bottom:10px;">📋 Office Copy (Small slip for paper saving)</div>
       <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
         <input type="checkbox" id="cfDual" ${s.printDualCopy!==false?'checked':''}/>
-        <b>Always print Customer + Office copy together</b>
+        <b>Print Customer + Office copies in one print job</b>
       </label>
       <div class="form-row">
         <div class="field" style="margin:0;">
@@ -959,7 +887,7 @@ function openInvoiceCustomizer(reopenOrderId) {
 
     <div style="background:var(--surface-alt);border-radius:10px;padding:14px;margin-bottom:14px;">
       <div style="font-weight:700;margin-bottom:6px;">👁️ What to Show on Customer Copy</div>
-      <div style="font-size:11px;color:var(--text-soft);margin-bottom:10px;">Invoice number, pieces, hanger/fold type, shop timings, Terms &amp; Conditions, cut marker, and any applicable discount amount are always included. Manual and loyalty discounts are itemized when available.</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-bottom:10px;">Invoice number, pieces, hanger/fold type, shop timings, cut marker, and any applicable discount amount are included. Terms &amp; Conditions are no longer printed on receipts. Manual and loyalty discounts are itemized when available.</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:13px;">
         ${invToggle('invoiceShowLogo', '🏷️ Shop Logo', s.invoiceShowLogo)}
         ${invToggle('invoiceShowTagline', '📝 Shop Tagline', s.invoiceShowTagline)}
@@ -982,14 +910,8 @@ function openInvoiceCustomizer(reopenOrderId) {
     </div>
     <div class="form-row cols-1">
       <div class="field">
-        <label>📜 Short Terms on Receipt <small style="color:var(--text-soft);font-weight:400;">(used as a fallback if full shop terms are empty)</small></label>
-        <textarea id="cfTerms" rows="2" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;">${escapeHtml(s.invoiceTerms||'')}</textarea>
-      </div>
-    </div>
-    <div class="form-row cols-1">
-      <div class="field">
-        <label>🌐 Full Terms &amp; Conditions (invoice + Customer Portal)
-          <small style="color:var(--text-soft);font-weight:400;display:block;margin-top:2px;">These shop terms print on the customer invoice and also appear in a collapsible card on portal.html. Keep them concise for thermal paper. 📜</small>
+        <label>🌐 Full Terms &amp; Conditions (Customer Portal only)
+          <small style="color:var(--text-soft);font-weight:400;display:block;margin-top:2px;">These shop terms remain on portal.html. They are no longer printed on invoice receipts, to save paper.</small>
         </label>
         <textarea id="cfPortalTerms" rows="10" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.6;">${escapeHtml(s.portalTerms||'')}</textarea>
       </div>
@@ -1070,7 +992,6 @@ function openInvoiceCustomizer(reopenOrderId) {
         invoiceLogoMono: $('#cfLogoMono', m).checked,
         invoiceMarginMm: +($('#cfMargin', m).value || 0),
         invoiceFooter: $('#cfFooter', m).value,
-        invoiceTerms: $('#cfTerms', m).value,
         portalTerms: $('#cfPortalTerms', m).value,
         invoiceShowDiscount: true,
         printDualCopy: $('#cfDual', m).checked,

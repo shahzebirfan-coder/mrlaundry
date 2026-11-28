@@ -1,154 +1,234 @@
 /* ============================================================
-   Google Drive Auto-Backup
-   Uses Google Identity Services + Drive API (free).
-   First-time: requires user to enter their own Google Cloud Client ID.
+   Google Drive Auto-Backup — persistent server-side OAuth
+
+   Browser GIS access tokens expire quickly. This version uses a Firebase
+   Functions authorization-code exchange; the Google refresh token stays
+   encrypted on the server and is never returned to the browser.
    ============================================================ */
 
 const GDRIVE = {
   CLIENT_ID_KEY: 'mrLaundryGDriveClientId',
-  TOKEN_KEY: 'mrLaundryGDriveToken',
+  CONNECTED_KEY: 'mrLaundryGDriveServerConnected',
+  LEGACY_TOKEN_KEY: 'mrLaundryGDriveToken',
   FOLDER_KEY: 'mrLaundryGDriveFolderId',
   LAST_BACKUP_KEY: 'mrLaundryGDriveLastBackup',
+  AUTH_APP_NAME: 'mrLaundryGDriveAuth',
+  FUNCTION_REGION: 'us-central1',
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
-  FOLDER_NAME: 'Laundry POS POS Backups',
+  _auth: null,
+  _authApp: null,
+  _authSetupPromise: null,
+  _gsiPromise: null,
+  _firebaseScriptPromises: {},
 
-  isConfigured() { return !!localStorage.getItem(this.CLIENT_ID_KEY); },
-  isConnected()  { return !!this.getToken(); },
-  getClientId()  { return localStorage.getItem(this.CLIENT_ID_KEY) || ''; },
-  setClientId(id){ localStorage.setItem(this.CLIENT_ID_KEY, id); },
-  getToken()     {
-    const raw = localStorage.getItem(this.TOKEN_KEY);
-    if (!raw) return null;
+  isConfigured() { return !!this.getClientId(); },
+  isConnected() { return localStorage.getItem(this.CONNECTED_KEY) === 'true'; },
+  getClientId() { return localStorage.getItem(this.CLIENT_ID_KEY) || ''; },
+  setClientId(id) {
+    const previous = this.getClientId();
+    localStorage.setItem(this.CLIENT_ID_KEY, id);
+    if (previous && previous !== id) {
+      // A changed OAuth client cannot use the prior server-side grant.
+      localStorage.removeItem(this.CONNECTED_KEY);
+      localStorage.removeItem(this.LEGACY_TOKEN_KEY);
+      localStorage.removeItem(this.FOLDER_KEY);
+    }
+  },
+  getFirebaseConfig() {
     try {
-      const t = JSON.parse(raw);
-      if (t.expiresAt && t.expiresAt < Date.now()) return null;
-      return t;
-    } catch(e) { return null; }
+      return typeof CLOUD !== 'undefined' && CLOUD.getConfig ? CLOUD.getConfig() : null;
+    } catch (e) { return null; }
   },
-  setToken(token, expiresIn) {
-    localStorage.setItem(this.TOKEN_KEY, JSON.stringify({
-      token, expiresAt: Date.now() + (expiresIn-60)*1000
-    }));
-  },
-  disconnect() {
-    localStorage.removeItem(this.TOKEN_KEY);
-    localStorage.removeItem(this.FOLDER_KEY);
+  getFunctionUrl() {
+    const cfg = this.getFirebaseConfig();
+    if (!cfg || !cfg.projectId) {
+      throw new Error('Set up Firebase Cloud Sync first; the persistent Drive backup needs your Firebase project.');
+    }
+    const region = String(cfg.functionsRegion || this.FUNCTION_REGION).trim();
+    return `https://${region}-${cfg.projectId}.cloudfunctions.net/gdriveApi`;
   },
 
-  /* Load Google Identity Services script */
+  loadScript(src) {
+    if (this._firebaseScriptPromises[src]) return this._firebaseScriptPromises[src];
+    this._firebaseScriptPromises[src] = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Could not load Firebase Auth. Check your internet connection and refresh.'));
+      document.head.appendChild(script);
+    });
+    return this._firebaseScriptPromises[src];
+  },
+
+  async loadFirebaseAuthSdk() {
+    if (!window.firebase) {
+      await this.loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
+    }
+    if (!window.firebase?.auth) {
+      await this.loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js');
+    }
+  },
+
   async loadGSI() {
     if (window.google?.accounts?.oauth2) return;
+    if (this._gsiPromise) return this._gsiPromise;
+    this._gsiPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Could not load Google sign-in. Check your internet connection and refresh.'));
+      document.head.appendChild(script);
+    });
+    return this._gsiPromise;
+  },
+
+  async prepareAuth() {
+    if (this._authSetupPromise) return this._authSetupPromise;
+    this._authSetupPromise = (async () => {
+      const cfg = this.getFirebaseConfig();
+      if (!cfg || !cfg.projectId || !cfg.apiKey || !cfg.authDomain) {
+        throw new Error('Configure Firebase Cloud Sync first, then enable Authentication → Google in that Firebase project.');
+      }
+      await Promise.all([this.loadFirebaseAuthSdk(), this.loadGSI()]);
+      this._authApp = (firebase.apps || []).find(app => app.name === this.AUTH_APP_NAME) ||
+        firebase.initializeApp(cfg, this.AUTH_APP_NAME);
+      this._auth = this._authApp.auth();
+      await this._auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      const user = await this.waitForAuthReady();
+      return { auth: this._auth, user };
+    })().catch(error => {
+      this._authSetupPromise = null;
+      throw error;
+    });
+    return this._authSetupPromise;
+  },
+
+  waitForAuthReady() {
+    if (!this._auth) return Promise.resolve(null);
+    if (this._auth.currentUser) return Promise.resolve(this._auth.currentUser);
     return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://accounts.google.com/gsi/client';
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
+      let unsubscribe = () => {};
+      unsubscribe = this._auth.onAuthStateChanged(
+        user => { unsubscribe(); resolve(user || null); },
+        error => { unsubscribe(); reject(error); }
+      );
     });
   },
 
-  /* Sign in with OAuth */
-  async connect() {
+  async signInFirebase() {
+    if (!this._auth) throw new Error('Firebase Auth is not ready. Close and reopen this window.');
+    if (this._auth.currentUser) return this._auth.currentUser;
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const result = await this._auth.signInWithPopup(provider);
+    return result.user;
+  },
+
+  requestDriveAuthorization(onSuccess, onError) {
+    const user = this._auth && this._auth.currentUser;
     const clientId = this.getClientId();
-    if (!clientId) throw new Error('Client ID not configured');
-    await this.loadGSI();
-    return new Promise((resolve, reject) => {
-      const tc = google.accounts.oauth2.initTokenClient({
+    if (!user) { onError(new Error('Sign in to Firebase with Google first.')); return; }
+    if (!clientId) { onError(new Error('Enter and save your Google OAuth Client ID first.')); return; }
+    if (!window.google?.accounts?.oauth2) { onError(new Error('Google sign-in is still loading. Close and reopen this window.')); return; }
+
+    try {
+      const client = google.accounts.oauth2.initCodeClient({
         client_id: clientId,
-        scope: this.SCOPE,
-        callback: (resp) => {
-          if (resp.error) reject(new Error(resp.error));
-          else { this.setToken(resp.access_token, resp.expires_in||3600); resolve(resp); }
-        }
+        scope: `openid email profile ${this.SCOPE}`,
+        ux_mode: 'popup',
+        login_hint: user.email || undefined,
+        callback: response => {
+          if (response.error || !response.code) {
+            onError(new Error(response.error_description || response.error || 'Google did not return an authorization code.'));
+            return;
+          }
+          this.exchangeAuthorizationCode(response.code)
+            .then(onSuccess)
+            .catch(onError);
+        },
+        error_callback: error => onError(new Error(error && error.type ? `Google sign-in popup ${error.type}.` : 'Google sign-in popup failed.'))
       });
-      tc.requestAccessToken({ prompt: 'consent' });
+      // This must run directly from the button click so Chrome allows the popup.
+      client.requestCode();
+    } catch (error) { onError(error); }
+  },
+
+  async exchangeAuthorizationCode(code) {
+    const auth = this._auth;
+    const user = auth && auth.currentUser;
+    if (!user) throw new Error('Firebase Google sign-in expired. Sign in and connect again.');
+    const idToken = await user.getIdToken();
+    const result = await this.callApi('connect', {
+      code,
+      clientId: this.getClientId(),
+      redirectUri: window.location.origin
+    }, { idToken, csrf: true });
+    localStorage.setItem(this.CONNECTED_KEY, 'true');
+    localStorage.removeItem(this.LEGACY_TOKEN_KEY);
+    localStorage.removeItem(this.FOLDER_KEY);
+    return result;
+  },
+
+  async callApi(action, payload = {}, options = {}) {
+    const setup = await this.prepareAuth();
+    const user = setup.user || (setup.auth && setup.auth.currentUser);
+    if (!user) throw new Error('Sign in with Google to Firebase before using persistent Drive backup.');
+    const idToken = options.idToken || await user.getIdToken();
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    };
+    if (options.csrf) headers['X-Requested-With'] = 'XmlHttpRequest';
+    const response = await fetch(this.getFunctionUrl(), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action, ...payload })
     });
-  },
-
-  async authedFetch(url, opts={}) {
-    const t = this.getToken();
-    if (!t) throw new Error('Not connected');
-    opts.headers = opts.headers || {};
-    opts.headers['Authorization'] = 'Bearer ' + t.token;
-    const r = await fetch(url, opts);
-    if (r.status === 401) { this.disconnect(); throw new Error('Token expired — please reconnect'); }
-    return r;
-  },
-
-  /* Get or create backup folder */
-  async ensureFolder() {
-    const cached = localStorage.getItem(this.FOLDER_KEY);
-    if (cached) return cached;
-    // Search
-    const q = encodeURIComponent(`name='${this.FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    const r = await this.authedFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
-    const data = await r.json();
-    if (data.files && data.files.length) {
-      localStorage.setItem(this.FOLDER_KEY, data.files[0].id);
-      return data.files[0].id;
+    let data = {};
+    try { data = await response.json(); } catch (e) {}
+    if (!response.ok) {
+      if (data.code === 'DRIVE_REAUTH_REQUIRED' || data.code === 'DRIVE_NOT_CONNECTED') {
+        localStorage.removeItem(this.CONNECTED_KEY);
+      }
+      throw new Error(data.error || `Firebase Drive service returned ${response.status}.`);
     }
-    // Create
-    const cr = await this.authedFetch('https://www.googleapis.com/drive/v3/files', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: this.FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
-    });
-    const folder = await cr.json();
-    localStorage.setItem(this.FOLDER_KEY, folder.id);
-    return folder.id;
+    return data;
   },
 
-  /* Upload backup JSON */
+  async getConnectionStatus() {
+    const status = await this.callApi('status');
+    if (status.connected) localStorage.setItem(this.CONNECTED_KEY, 'true');
+    else localStorage.removeItem(this.CONNECTED_KEY);
+    return status;
+  },
+
   async uploadBackup() {
-    if (!this.isConnected()) throw new Error('Not connected to Google Drive');
-    const folderId = await this.ensureFolder();
-    const filename = `mr-laundry-backup-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
-    const content = DB.exportJSON();
-
-    // Multipart upload
-    const boundary = '-------MrLaundryBoundary' + Date.now();
-    const metadata = { name: filename, parents: [folderId], mimeType: 'application/json' };
-    const body =
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-      JSON.stringify(metadata) + `\r\n` +
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
-      content + `\r\n--${boundary}--`;
-
-    const r = await this.authedFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-      body
-    });
-    if (!r.ok) throw new Error('Upload failed: ' + r.status);
-    const file = await r.json();
+    if (!this.isConnected()) throw new Error('Connect the persistent Google Drive service first.');
+    const file = await this.callApi('upload', { content: DB.exportJSON() });
     localStorage.setItem(this.LAST_BACKUP_KEY, new Date().toISOString());
     return file;
   },
 
-  /* List backup files */
   async listBackups() {
-    const folderId = await this.ensureFolder();
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-    const r = await this.authedFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id,name,createdTime,size)`);
-    const data = await r.json();
-    return data.files || [];
+    const result = await this.callApi('list');
+    return result.files || [];
   },
 
-  /* Download a backup */
   async downloadBackup(fileId) {
-    const r = await this.authedFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
-    return await r.text();
+    const result = await this.callApi('download', { fileId });
+    return result.content;
   },
 
-  /* Delete old backups (keep last N) */
   async pruneOldBackups(keep) {
-    const files = await this.listBackups();
-    if (files.length <= keep) return 0;
-    const toDel = files.slice(keep);
-    for (const f of toDel) {
-      try { await this.authedFetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method:'DELETE' }); }
-      catch(e){}
-    }
-    return toDel.length;
+    const result = await this.callApi('prune', { keep });
+    return result.removed || 0;
+  },
+
+  async disconnect() {
+    if (this.isConnected()) await this.callApi('disconnect');
+    localStorage.removeItem(this.CONNECTED_KEY);
+    localStorage.removeItem(this.LEGACY_TOKEN_KEY);
+    localStorage.removeItem(this.FOLDER_KEY);
   }
 };
 
@@ -158,26 +238,33 @@ function openGDriveManager() {
   const last = localStorage.getItem(GDRIVE.LAST_BACKUP_KEY);
   const clientId = GDRIVE.getClientId();
   const s = DB.settings();
+  const firebaseReady = !!GDRIVE.getFirebaseConfig();
+  const legacyTokenExists = !!localStorage.getItem(GDRIVE.LEGACY_TOKEN_KEY);
 
   openModal(`
     <h3>☁️ Google Drive Backup</h3>
-    <p class="sub">Auto-save backups to your personal Google Drive. Your data stays YOURS.</p>
+    <p class="sub">Backups go to your Google Drive. A secure Firebase Function keeps the Drive permission alive; the refresh token is encrypted on the server, not saved in this browser.</p>
 
-    ${!clientId ? `
+    ${!firebaseReady ? `
       <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;">
-        ⚠️ <b>One-time setup required.</b> You need a free Google Cloud "Client ID" to connect.
-        <button class="btn btn-primary btn-sm" id="setupGuideBtn" style="margin-top:8px;">📖 Show Setup Guide</button>
+        ⚠️ <b>Firebase setup required.</b> Configure Firebase Cloud Sync, enable Google under Firebase Authentication, then deploy the Drive Functions once.
+      </div>
+    ` : ''}
+    <button class="btn btn-secondary btn-sm" id="setupGuideBtn" style="margin-bottom:12px;">📖 Setup / deploy instructions</button>
+    ${legacyTokenExists && !connected ? `
+      <div style="background:#dbeafe;border-left:4px solid #3b82f6;padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px;">
+        Your old browser token expired. Connect once to move this backup to persistent server-side authorization.
       </div>
     ` : ''}
 
     <div class="field">
       <label>Google Cloud OAuth Client ID</label>
       <input id="gdClientId" value="${escapeHtml(clientId)}" placeholder="xxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com"/>
-      <small style="color:var(--text-soft);">Looks like: <code>123456789012-abc...apps.googleusercontent.com</code></small>
+      <small style="color:var(--text-soft);">Must match the Client ID configured in Firebase Functions.</small>
     </div>
 
-    <div style="padding:12px;background:${connected?'#d1fae5':'#fee2e2'};border-radius:8px;margin-bottom:14px;text-align:center;font-weight:600;">
-      ${connected ? '✅ Connected to Google Drive' : '❌ Not connected'}
+    <div id="gdStatus" style="padding:12px;background:${connected?'#d1fae5':'#fee2e2'};border-radius:8px;margin-bottom:14px;text-align:center;font-weight:600;">
+      ${connected ? '✅ Persistent Google Drive connection saved' : '❌ Not connected'}
       ${last ? `<br><span style="font-size:11px;font-weight:400;">Last backup: ${new Date(last).toLocaleString()}</span>` : ''}
     </div>
 
@@ -198,6 +285,7 @@ function openGDriveManager() {
           <input type="number" id="gdKeep" value="${s.gdriveKeepN||30}" min="5" max="365"/>
         </div>
       </div>
+      <small style="display:block;color:var(--text-soft);margin-top:8px;">Automatic backup runs while the POS is open (and at next open). For unattended backups while the device is off, the POS data also needs a server sync.</small>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:8px;">
@@ -218,7 +306,7 @@ function openGDriveManager() {
   `, { large: true, onOpen(m) {
     const log = (msg, type='') => {
       const colors = { error:'var(--danger)', success:'var(--success)', '':'var(--text-soft)' };
-      $('#gdLog', m).innerHTML = `<div style="padding:8px;background:var(--surface-alt);border-radius:6px;color:${colors[type]};">${msg}</div>`;
+      $('#gdLog', m).innerHTML = `<div style="padding:8px;background:var(--surface-alt);border-radius:6px;color:${colors[type]};">${escapeHtml(msg)}</div>`;
     };
 
     $('#setupGuideBtn', m)?.addEventListener('click', () => { closeModal(); openGDriveSetupGuide(); });
@@ -234,20 +322,74 @@ function openGDriveManager() {
       closeModal();
     };
 
-    $('#connectBtn', m)?.addEventListener('click', async () => {
-      const id = $('#gdClientId', m).value.trim();
-      if (!id) { toast('Enter your Client ID first','error'); return; }
-      GDRIVE.setClientId(id);
-      log('Connecting...');
-      try {
-        await GDRIVE.connect();
-        log('✅ Connected!', 'success');
-        if (typeof logAction === 'function') logAction('gdrive.connect', '');
-        setTimeout(() => { closeModal(); openGDriveManager(); }, 1000);
-      } catch(e) {
-        log('❌ ' + e.message, 'error');
-      }
-    });
+    const connectBtn = $('#connectBtn', m);
+    if (connectBtn) {
+      connectBtn.disabled = true;
+      GDRIVE.prepareAuth().then(async ({user}) => {
+        connectBtn.disabled = false;
+        connectBtn.textContent = user ? '🔗 Authorize Google Drive' : '🔐 Sign in with Google';
+        if (user) {
+          try {
+            const status = await GDRIVE.getConnectionStatus();
+            if (status.connected) {
+              closeModal();
+              openGDriveManager();
+              return;
+            }
+          } catch (error) {
+            log('⚠️ Backup service status could not be checked yet: ' + error.message, 'error');
+            return;
+          }
+        }
+        log(user ? 'Secure sign-in is ready. Click to authorize Drive once.' : 'Sign in to Firebase with your Google account first.');
+      }).catch(error => {
+        connectBtn.disabled = true;
+        log('❌ ' + error.message, 'error');
+      });
+
+      connectBtn.onclick = () => {
+        if (connectBtn.disabled) return;
+        const enteredId = $('#gdClientId', m).value.trim();
+        if (!enteredId) { toast('Enter your Client ID first','error'); return; }
+        if (enteredId !== GDRIVE.getClientId()) GDRIVE.setClientId(enteredId);
+        const auth = GDRIVE._auth;
+        if (!auth) { log('Firebase Auth is not ready. Close and reopen this window.', 'error'); return; }
+        if (!auth.currentUser) {
+          connectBtn.disabled = true;
+          GDRIVE.signInFirebase().then(async () => {
+            try {
+              const status = await GDRIVE.getConnectionStatus();
+              if (status.connected) {
+                closeModal();
+                openGDriveManager();
+                return;
+              }
+            } catch (error) {
+              connectBtn.disabled = false;
+              log('Google sign-in worked, but the backup service is not reachable: ' + error.message, 'error');
+              return;
+            }
+            connectBtn.disabled = false;
+            connectBtn.textContent = '🔗 Authorize Google Drive';
+            log('Google sign-in complete. Click Authorize Google Drive once to grant Drive permission.', 'success');
+          }).catch(error => {
+            connectBtn.disabled = false;
+            log('❌ ' + error.message, 'error');
+          });
+          return;
+        }
+        connectBtn.disabled = true;
+        log('Opening Google Drive permission…');
+        GDRIVE.requestDriveAuthorization(result => {
+          log(`✅ Connected to Google Drive as ${result.email || 'your Google account'}.`, 'success');
+          if (typeof logAction === 'function') logAction('gdrive.connect', result.email || '');
+          setTimeout(() => { closeModal(); openGDriveManager(); }, 900);
+        }, error => {
+          connectBtn.disabled = false;
+          log('❌ ' + (error && error.message ? error.message : String(error)), 'error');
+        });
+      };
+    }
 
     $('#backupNowBtn', m)?.addEventListener('click', async () => {
       log('Uploading backup to Google Drive...');
@@ -258,9 +400,7 @@ function openGDriveManager() {
         if (removed) log(`✅ Uploaded. Pruned ${removed} old backups.`, 'success');
         if (typeof logAction === 'function') logAction('gdrive.backup', file.name);
         toast('Backup uploaded to Google Drive','success');
-      } catch(e) {
-        log('❌ ' + e.message, 'error');
-      }
+      } catch(e) { log('❌ ' + e.message, 'error'); }
     });
 
     $('#listBtn', m)?.addEventListener('click', async () => {
@@ -287,10 +427,9 @@ function openGDriveManager() {
       try {
         const files = await GDRIVE.listBackups();
         if (!files.length) { log('No backups to restore'); return; }
-        // Show file picker
         const html = files.slice(0,20).map((f,i) => `
           <label style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid var(--border);cursor:pointer;">
-            <input type="radio" name="bk" value="${f.id}" ${i===0?'checked':''}/>
+            <input type="radio" name="bk" value="${escapeHtml(f.id)}" ${i===0?'checked':''}/>
             <div style="flex:1;">
               <div style="font-weight:600;font-size:13px;">${escapeHtml(f.name)}</div>
               <div style="font-size:11px;color:var(--text-soft);">${new Date(f.createdTime).toLocaleString()} • ${Math.round((f.size||0)/1024)} KB</div>
@@ -320,55 +459,48 @@ function openGDriveManager() {
     });
 
     $('#disconnectBtn', m)?.addEventListener('click', () => {
-      confirmDialog('Disconnect from Google Drive?', () => {
-        GDRIVE.disconnect();
-        toast('Disconnected','success');
-        closeModal(); openGDriveManager();
+      confirmDialog('Disconnect Google Drive, revoke its saved grant, and delete the server-side refresh token?', async () => {
+        try {
+          await GDRIVE.disconnect();
+          toast('Disconnected from Google Drive','success');
+          closeModal();
+          openGDriveManager();
+        } catch(e) { log('❌ ' + e.message, 'error'); }
       });
     });
+
+    if (connected) {
+      GDRIVE.getConnectionStatus().then(status => {
+        if (!status.connected) {
+          closeModal();
+          openGDriveManager();
+          return;
+        }
+        const statusEl = $('#gdStatus', m);
+        if (statusEl) statusEl.innerHTML = `✅ Persistent Google Drive connection saved${status.email ? `<br><span style="font-size:11px;font-weight:400;">${escapeHtml(status.email)}</span>` : ''}${last ? `<br><span style="font-size:11px;font-weight:400;">Last backup: ${new Date(last).toLocaleString()}</span>` : ''}`;
+      }).catch(error => {
+        const statusEl = $('#gdStatus', m);
+        if (statusEl) statusEl.innerHTML = `⚠️ Could not verify backend connection: ${escapeHtml(error.message)}`;
+      });
+    }
   }});
 }
 
 function openGDriveSetupGuide() {
   openModal(`
-    <h3>📖 Google Drive Setup Guide (One-Time, ~5 min)</h3>
-    <p class="sub">You need a free "Client ID" from Google Cloud — this gives the app permission to save backups to your Drive.</p>
+    <h3>📖 Persistent Google Drive Backup Setup</h3>
+    <p class="sub">One secure server setup is needed. After that, Google refreshes the Drive access on the server and staff do not reconnect every hour.</p>
 
     <ol style="font-size:13px;line-height:1.8;padding-left:20px;">
-      <li>Go to <a href="https://console.cloud.google.com/" target="_blank"><b>console.cloud.google.com</b></a> and sign in</li>
-      <li>Click <b>"Select a project"</b> → <b>"New Project"</b> → name it <b>"Laundry POS POS"</b> → Create</li>
-      <li>In the search bar type <b>"Google Drive API"</b> → Click on it → <b>Enable</b></li>
-      <li>Left menu → <b>APIs & Services</b> → <b>OAuth consent screen</b>:
-        <ul>
-          <li>User Type: <b>External</b> → Create</li>
-          <li>App name: <b>Laundry POS POS</b>, support email: your email</li>
-          <li>Save and Continue through all steps</li>
-          <li>Under "Test users" add your own Gmail address</li>
-        </ul>
-      </li>
-      <li>Left menu → <b>APIs & Services</b> → <b>Credentials</b>:
-        <ul>
-          <li>Click <b>"+ Create Credentials"</b> → <b>"OAuth client ID"</b></li>
-          <li>Application type: <b>Web application</b></li>
-          <li>Name: <b>Laundry POS POS</b></li>
-          <li>Under <b>"Authorized JavaScript origins"</b> add:
-            <ul>
-              <li><code>http://localhost</code></li>
-              <li><code>${location.origin}</code></li>
-              <li>Plus any URL where you'll host this</li>
-            </ul>
-          </li>
-          <li>Click <b>Create</b></li>
-        </ul>
-      </li>
-      <li>Copy the <b>Client ID</b> shown (ends with <code>.apps.googleusercontent.com</code>)</li>
-      <li>Paste it into the Google Drive setup screen here</li>
-      <li>Click <b>"Connect to Google Drive"</b> → sign in with your Gmail → grant permission</li>
-      <li>Done! ✅ Now auto-backups will run on your schedule.</li>
+      <li>Use the same Firebase project as this POS's Cloud Sync. Enable <b>Firestore</b> and <b>Authentication → Google</b>, add the POS domain to Auth's authorized domains, and use a Firebase <b>Blaze</b> project for Functions/Secret Manager.</li>
+      <li>In Google Cloud, enable <b>Google Drive API</b>, configure the OAuth consent screen, and create a <b>Web application OAuth Client ID</b>. Add <code>${escapeHtml(location.origin)}</code> to Authorized JavaScript origins. Do not leave an External consent screen in <b>Testing</b> for ongoing use: Drive grants in Testing expire after 7 days.</li>
+      <li>From the project folder, select the Firebase project with <code>firebase use --add</code>. Set both server-only secrets (never paste them into this app):<br><code>firebase functions:secrets:set GDRIVE_GOOGLE_CLIENT_SECRET</code><br>Generate a 32-byte encryption key with <code>openssl rand -base64 32</code>, then set <code>GDRIVE_TOKEN_ENCRYPTION_KEY</code> the same way.</li>
+      <li>Set the public Functions parameters <code>GDRIVE_GOOGLE_CLIENT_ID</code> (same Client ID as below) and <code>GDRIVE_ALLOWED_ORIGINS</code> (exact comma-separated origins), then deploy with <code>firebase deploy --only functions</code>.</li>
+      <li>Configure Cloud Sync in this app with the same Firebase project, enter the Client ID below, and click <b>Connect to Google Drive</b>. Sign in with Google for Firebase, click again, and approve Drive access.</li>
     </ol>
 
     <div style="background:#dbeafe;padding:10px;border-radius:8px;font-size:12px;margin-top:10px;">
-      💡 <b>Privacy:</b> Backups go to YOUR Google Drive only. Laundry POS POS never has access — only you do.
+      🔐 The Functions backend encrypts the Google refresh token in Firestore; the token and Client Secret never go into browser localStorage or the downloadable app. Full steps are also in <code>GOOGLE_DRIVE_BACKEND_SETUP.md</code>.
     </div>
 
     <div class="modal-footer">
@@ -380,20 +512,29 @@ function openGDriveSetupGuide() {
 /* ===== Auto-backup scheduler ===== */
 (function gdriveAutoSchedule() {
   if (typeof DB === 'undefined') return;
-  setTimeout(async () => {
-    if (!GDRIVE.isConnected()) return;
+  let backupRunning = false;
+  const checkAndBackup = async () => {
+    if (backupRunning || !GDRIVE.isConnected()) return;
     const s = DB.settings();
-    const sched = s.gdriveSchedule || 'daily';
-    if (sched === 'off' || sched === 'onclose') return;
+    const schedule = s.gdriveSchedule || 'daily';
+    if (schedule === 'off' || schedule === 'onclose') return;
     const last = localStorage.getItem(GDRIVE.LAST_BACKUP_KEY);
-    const intervalMs = sched === 'hourly' ? 4*60*60*1000 : 24*60*60*1000;
+    const intervalMs = schedule === 'hourly' ? 4*60*60*1000 : 24*60*60*1000;
     if (last && Date.now() - new Date(last).getTime() < intervalMs) return;
+    backupRunning = true;
     try {
       await GDRIVE.uploadBackup();
       await GDRIVE.pruneOldBackups(s.gdriveKeepN || 30);
       console.log('[Laundry POS] Auto-backup to Google Drive complete');
     } catch(e) { console.warn('[Laundry POS] Auto-backup failed:', e.message); }
-  }, 5000);
+    finally { backupRunning = false; }
+  };
+  setTimeout(checkAndBackup, 5000);
+  setInterval(checkAndBackup, 30*60*1000);
+  window.addEventListener('online', checkAndBackup);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkAndBackup();
+  });
 })();
 
 /* Trigger on day close */

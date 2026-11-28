@@ -399,10 +399,11 @@ async function printElement(elementOrSelector, options) {
   if (isThermal) thermalCleanTextNodes(clone);
 
   // Thermal rolls have no useful fixed page height. Measure each slip at the
-  // printer's printable width. Print Both sends its slips as separate jobs, so
-  // each job's ordinary @page size can match that copy instead of inheriting a
-  // taller page. The customer footer retains its visible CUT HERE marker.
+  // printer's printable width. Print Both keeps both slips in one print job,
+  // using a compact page per slip so the office copy follows the customer copy
+  // without a second print dialog. The customer footer keeps its CUT HERE marker.
   const thermalRoll = options.thermalRoll === true && isThermal;
+  const compactRoll = thermalRoll && options.compactRoll === true;
   let thermalPageSizes = [];
   let thermalPageRules = '';
   if (thermalRoll) {
@@ -445,15 +446,15 @@ async function printElement(elementOrSelector, options) {
         const heightPx = Math.max(target.scrollHeight, Math.ceil(target.getBoundingClientRect().height));
         // Keep the office page tight around its content so a roll driver has no
         // long blank lead-in; retain a little extra tail for the customer cut mark.
-        const tailMm = isOfficeCopy ? 3 : 8;
-        const minimumMm = isOfficeCopy ? 65 : 80;
+        const tailMm = isOfficeCopy ? (compactRoll ? 1 : 3) : (compactRoll ? 3 : 8);
+        const minimumMm = isOfficeCopy ? (compactRoll ? 42 : 65) : (compactRoll ? 55 : 80);
         return Math.max(minimumMm, Math.ceil((heightPx * 25.4 / 96 + (pageMarginMm * 2) + tailMm) * 10) / 10);
       };
 
       thermalPageSizes = slips.map((slip, index) => {
         prepareSlip(slip);
         const isOfficeCopy = !!slip.querySelector('.invoice-office');
-        const pageMarginMm = isOfficeCopy ? 0 : marginMm;
+        const pageMarginMm = compactRoll ? 0 : (isOfficeCopy ? 0 : marginMm);
         const pageName = `thermalInvoice${index + 1}`;
         slip.classList.add(`thermal-roll-slip-${index + 1}`);
         slip.style.setProperty('page-break-inside', 'avoid', 'important');
@@ -506,10 +507,9 @@ async function printElement(elementOrSelector, options) {
     }
   }
 
-  // Step 5: Open (or reuse) a print window with everything pre-loaded.
-  // Reusing one pre-opened window lets Print Both send two separate, measured
-  // thermal jobs so end-of-job cutters can cut between the copies.
-  const win = options.printWindow || window.open('', '_blank', 'width=420,height=700');
+  // Step 5: Open one print window for this action. Print Both contains both
+  // copy slips in the same document and therefore needs only one print dialog.
+  const win = window.open('', '_blank', 'width=420,height=700');
   if (!win || win.closed) { alert('Please allow popups for printing!'); return; }
 
   const printDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -573,7 +573,7 @@ table { width: 100%; border-collapse: collapse; }
 .print-slip:last-child { page-break-after: auto; break-after: auto; }
 .print-page-break { page-break-after: always; break-after: page; height: 0; }
 @media print {
-  @page { size: ${paper}mm ${thermalRoll && maxThermalPageHeight ? `${maxThermalPageHeight}mm` : 'auto'}; margin: ${thermalRoll && thermalPageSizes.length === 1 ? thermalJobMarginMm : marginMm}mm; }
+  @page { size: ${paper}mm ${compactRoll ? 'auto' : (thermalRoll && maxThermalPageHeight ? `${maxThermalPageHeight}mm` : 'auto')}; margin: ${compactRoll ? 0 : (thermalRoll && thermalPageSizes.length === 1 ? thermalJobMarginMm : marginMm)}mm; }
   /* Constrain to the printer's real dot area (58mm rolls are usually
      48mm printable; 80mm rolls about 72mm). Center it inside the CSS page
      margins so a driver with wider non-printable edges cannot crop columns. */
@@ -594,8 +594,6 @@ ${thermalPageRules}
 </head><body>
 ${html}
 <script>
-  const printJobToken = ${JSON.stringify(options.printToken || null)};
-  const keepPrintWindow = ${options.keepPrintWindow === true ? 'true' : 'false'};
   let printStarted = false;
   let printFallback = null;
   function doPrint() {
@@ -605,12 +603,7 @@ ${html}
     if (printFallback !== null) clearTimeout(printFallback);
     setTimeout(function() {
       window.print();
-      if (printJobToken && window.opener && !window.opener.closed) {
-        try {
-          window.opener.postMessage({ type: 'mrLaundryThermalPrintDone', token: printJobToken }, '*');
-        } catch (e) {}
-      }
-      if (!keepPrintWindow) setTimeout(function() { window.close(); }, 1000);
+      setTimeout(function() { window.close(); }, 1000);
     }, 200);
   }
   window.onload = function() {
