@@ -1,11 +1,13 @@
 rules_version = '2';
 
 // Mr Laundry POS — Firestore security rules
-// The app has NO Firebase Authentication; data lives under
+// Cloud Sync data still uses the app's local login (not Firebase Auth) and lives under
 //   shops/{shopId}              ← meta doc (chunked-v1)
 //   shops/{shopId}/tables/{id}  ← per-table JSON / 800KB chunks
-// So access is granted ONLY to the shops subtree.
-// Keep the Shop ID unguessable and do NOT share it publicly.
+// The Google Drive Functions use Firebase Authentication separately. Their
+// gdriveConnections collection is intentionally NOT granted to browser clients;
+// Admin SDK access bypasses these rules.
+// NOTE: the existing public shops-subtree rules are unchanged by the Drive backup work.
 service cloud.firestore {
   match /databases/{database}/documents {
 
