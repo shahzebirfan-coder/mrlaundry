@@ -463,9 +463,12 @@ async function printElement(elementOrSelector, options) {
         const heightMm = pageHeightFor(slip, pageMarginMm, isOfficeCopy);
         return { pageName, heightMm, pageMarginMm };
       });
-      // A single-slip job already has an exact ordinary @page rule below. Avoid
-      // a named page there: some Windows receipt drivers ignore or override it.
-      thermalPageRules = thermalPageSizes.length > 1
+      // For the compact two-copy job, avoid named @page sizes: some Windows
+      // thermal drivers align a short named page within a longer roll preset,
+      // leaving a large blank lead before Office Copy. Use the driver's roll
+      // height (auto) with zero margins and a page break instead. Retain named
+      // measured pages for other multi-slip print jobs.
+      thermalPageRules = !compactRoll && thermalPageSizes.length > 1
         ? '@media print {\n' + thermalPageSizes.map((size, index) =>
           `  .thermal-roll-slip-${index + 1} { page: ${size.pageName}; }\n` +
           `  @page ${size.pageName} { size: ${paper}mm ${size.heightMm}mm; margin: ${size.pageMarginMm}mm; }`
@@ -571,7 +574,6 @@ table { width: 100%; border-collapse: collapse; }
   margin: 0 auto;
 }
 .print-slip:last-child { page-break-after: auto; break-after: auto; }
-.print-page-break { page-break-after: always; break-after: page; height: 0; }
 @media print {
   @page { size: ${paper}mm ${compactRoll ? 'auto' : (thermalRoll && maxThermalPageHeight ? `${maxThermalPageHeight}mm` : 'auto')}; margin: ${compactRoll ? 0 : (thermalRoll && thermalPageSizes.length === 1 ? thermalJobMarginMm : marginMm)}mm; }
   /* Constrain to the printer's real dot area (58mm rolls are usually

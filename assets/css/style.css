@@ -824,13 +824,6 @@ table.tbl { width:100%; border-collapse: collapse; }
     page-break-after: auto;
     break-after: auto;
   }
-  .print-page-break {
-    page-break-after: always;
-    break-after: page;
-    height: 0;
-    visibility: hidden;
-  }
-
   .invoice-page {
     position: relative !important;
     margin: 0 auto !important;
